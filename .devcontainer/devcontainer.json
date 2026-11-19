@@ -1,0 +1,35 @@
+{
+  "name": "map543-2d",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:24-trixie",
+  "mounts": [
+    "source=map543-npm-cache,target=/home/node/.npm,type=volume"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "vitest.explorer",
+        "dtsvet.vscode-wasm"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "prettier.printWidth": 80,
+        "[typescript]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode"
+        },
+        "[typescriptreact]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode"
+        },
+        "[javascript]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode"
+        },
+        "[json]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode"
+        }
+      }
+    }
+  },
+  "postCreateCommand": "sudo mkdir -p /home/node/.npm && sudo chown -R node:node /home/node/.npm && npm install && npm run build:wasm && npm run build",
+  "remoteUser": "node"
+}

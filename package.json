@@ -20,8 +20,8 @@
   },
   "scripts": {
     "build:wasm": "node scripts/build-wasm.mjs",
-    "build": "tsc -p tsconfig.build.json && node -e \"const fs=require('fs');fs.mkdirSync('dist/wasm',{recursive:true});fs.copyFileSync('wasm/kernels.wasm','dist/wasm/kernels.wasm');\"",
-    "prepare": "npm run build:wasm && npm run build",
+    "build": "npm run build:wasm && tsc -p tsconfig.build.json && node -e \"const fs=require('fs');fs.mkdirSync('dist/wasm',{recursive:true});fs.copyFileSync('wasm/kernels.wasm','dist/wasm/kernels.wasm');\"",
+    "prepare": "npm run build",
     "test": "vitest run",
     "bench": "RUN_BENCH=1 vitest run __tests__/map543.bench.test.ts"
   },
