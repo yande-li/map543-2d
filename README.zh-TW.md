@@ -4,8 +4,7 @@
 
 使用 32-bit TypedArrays（`Float32Array` / `Int32Array`）與 WebAssembly（`f32` / `i32`）的 2D viewport 與地圖繪圖引擎。
 
-- **Vector formats**：FlatGeobuf（`.fgb`）、Mapbox Geobuf（`.geobuf`、`.pbf`）
-- **Image formats**：PNG、WebP、SVG、JPEG
+**支援格式**：FlatGeobuf（`.fgb`）、Mapbox Geobuf（`.geobuf`、`.pbf`）及瀏覽器支援的圖片格式（PNG、WebP、AVIF、SVG、JPEG 等）
 
 ---
 
@@ -54,7 +53,7 @@ Root viewport container，支援 `ResizeObserver`、拖曳、pinch、滾輪/雙�
 
 ### `<ImageLayer>`
 
-將具地理座標的 PNG、WebP、SVG 或 JPEG 影像繪製至 `<CanvasLayer>` 的 `bounds` 範圍內（預設 `[[-90, -180], [90, 180]]`）。Core 亦匯出 `loadImage` 與 `drawImage`。
+將具地理座標的圖片（瀏覽器支援的格式或 `CanvasImageSource`）繪製至 `<CanvasLayer>` 的 `bounds` 範圍內（預設 `[[-90, -180], [90, 180]]`）。Core 亦匯出 `loadImage` 與 `drawImage`。
 
 ### `<VectorLayer>`
 

@@ -4,8 +4,7 @@ English | [繁體中文](./README.zh-TW.md)
 
 2D viewport and map rendering engine using 32-bit TypedArrays (`Float32Array` / `Int32Array`) and WebAssembly (`f32` / `i32`).
 
-- **Vector formats**: FlatGeobuf (`.fgb`), Mapbox Geobuf (`.geobuf`, `.pbf`)
-- **Image formats**: PNG, WebP, SVG, JPEG
+**Supported formats**: FlatGeobuf (`.fgb`), Mapbox Geobuf (`.geobuf`, `.pbf`), and browser-supported image formats (PNG, WebP, AVIF, SVG, JPEG, etc.)
 
 ---
 
@@ -54,7 +53,7 @@ DPR-aware Canvas layer that batches redraws via `requestAnimationFrame` on `Came
 
 ### `<ImageLayer>`
 
-Renders georeferenced PNG, WebP, SVG, or JPEG images into `<CanvasLayer>` within `bounds` (default `[[-90, -180], [90, 180]]`). Core also exports `loadImage` and `drawImage`.
+Renders georeferenced images (browser-supported formats or `CanvasImageSource`) into `<CanvasLayer>` within `bounds` (default `[[-90, -180], [90, 180]]`). Core also exports `loadImage` and `drawImage`.
 
 ### `<VectorLayer>`
 
