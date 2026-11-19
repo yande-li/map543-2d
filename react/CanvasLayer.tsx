@@ -1,0 +1,104 @@
+import React, { useEffect, useRef } from 'react';
+import {
+  BlanketCanvasLayer,
+  type BlanketDrawCallback,
+} from '../core/blanketCanvasLayer';
+import { useMap } from './MapContext';
+
+export interface CanvasLayerProps {
+  zIndex?: number;
+  maxDpr?: number;
+  /**
+   * Optional reduced maxDpr applied during active camera interaction via an
+   * offscreen buffer, restoring full maxDpr after interaction stops.
+   */
+  interactionMaxDpr?: number;
+  /**
+   * Delay in ms after camera interaction stops before restoring full detail.
+   */
+  interactionIdleDelayMs?: number;
+  className?: string;
+  onDraw: BlanketDrawCallback;
+}
+
+const DEFAULT_INTERACTION_IDLE_DELAY_MS = 140;
+
+/**
+ * DPR-aware canvas layer synchronized with camera viewport changes via BlanketCanvasLayer.
+ */
+export const CanvasLayer: React.FC<CanvasLayerProps> = ({
+  zIndex = 100,
+  maxDpr = 2,
+  interactionMaxDpr,
+  interactionIdleDelayMs = DEFAULT_INTERACTION_IDLE_DELAY_MS,
+  className = '',
+  onDraw,
+}) => {
+  const { camera } = useMap();
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const layerRef = useRef<BlanketCanvasLayer | null>(null);
+  const latestOptionsRef = useRef({
+    zIndex,
+    maxDpr,
+    interactionMaxDpr,
+    interactionIdleDelayMs,
+    className,
+    onDraw,
+  });
+  latestOptionsRef.current = {
+    zIndex,
+    maxDpr,
+    interactionMaxDpr,
+    interactionIdleDelayMs,
+    className,
+    onDraw,
+  };
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const opts = latestOptionsRef.current;
+    const layer = new BlanketCanvasLayer({
+      zIndex: opts.zIndex,
+      maxDpr: opts.maxDpr,
+      ...(opts.interactionMaxDpr !== undefined
+        ? { interactionMaxDpr: opts.interactionMaxDpr }
+        : {}),
+      interactionIdleDelayMs: opts.interactionIdleDelayMs,
+      className: opts.className,
+      onDraw: opts.onDraw,
+    });
+    layerRef.current = layer;
+    layer.attachCanvas(canvas, camera);
+
+    return () => {
+      layer.onDetach();
+      layerRef.current = null;
+    };
+  }, [camera]);
+
+  useEffect(() => {
+    layerRef.current?.setOptions({
+      onDraw,
+      maxDpr,
+      ...(interactionMaxDpr !== undefined ? { interactionMaxDpr } : {}),
+      interactionIdleDelayMs,
+    });
+  }, [onDraw, maxDpr, interactionMaxDpr, interactionIdleDelayMs]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className={className}
+      style={{
+        position: 'absolute',
+        inset: 0,
+        width: '100%',
+        height: '100%',
+        pointerEvents: 'none',
+        zIndex,
+      }}
+    />
+  );
+};

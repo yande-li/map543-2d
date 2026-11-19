@@ -1,0 +1,266 @@
+import React, { useEffect, useRef, useState } from 'react';
+import { useMap } from './MapContext';
+
+export interface OverlayProps {
+  lat: number;
+  lon: number;
+  zIndex?: number;
+  anchor?: [number, number]; // [0.5, 0.5] = center, [0.5, 1] = bottom-center
+  /**
+   * Optional known [width, height] in CSS pixels for fixed-size markers.
+   * Skips initial offsetWidth/offsetHeight layout reads and ResizeObserver registration.
+   */
+  fixedSize?: [number, number];
+  /** Hide DOM overlay with display:none when its full bounding box is outside the viewport (default: true). */
+  cullOffscreen?: boolean;
+  /** Extra margin in CSS pixels around viewport edges before culling (default: 64). */
+  cullMarginPx?: number;
+  className?: string;
+  interactive?: boolean;
+  onClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
+  children: React.ReactNode;
+}
+
+/**
+ * Positions arbitrary React UI at [lat, lon] using GPU-accelerated translate3d
+ * without triggering React re-renders on pan/zoom.
+ */
+export const Overlay: React.FC<OverlayProps> = ({
+  lat,
+  lon,
+  zIndex = 500,
+  anchor = [0.5, 0.5],
+  fixedSize,
+  cullOffscreen = true,
+  cullMarginPx = 64,
+  className = '',
+  interactive = false,
+  onClick,
+  children,
+}) => {
+  const { camera } = useMap();
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const fixedW = fixedSize?.[0];
+  const fixedH = fixedSize?.[1];
+
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+
+    const hasFixedSize = fixedW !== undefined && fixedH !== undefined;
+    // Cache element dimensions outside camera.subscribe to prevent layout thrashing
+    let cachedWidth = hasFixedSize ? fixedW : el.offsetWidth;
+    let cachedHeight = hasFixedSize ? fixedH : el.offsetHeight;
+    const pt = { x: 0, y: 0 };
+    let lastDisplay = '';
+    let lastX = Number.NaN;
+    let lastY = Number.NaN;
+
+    const setHidden = () => {
+      if (lastDisplay !== 'none') {
+        lastDisplay = 'none';
+        el.style.display = 'none';
+      }
+    };
+
+    const updatePosition = () => {
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        setHidden();
+        return;
+      }
+      camera.projectInto(lat, lon, pt);
+      // Snap both projected point and anchor offset to integer pixels to keep text crisp
+      const ox = Math.round(-anchor[0] * cachedWidth);
+      const oy = Math.round(-anchor[1] * cachedHeight);
+      const x = Math.round(pt.x) + ox;
+      const y = Math.round(pt.y) + oy;
+      if (cullOffscreen) {
+        const s = camera.getState();
+        if (
+          s.width > 0 &&
+          s.height > 0 &&
+          (x + cachedWidth < -cullMarginPx ||
+            x > s.width + cullMarginPx ||
+            y + cachedHeight < -cullMarginPx ||
+            y > s.height + cullMarginPx)
+        ) {
+          setHidden();
+          return;
+        }
+      }
+      if (lastDisplay !== 'block') {
+        lastDisplay = 'block';
+        el.style.display = 'block';
+      }
+      if (x !== lastX || y !== lastY) {
+        lastX = x;
+        lastY = y;
+        el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+      }
+    };
+
+    updatePosition();
+    const unsubscribe = camera.subscribe(updatePosition);
+    const resizeObserver =
+      !hasFixedSize && typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => {
+            cachedWidth = el.offsetWidth;
+            cachedHeight = el.offsetHeight;
+            updatePosition();
+          })
+        : null;
+    if (resizeObserver) {
+      resizeObserver.observe(el);
+    }
+
+    return () => {
+      unsubscribe();
+      resizeObserver?.disconnect();
+    };
+  }, [
+    camera,
+    lat,
+    lon,
+    anchor[0],
+    anchor[1],
+    fixedW,
+    fixedH,
+    cullOffscreen,
+    cullMarginPx,
+  ]);
+
+  return (
+    <div
+      ref={wrapperRef}
+      className={className}
+      onClick={onClick}
+      onPointerDown={
+        interactive ? (e) => e.stopPropagation() : undefined
+      }
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        ...(fixedW !== undefined && fixedH !== undefined
+          ? { width: `${fixedW}px`, height: `${fixedH}px` }
+          : {}),
+        zIndex,
+        contain: 'layout style',
+        pointerEvents: interactive ? 'auto' : 'none',
+      }}
+    >
+      {children}
+    </div>
+  );
+};
+
+export interface PopupProps {
+  lat: number;
+  lon: number;
+  maxWidth?: number;
+  zIndex?: number;
+  className?: string;
+  style?: React.CSSProperties;
+  onClose?: () => void;
+  children?: React.ReactNode;
+}
+
+/**
+ * Lightweight popup anchored above [lat, lon] (auto-flips below near top edge).
+ */
+export const Popup: React.FC<PopupProps> = ({
+  lat,
+  lon,
+  maxWidth = 260,
+  zIndex = 3000,
+  className = '',
+  style,
+  onClose: _onClose,
+  children,
+}) => {
+  const { camera } = useMap();
+  const [flipped, setFlipped] = useState(false);
+
+  useEffect(() => {
+    const pt = { x: 0, y: 0 };
+    const checkFlip = () => {
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+      const state = camera.getState();
+      if (state.height <= 0) return;
+      camera.projectInto(lat, lon, pt);
+      const shouldFlip = pt.y < 140 && state.height - pt.y > pt.y;
+      setFlipped((prev) => (prev === shouldFlip ? prev : shouldFlip));
+    };
+
+    checkFlip();
+    return camera.subscribe(checkFlip);
+  }, [camera, lat, lon]);
+
+  return (
+    <Overlay
+      lat={lat}
+      lon={lon}
+      zIndex={zIndex}
+      anchor={flipped ? [0.5, 0] : [0.5, 1]}
+      interactive={true}
+    >
+      <div
+        className={`geo-popup-wrapper ${flipped ? 'is-flipped' : ''}`}
+        style={{
+          position: 'relative',
+          ...(flipped ? { paddingTop: '7px' } : { paddingBottom: '7px' }),
+        }}
+      >
+        <div
+          className={`geo-popup ${className}`.trim()}
+          style={{
+            width: 'max-content',
+            minWidth: `${Math.min(180, maxWidth)}px`,
+            maxWidth: `${maxWidth}px`,
+            maxHeight: '260px',
+            overflowY: 'auto',
+            boxSizing: 'border-box',
+            padding: '10px 12px',
+            borderRadius: '8px',
+            background: 'rgba(18, 22, 30, 0.96)',
+            border: '1px solid rgba(255, 255, 255, 0.16)',
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45)',
+            color: '#f1f5f9',
+            fontSize: '12.5px',
+            lineHeight: 1.35,
+            position: 'relative',
+            zIndex: 2,
+            ...style,
+          }}
+        >
+          {children}
+        </div>
+        <div
+          className="geo-popup-tip"
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            left: '50%',
+            ...(flipped
+              ? {
+                  top: '2px',
+                  borderLeft: '1px solid rgba(255, 255, 255, 0.16)',
+                  borderTop: '1px solid rgba(255, 255, 255, 0.16)',
+                }
+              : {
+                  bottom: '2px',
+                  borderRight: '1px solid rgba(255, 255, 255, 0.16)',
+                  borderBottom: '1px solid rgba(255, 255, 255, 0.16)',
+                }),
+            width: '10px',
+            height: '10px',
+            background: 'rgba(18, 22, 30, 0.96)',
+            transform: 'translateX(-50%) rotate(45deg)',
+            pointerEvents: 'none',
+            zIndex: 1,
+          }}
+        />
+      </div>
+    </Overlay>
+  );
+};
