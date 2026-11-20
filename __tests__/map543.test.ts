@@ -26,14 +26,11 @@ import {
   encodeNormU16,
   uploadStaticRingsU16,
   decodeLocationDictBatch,
-  decodeLocationDictBatchAsync,
   drawDecimatedRings,
   drawStaticDirect,
   drawStaticU16Direct,
   cleanSeamRing,
   initWasm,
-  ensureWasm,
-  isWasmReady,
   resetWasmArena,
   disposeWasm,
   getWasmMemoryStats,
@@ -221,7 +218,7 @@ describe('Popup & MapView', () => {
 describe('WebAssembly batch kernels', () => {
   it('initializes WASM and matches Pure-TS hitTestPoints', async () => {
     expect(await initWasm(wasmBytes)).toBe(true);
-    expect(isWasmReady()).toBe(true);
+    expect(getWasmMemoryStats().ready).toBe(true);
 
     const camera = new Camera({
       center: [25.033, 121.5654],
@@ -455,10 +452,9 @@ describe('WebAssembly batch kernels', () => {
 
     // Full WASM disposal and re-initialization
     disposeWasm();
-    expect(isWasmReady()).toBe(false);
     expect(getWasmMemoryStats().ready).toBe(false);
     expect(await initWasm(wasmBytes)).toBe(true);
-    expect(isWasmReady()).toBe(true);
+    expect(getWasmMemoryStats().ready).toBe(true);
   });
 
   it('attaches framework-free DOM interactions for Vue / Vanilla JS', () => {
@@ -565,15 +561,11 @@ describe('WebAssembly batch kernels', () => {
     expect(outLons[0]).toBeCloseTo(121.565, 2);
     expect(outLats[1]).toBe(0);
     expect(outLons[1]).toBe(0);
-    const rt = await ensureWasm('decodeLocationDictBatchAsync test');
-    expect(rt.exports.decodeLocationDictBatch).toBeTypeOf('function');
-    const asyncCount = await decodeLocationDictBatchAsync(
-      raw,
-      2,
-      outLats,
-      outLons
-    );
-    expect(asyncCount).toBe(2);
+    expect(outMys[1]).toBe(0);
+
+    // Also works synchronously right after disposeWasm without calling initWasm()
+    disposeWasm();
+    expect(decodeLocationDictBatch(raw, 2, outLats, outLons)).toBe(2);
     expect(outLats[0]).toBeCloseTo(25.033, 2);
   });
 

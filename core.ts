@@ -82,7 +82,7 @@ export {
   type DrawVectorOptions,
 } from './core/vectorLayer';
 export { type PreparedFeature, type PreparedLayer } from './formats/types';
-export { parseGeobuf, parseGeobufAsync } from './formats/geobuf';
+export { parseGeobuf } from './formats/geobuf';
 
 export {
   Camera,
@@ -113,7 +113,6 @@ export {
   encodeNormU16,
   uploadStaticRingsU16,
   decodeLocationDictBatch,
-  decodeLocationDictBatchAsync,
   type StaticGeometryHandle,
   cleanSeamRing,
 } from './core/batch';
@@ -130,9 +129,7 @@ export {
 
 export {
   initWasm,
-  isWasmReady,
   getWasmRuntime,
-  ensureWasm,
   LUT_OFFSET_BYTES,
   resetWasmArena,
   disposeWasm,

@@ -1,8 +1,6 @@
 import { MERCATOR_Y_LOOKUP } from '../core/projection';
 
-function getDefaultWasmUrl(): string {
-  return new URL('./kernels.wasm', import.meta.url).href;
-}
+declare const __WASM_BASE64__: string;
 
 const WASM_PAGE_BYTES = 65536;
 const MAX_WASM_BYTES = 512 * WASM_PAGE_BYTES; // 32 MiB hard ceiling
@@ -169,7 +167,7 @@ export interface WasmMemoryStats {
 }
 
 let runtime: WasmRuntime | null = null;
-let initPromise: Promise<boolean> | null = null;
+let compiledModule: WebAssembly.Module | null = null;
 let globalEpoch = 1;
 
 function isValidWasmExports(
@@ -276,97 +274,40 @@ function setupRuntime(instance: WebAssembly.Instance): WasmRuntime | null {
 
 const WASM_IMPORTS: WebAssembly.Imports = {};
 
-async function instantiateFromUrl(
-  url: string | URL
-): Promise<WebAssembly.Instance> {
-  if (typeof WebAssembly.instantiateStreaming === 'function') {
-    try {
-      const { instance } = await WebAssembly.instantiateStreaming(
-        fetch(url),
-        WASM_IMPORTS
-      );
-      return instance;
-    } catch {
-      // Fallback when server/proxy lacks application/wasm MIME type
-    }
+function decodeEmbeddedWasm(): Uint8Array<ArrayBuffer> {
+  const raw = atob(__WASM_BASE64__);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) {
+    bytes[i] = raw.charCodeAt(i);
   }
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch WASM binary: ${response.status}`);
-  }
-  const buffer = await response.arrayBuffer();
-  const { instance } = await WebAssembly.instantiate(buffer, WASM_IMPORTS);
-  return instance;
+  return bytes;
 }
 
 /**
- * Asynchronously initializes the singleton map543-2d WebAssembly runtime
- * from the compiled .wasm asset (or a custom URL / preloaded BufferSource).
+ * Returns the singleton WebAssembly runtime, synchronously compiling and
+ * instantiating the embedded <4 KB WASM kernel module on first access.
+ */
+export function getWasmRuntime(): WasmRuntime | null {
+  if (runtime !== null) return runtime;
+  if (typeof WebAssembly === 'undefined') return null;
+  try {
+    compiledModule ??= new WebAssembly.Module(decodeEmbeddedWasm());
+    const instance = new WebAssembly.Instance(compiledModule, WASM_IMPORTS);
+    runtime = setupRuntime(instance);
+    return runtime;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Initializes (or warms up) the singleton WebAssembly runtime.
+ * Since WASM now auto-initializes synchronously on first use, calling this is optional.
  */
 export async function initWasm(
-  source?: string | URL | BufferSource
+  _source?: string | URL | BufferSource
 ): Promise<boolean> {
-  if (runtime !== null) return true;
-  if (initPromise !== null && source === undefined) return initPromise;
-
-  let task: Promise<boolean> | null = null;
-  task = (async () => {
-    if (typeof WebAssembly === 'undefined') return false;
-    try {
-      let instance: WebAssembly.Instance;
-      if (
-        source !== undefined &&
-        typeof source !== 'string' &&
-        !(source instanceof URL)
-      ) {
-        const result = await WebAssembly.instantiate(source, WASM_IMPORTS);
-        instance = result.instance;
-      } else {
-        instance = await instantiateFromUrl(source ?? getDefaultWasmUrl());
-      }
-      if (source === undefined && initPromise !== task) {
-        return false;
-      }
-      runtime = setupRuntime(instance);
-      if (runtime === null && source === undefined && initPromise === task) {
-        initPromise = null;
-      }
-      return runtime !== null;
-    } catch {
-      if (source === undefined && initPromise === task) {
-        initPromise = null;
-      }
-      return false;
-    }
-  })();
-
-  if (source === undefined) {
-    initPromise = task;
-  }
-  return task;
-}
-
-export function isWasmReady(): boolean {
-  return runtime !== null;
-}
-
-export function getWasmRuntime(): WasmRuntime | null {
-  return runtime;
-}
-
-/**
- * Returns the initialized WasmRuntime, automatically invoking `initWasm()` if needed.
- * Throws if WebAssembly initialization fails.
- */
-export async function ensureWasm(context?: string): Promise<WasmRuntime> {
-  if (runtime !== null) return runtime;
-  const ok = await initWasm();
-  if (!ok || runtime === null) {
-    throw new Error(
-      `Failed to initialize WASM runtime${context ? ` for ${context}` : ''}`
-    );
-  }
-  return runtime;
+  return getWasmRuntime() !== null;
 }
 
 /**
@@ -378,11 +319,10 @@ export function resetWasmArena(): void {
 
 /**
  * Releases the singleton WASM instance and its linear memory so the browser GC
- * can reclaim all allocated pages. Subsequent initWasm() calls will re-instantiate.
+ * can reclaim all allocated pages. Subsequent calls will automatically re-instantiate.
  */
 export function disposeWasm(): void {
   runtime = null;
-  initPromise = null;
   globalEpoch += 1;
 }
 

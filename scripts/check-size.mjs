@@ -7,9 +7,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = resolve(__dirname, '..');
 
 const BUDGETS = [
-  { file: 'dist/index.js', maxRawBytes: 70 * 1024 },
-  { file: 'dist/core.js', maxRawBytes: 55 * 1024 },
-  { file: 'dist/kernels.wasm', maxRawBytes: 5 * 1024 },
+  { file: 'dist/index.js', maxRawBytes: 75 * 1024 },
+  { file: 'dist/core.js', maxRawBytes: 60 * 1024 },
+  { file: 'dist/kernels.wasm', maxRawBytes: 4096 },
 ];
 
 const FORBIDDEN_DUPLICATES = ['dist/wasm/kernels.wasm'];

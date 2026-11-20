@@ -6,12 +6,19 @@ import { rolldown } from 'rolldown';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = resolve(__dirname, '..');
+const wasmSrc = resolve(rootDir, 'wasm/kernels.wasm');
+const wasmBase64 = readFileSync(wasmSrc).toString('base64');
 
 async function bundleEntry(input, outFile, external = []) {
   const bundle = await rolldown({
     input: resolve(rootDir, input),
     external,
     treeshake: true,
+    transform: {
+      define: {
+        __WASM_BASE64__: JSON.stringify(wasmBase64),
+      },
+    },
   });
   await bundle.write({
     file: resolve(rootDir, outFile),
@@ -24,7 +31,6 @@ async function bundleEntry(input, outFile, external = []) {
 await bundleEntry('index.ts', 'dist/index.js', [/^react($|\/)/]);
 await bundleEntry('core.ts', 'dist/core.js');
 
-const wasmSrc = resolve(rootDir, 'wasm/kernels.wasm');
 copyFileSync(wasmSrc, resolve(rootDir, 'dist/kernels.wasm'));
 
 for (const rel of ['dist/index.js', 'dist/core.js', 'dist/kernels.wasm']) {

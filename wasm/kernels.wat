@@ -1,9 +1,4 @@
 (module
- (type $0 (func))
- (type $1 (func (param i32 i32 i32 i32)))
- (type $2 (func (param i32)))
- (type $3 (func (param i32) (result i32)))
- (type $4 (func (param i32 i32) (result i32)))
  (type $5 (func (param f32 f32 f32 i32 i32 i32 i32 f32 f32 f32 f32 f32) (result i32)))
  (type $6 (func (param i32 i32 i32 i32 i32 f32 f32 f32 f32) (result i32)))
  (type $7 (func (param i32 i32 i32 i32 i32) (result i32)))
@@ -76,69 +71,37 @@
     local.get $2
     f32.le
     if
-     block $wasm/kernels/clampLat|inlined.0 (result f32)
-      f32.const 85.05113220214844
-      local.get $5
-      local.get $14
-      i32.add
-      f32.load
-      local.tee $17
-      f32.const 85.05113220214844
-      f32.gt
-      br_if $wasm/kernels/clampLat|inlined.0
-      drop
-      f32.const -85.05113220214844
-      local.get $17
-      f32.const -85.05113220214844
-      f32.lt
-      br_if $wasm/kernels/clampLat|inlined.0
-      drop
-      local.get $17
-     end
-     local.tee $17
-     f32.neg
+local.get $5
+     local.get $14
+     i32.add
+     f32.load
+     local.set $17
+     f32.const 0.5
      local.get $17
-     local.get $17
-     f32.const 0
-     f32.lt
-     select
+     f32.abs
+     f32.const 85.05113220214844
+     f32.min
      f32.const 60
      f32.mul
      local.tee $18
+     local.get $18
      i32.trunc_sat_f32_s
      local.tee $14
-     i32.const 5400
-     i32.ge_s
-     if
-      i32.const 5399
-      local.set $14
-     end
-     f32.const 0.5
+     f32.convert_i32_s
+     f32.sub
      local.get $4
      local.get $14
      i32.const 2
      i32.shl
      i32.add
      local.tee $15
+     f32.load offset=4
+     local.get $15
      f32.load
      local.tee $18
-     local.get $15
-     f32.load offset=4
+     f32.sub
+     f32.mul
      local.get $18
-     f32.sub
-     local.get $17
-     f32.neg
-     local.get $17
-     local.get $17
-     f32.const 0
-     f32.lt
-     select
-     f32.const 60
-     f32.mul
-     local.get $14
-     f32.convert_i32_s
-     f32.sub
-     f32.mul
      f32.add
      local.tee $18
      f32.neg
@@ -428,22 +391,11 @@
     local.get $4
     f32.load offset=12
     local.set $8
-    local.get $6
-    f32.neg
-    local.get $6
-    local.get $6
-    f32.const 0
-    f32.lt
-    select
+local.get $6
+    f32.abs
     f32.const -180
     f32.add
-    local.tee $9
-    f32.neg
-    local.get $9
-    local.get $9
-    f32.const 0
-    f32.lt
-    select
+    f32.abs
     f32.const 0.5
     f32.lt
     local.get $6
@@ -451,19 +403,11 @@
     f32.load offset=8
     local.tee $9
     f32.sub
-    local.tee $15
-    f32.neg
-    local.get $15
-    local.get $15
-    f32.const 0
-    f32.lt
-    select
+    f32.abs
     local.tee $15
     f32.const 1.0000000474974513e-03
     f32.lt
-    local.tee $4
-    local.get $4
-    select
+    i32.and
     local.get $15
     f32.const 180
     f32.gt
@@ -603,43 +547,19 @@
     f32.ge
     i32.and
     if
-     block $wasm/kernels/clampLat|inlined.1 (result f32)
-      f32.const 85.05113220214844
-      local.get $2
-      local.get $16
-      i32.add
-      f32.load
-      local.tee $19
-      f32.const 85.05113220214844
-      f32.gt
-      br_if $wasm/kernels/clampLat|inlined.1
-      drop
-      f32.const -85.05113220214844
-      local.get $19
-      f32.const -85.05113220214844
-      f32.lt
-      br_if $wasm/kernels/clampLat|inlined.1
-      drop
-      local.get $19
-     end
+local.get $2
+     local.get $16
+     i32.add
+     f32.load
      local.tee $19
-     f32.neg
-     local.get $19
-     local.get $19
-     f32.const 0
-     f32.lt
-     select
+     f32.abs
+     f32.const 85.05113220214844
+     f32.min
      f32.const 60
      f32.mul
      local.tee $20
      i32.trunc_sat_f32_s
-     local.tee $16
-     i32.const 5400
-     i32.ge_s
-     if
-      i32.const 5399
-      local.set $16
-     end
+     local.set $16
      f32.const 0.5
      local.get $1
      local.get $16
@@ -776,7 +696,7 @@
   (param $ptCount i32) (param $dims i32) (param $lutOff i32) (param $inCoordsOff i32) (param $outXYOff i32) (param $boundsOff i32) (param $invScale f64) (param $accOff i32) (result i32)
   (local $p i32) (local $inStep i32) (local $inCur i32) (local $outCur i32)
   (local $accLon f64) (local $accLat f64)
-  (local $lon f32) (local $rawLat f32) (local $clampedLat f32)
+  (local $lon f32) (local $rawLat f32)
   (local $minLon f32) (local $minLat f32) (local $maxLon f32) (local $maxLat f32)
   (local $idxFull f32) (local $idx i32) (local $lutPtr i32) (local $y0 f32) (local $my f32)
   (local.set $accLon (f64.load (local.get $accOff)))
@@ -799,20 +719,15 @@
      (if (f32.lt (local.get $rawLat) (local.get $minLat)) (then (local.set $minLat (local.get $rawLat))))
      (if (f32.gt (local.get $lon) (local.get $maxLon)) (then (local.set $maxLon (local.get $lon))))
      (if (f32.gt (local.get $rawLat) (local.get $maxLat)) (then (local.set $maxLat (local.get $rawLat))))
-     (local.set $clampedLat (local.get $rawLat))
-     (if (f32.gt (local.get $clampedLat) (f32.const 85.05112878)) (then (local.set $clampedLat (f32.const 85.05112878))))
-     (if (f32.lt (local.get $clampedLat) (f32.const -85.05112878)) (then (local.set $clampedLat (f32.const -85.05112878))))
-     (local.set $idxFull (f32.mul (f32.abs (local.get $clampedLat)) (f32.const 60)))
-     (if (f32.gt (local.get $idxFull) (f32.const 5400)) (then (local.set $idxFull (f32.const 5400))))
+     (local.set $idxFull (f32.mul (f32.min (f32.abs (local.get $rawLat)) (f32.const 85.05112878)) (f32.const 60)))
      (local.set $idx (i32.trunc_sat_f32_s (local.get $idxFull)))
-     (if (i32.ge_s (local.get $idx) (i32.const 5400)) (then (local.set $idx (i32.const 5399))))
      (local.set $lutPtr (i32.add (local.get $lutOff) (i32.shl (local.get $idx) (i32.const 2))))
      (local.set $y0 (f32.load (local.get $lutPtr)))
      (local.set $my
       (f32.add
        (local.get $y0)
        (f32.mul (f32.sub (f32.load offset=4 (local.get $lutPtr)) (local.get $y0)) (f32.sub (local.get $idxFull) (f32.convert_i32_s (local.get $idx))))))
-     (if (f32.lt (local.get $clampedLat) (f32.const 0)) (then (local.set $my (f32.neg (local.get $my)))))
+     (if (f32.lt (local.get $rawLat) (f32.const 0)) (then (local.set $my (f32.neg (local.get $my)))))
      (f32.store (local.get $outCur) (f32.mul (f32.add (local.get $lon) (f32.const 180)) (f32.const 0.002777777777777778)))
      (f32.store offset=4 (local.get $outCur) (f32.sub (f32.const 0.5) (f32.mul (local.get $my) (f32.const 0.15915494309189535))))
      (local.set $inCur (i32.add (local.get $inCur) (local.get $inStep)))
@@ -829,7 +744,7 @@
  )
  (func $wasm/kernels/decodeLocationDictBatch (type $11)
   (param $locCount i32) (param $lutOff i32) (param $inRawOff i32) (param $latsOff i32) (param $lonsOff i32) (param $mxsOff i32) (param $mysOff i32) (result i32)
-  (local $i i32) (local $inCur i32) (local $lat f32) (local $lon f32) (local $clampedLat f32)
+  (local $i i32) (local $inCur i32) (local $lat f32) (local $lon f32)
   (local $idxFull f32) (local $idx i32) (local $lutPtr i32) (local $y0 f32) (local $my f32) (local $outOff i32)
   (local.set $inCur (local.get $inRawOff))
   (loop $loc_loop
@@ -837,20 +752,15 @@
     (then
      (local.set $lat (f32.mul (f32.convert_i32_s (i32.load16_s (local.get $inCur))) (f32.const 0.002746665852840507)))
      (local.set $lon (f32.mul (f32.convert_i32_s (i32.load16_s offset=2 (local.get $inCur))) (f32.const 0.005493331705681014)))
-     (local.set $clampedLat (local.get $lat))
-     (if (f32.gt (local.get $clampedLat) (f32.const 85.05112878)) (then (local.set $clampedLat (f32.const 85.05112878))))
-     (if (f32.lt (local.get $clampedLat) (f32.const -85.05112878)) (then (local.set $clampedLat (f32.const -85.05112878))))
-     (local.set $idxFull (f32.mul (f32.abs (local.get $clampedLat)) (f32.const 60)))
-     (if (f32.gt (local.get $idxFull) (f32.const 5400)) (then (local.set $idxFull (f32.const 5400))))
+     (local.set $idxFull (f32.mul (f32.min (f32.abs (local.get $lat)) (f32.const 85.05112878)) (f32.const 60)))
      (local.set $idx (i32.trunc_sat_f32_s (local.get $idxFull)))
-     (if (i32.ge_s (local.get $idx) (i32.const 5400)) (then (local.set $idx (i32.const 5399))))
      (local.set $lutPtr (i32.add (local.get $lutOff) (i32.shl (local.get $idx) (i32.const 2))))
      (local.set $y0 (f32.load (local.get $lutPtr)))
      (local.set $my
       (f32.add
        (local.get $y0)
        (f32.mul (f32.sub (f32.load offset=4 (local.get $lutPtr)) (local.get $y0)) (f32.sub (local.get $idxFull) (f32.convert_i32_s (local.get $idx))))))
-     (if (f32.lt (local.get $clampedLat) (f32.const 0)) (then (local.set $my (f32.neg (local.get $my)))))
+     (if (f32.lt (local.get $lat) (f32.const 0)) (then (local.set $my (f32.neg (local.get $my)))))
      (local.set $outOff (i32.shl (local.get $i) (i32.const 2)))
      (f32.store (i32.add (local.get $latsOff) (local.get $outOff)) (local.get $lat))
      (f32.store (i32.add (local.get $lonsOff) (local.get $outOff)) (local.get $lon))
@@ -864,7 +774,7 @@
  (func $wasm/kernels/projectMercator
   (param $ptCount i32) (param $lutOff i32) (param $inLatLonOff i32) (param $outXYOff i32) (param $centerNormX f32) (param $centerNormY f32) (param $worldSize f32) (param $halfW f32) (param $halfH f32) (result i32)
   (local $i i32) (local $inPtr i32) (local $outPtr i32) (local $lat f32) (local $lon f32)
-  (local $clampedLat f32) (local $idxFull f32) (local $idx i32) (local $lutPtr i32)
+  (local $idxFull f32) (local $idx i32) (local $lutPtr i32)
   (local $y0 f32) (local $my f32) (local $sx f32) (local $sy f32)
   (if (i32.le_s (local.get $ptCount) (i32.const 0)) (then (return (i32.const 0))))
   (local.set $inPtr (local.get $inLatLonOff))
@@ -882,20 +792,15 @@
          (local.get $centerNormX))
         (local.get $worldSize))
        (local.get $halfW)))
-     (local.set $clampedLat (local.get $lat))
-     (if (f32.gt (local.get $clampedLat) (f32.const 85.05112878)) (then (local.set $clampedLat (f32.const 85.05112878))))
-     (if (f32.lt (local.get $clampedLat) (f32.const -85.05112878)) (then (local.set $clampedLat (f32.const -85.05112878))))
-     (local.set $idxFull (f32.mul (f32.abs (local.get $clampedLat)) (f32.const 60)))
-     (if (f32.gt (local.get $idxFull) (f32.const 5400)) (then (local.set $idxFull (f32.const 5400))))
+     (local.set $idxFull (f32.mul (f32.min (f32.abs (local.get $lat)) (f32.const 85.05112878)) (f32.const 60)))
      (local.set $idx (i32.trunc_sat_f32_s (local.get $idxFull)))
-     (if (i32.ge_s (local.get $idx) (i32.const 5400)) (then (local.set $idx (i32.const 5399))))
      (local.set $lutPtr (i32.add (local.get $lutOff) (i32.shl (local.get $idx) (i32.const 2))))
      (local.set $y0 (f32.load (local.get $lutPtr)))
      (local.set $my
       (f32.add
        (local.get $y0)
        (f32.mul (f32.sub (f32.load offset=4 (local.get $lutPtr)) (local.get $y0)) (f32.sub (local.get $idxFull) (f32.convert_i32_s (local.get $idx))))))
-     (if (f32.lt (local.get $clampedLat) (f32.const 0)) (then (local.set $my (f32.neg (local.get $my)))))
+     (if (f32.lt (local.get $lat) (f32.const 0)) (then (local.set $my (f32.neg (local.get $my)))))
      (local.set $sy
       (f32.add
        (f32.mul
@@ -1086,46 +991,22 @@
     f32.ge
     i32.and
     if
-     block $clampLat (result f32)
-      f32.const 85.05113220214844
-      local.get $2
-      local.get $16
-      i32.add
-      i32.load16_s
-      f32.convert_i32_s
-      f32.const 0.002746665852839747
-      f32.mul
-      local.tee $19
-      f32.const 85.05113220214844
-      f32.gt
-      br_if $clampLat
-      drop
-      f32.const -85.05113220214844
-      local.get $19
-      f32.const -85.05113220214844
-      f32.lt
-      br_if $clampLat
-      drop
-      local.get $19
-     end
+local.get $2
+     local.get $16
+     i32.add
+     i32.load16_s
+     f32.convert_i32_s
+     f32.const 0.002746665852839747
+     f32.mul
      local.tee $19
-     f32.neg
-     local.get $19
-     local.get $19
-     f32.const 0
-     f32.lt
-     select
+     f32.abs
+     f32.const 85.05113220214844
+     f32.min
      f32.const 60
      f32.mul
      local.tee $20
      i32.trunc_sat_f32_s
-     local.tee $16
-     i32.const 5400
-     i32.ge_s
-     if
-      i32.const 5399
-      local.set $16
-     end
+     local.set $16
      f32.const 0.5
      local.get $1
      local.get $16
@@ -1257,72 +1138,40 @@
     local.get $2
     f32.le
     if
-     block $clampLat (result f32)
-      f32.const 85.05113220214844
-      local.get $5
-      local.get $14
-      i32.add
-      i32.load16_s
-      f32.convert_i32_s
-      f32.const 0.002746665852839747
-      f32.mul
-      local.tee $17
-      f32.const 85.05113220214844
-      f32.gt
-      br_if $clampLat
-      drop
-      f32.const -85.05113220214844
-      local.get $17
-      f32.const -85.05113220214844
-      f32.lt
-      br_if $clampLat
-      drop
-      local.get $17
-     end
-     local.tee $17
-     f32.neg
+local.get $5
+     local.get $14
+     i32.add
+     i32.load16_s
+     f32.convert_i32_s
+     f32.const 0.002746665852839747
+     f32.mul
+     local.set $17
+     f32.const 0.5
      local.get $17
-     local.get $17
-     f32.const 0
-     f32.lt
-     select
+     f32.abs
+     f32.const 85.05113220214844
+     f32.min
      f32.const 60
      f32.mul
      local.tee $18
+     local.get $18
      i32.trunc_sat_f32_s
      local.tee $14
-     i32.const 5400
-     i32.ge_s
-     if
-      i32.const 5399
-      local.set $14
-     end
-     f32.const 0.5
+     f32.convert_i32_s
+     f32.sub
      local.get $4
      local.get $14
      i32.const 2
      i32.shl
      i32.add
      local.tee $15
+     f32.load offset=4
+     local.get $15
      f32.load
      local.tee $18
-     local.get $15
-     f32.load offset=4
+     f32.sub
+     f32.mul
      local.get $18
-     f32.sub
-     local.get $17
-     f32.neg
-     local.get $17
-     local.get $17
-     f32.const 0
-     f32.lt
-     select
-     f32.const 60
-     f32.mul
-     local.get $14
-     f32.convert_i32_s
-     f32.sub
-     f32.mul
      f32.add
      local.tee $18
      f32.neg

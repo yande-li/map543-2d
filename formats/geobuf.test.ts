@@ -1,16 +1,7 @@
 /// <reference types="node" />
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { beforeAll, describe, expect, it } from 'vitest';
-import { initWasm } from '../wasm/bridge';
-import { parseGeobuf, parseGeobufAsync } from './geobuf';
-
-beforeAll(async () => {
-  const wasmBytes = readFileSync(
-    resolve(import.meta.dirname, '../wasm/kernels.wasm')
-  );
-  await initWasm(wasmBytes);
-});
+import { describe, expect, it } from 'vitest';
+import { disposeWasm } from '../wasm/bridge';
+import { parseGeobuf } from './geobuf';
 
 function pushVarint(out: number[], v: number): void {
   let n = BigInt(v);
@@ -200,9 +191,10 @@ describe('parseGeobuf', () => {
     expect(() => parseGeobuf(badDims)).toThrow();
   });
 
-  it('parseGeobufAsync works without manual initWasm call when WASM is ready', async () => {
+  it('auto-initializes WASM synchronously on parseGeobuf even after disposeWasm', () => {
+    disposeWasm();
     const buf = buildTestGeobufPolygon({ layerName: 'auto' });
-    const { fillLayers } = await parseGeobufAsync(buf);
+    const { fillLayers } = parseGeobuf(buf);
     expect(fillLayers).toHaveLength(1);
     expect(fillLayers[0].name).toBe('auto');
   });

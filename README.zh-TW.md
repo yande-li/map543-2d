@@ -37,8 +37,8 @@ export function App({ points }) {
 ## Core API（`map543-2d/core`，不依賴 React，支援 Web Worker）
 
 - **Camera & Projections**：`Camera`、`MERCATOR_PROJECTION`、`createEquirectangular`、`latLngToNorm` / `normToLatLng`、`getViewportBounds`、`getWrappedSlices`。
-- **Formats & Curves**：`parseGeobufAsync`（自動初始化 WASM）、`parseGeobuf`、`computeArc`、`computeArcsBatch`、`prepareArcs`、`drawTrajectories`。
-- **WASM & 降精度（`u16` / `i16`）**：`ensureWasm`、`initWasm`、`isWasmReady`、`decodeLocationDictBatchAsync` / `decodeLocationDictBatch`、`uploadStaticRings` / `uploadStaticRingsU16`、`uploadStaticPoints` / `uploadStaticPointsI16`、`batchProjectStaticPoints`、`hitTestStaticPoints`、`encodeNormU16`、`encodePointsToI16`。
+- **Formats & Curves**：`parseGeobuf`、`computeArc`、`computeArcsBatch`、`prepareArcs`、`drawTrajectories`。
+- **WASM & 降精度（`u16` / `i16`）**：首次呼叫時自動同步初始化 WASM（`decodeLocationDictBatch`、`uploadStaticRings` / `uploadStaticRingsU16`、`uploadStaticPoints` / `uploadStaticPointsI16`、`batchProjectStaticPoints`、`hitTestStaticPoints`、`encodeNormU16`、`encodePointsToI16`、`resetWasmArena`、`disposeWasm`）。
 - **Controllers & Custom Renderers**：`attachInteractions`、`attachGamepad`、`BlanketCanvasLayer`、`MapLayerRenderer`。
 
 ## Scripts

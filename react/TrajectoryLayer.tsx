@@ -9,7 +9,6 @@ import {
   scheduleAnimation,
 } from '../core/trajectory';
 import { useMap } from './MapContext';
-import { useWasmReady } from './useWasmReady';
 
 export type { TrajectoryCurveMode, TrajectorySpec as TrajectoryItem };
 
@@ -112,7 +111,6 @@ export const TrajectoryLayer: React.FC<TrajectoryLayerProps> = memo(
     smooth = false,
   }) => {
     const { camera } = useMap();
-    const wasmReady = useWasmReady();
     const svgRef = useRef<SVGSVGElement | null>(null);
     const pathRefs = useRef<Map<string, SVGPathElement>>(new Map());
     const basePathRefs = useRef<Map<string, SVGPathElement>>(new Map());
@@ -128,16 +126,9 @@ export const TrajectoryLayer: React.FC<TrajectoryLayerProps> = memo(
       []
     );
 
-    const prepared = useMemo(
-      () =>
-        wasmReady
-          ? prepareArcs(items)
-          : { items: [], arcCount: 0, arcBuffer: null },
-      [items, wasmReady]
-    );
+    const prepared = useMemo(() => prepareArcs(items), [items]);
 
     useEffect(() => {
-      if (!wasmReady) return;
       return attachSvgSync(
         svgRef.current,
         camera,
@@ -146,11 +137,7 @@ export const TrajectoryLayer: React.FC<TrajectoryLayerProps> = memo(
         (key) => basePathRefs.current.get(key),
         smooth
       );
-    }, [camera, prepared, smooth, wasmReady]);
-
-    if (!wasmReady) {
-      return null;
-    }
+    }, [camera, prepared, smooth]);
 
     return (
       <svg

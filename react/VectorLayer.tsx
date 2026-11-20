@@ -10,7 +10,6 @@ import { type PreparedFeature } from '../formats/types';
 import { type StaticGeometryHandle } from '../core/batch';
 import { CanvasLayer } from './CanvasLayer';
 import { useMap } from './MapContext';
-import { useWasmReady } from './useWasmReady';
 
 export interface VectorLayerProps {
   fillLayers: StyledVectorLayer[];
@@ -51,7 +50,6 @@ export const VectorLayer: React.FC<VectorLayerProps> = memo(
     const handlesRef = useRef<WeakMap<PreparedFeature, StaticGeometryHandle>>(
       new WeakMap()
     );
-    const wasmReady = useWasmReady();
 
     useEffect(() => {
       return () => {
@@ -64,12 +62,11 @@ export const VectorLayer: React.FC<VectorLayerProps> = memo(
     }, []);
 
     useEffect(() => {
-      if (!wasmReady) return;
       handlesRef.current = uploadVectorLayers(fillLayers, strokeLayers, {
         reset: resetOnUpload,
         precision,
       });
-    }, [wasmReady, fillLayers, strokeLayers, resetOnUpload, precision]);
+    }, [fillLayers, strokeLayers, resetOnUpload, precision]);
 
     const maxDpr = useMemo(() => {
       if (lowPower) return 1;
@@ -86,7 +83,6 @@ export const VectorLayer: React.FC<VectorLayerProps> = memo(
         _camera: unknown,
         isInteracting = false
       ) => {
-        if (!wasmReady) return;
         drawVectorLayers(
           ctx,
           state,
@@ -102,14 +98,7 @@ export const VectorLayer: React.FC<VectorLayerProps> = memo(
           }
         );
       },
-      [
-        wasmReady,
-        fillLayers,
-        strokeLayers,
-        smoothFactor,
-        skipOnInteractLayers,
-        camera,
-      ]
+      [fillLayers, strokeLayers, smoothFactor, skipOnInteractLayers, camera]
     );
 
     return (

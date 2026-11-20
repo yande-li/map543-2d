@@ -1,5 +1,5 @@
 import { Camera } from './camera';
-import { LUT_OFFSET_BYTES, ensureWasm, getWasmRuntime } from '../wasm/bridge';
+import { LUT_OFFSET_BYTES, getWasmRuntime } from '../wasm/bridge';
 
 type BatchProjectKernelFn = (
   count: number,
@@ -541,29 +541,6 @@ export function decodeLocationDictBatch(
     }
   }
   return decoded;
-}
-
-/**
- * Async convenience wrapper around `decodeLocationDictBatch` that automatically
- * initializes the WebAssembly runtime if not yet ready.
- */
-export async function decodeLocationDictBatchAsync(
-  rawBytes: Uint8Array,
-  locCount: number,
-  outLats: Float32Array,
-  outLons: Float32Array,
-  outMxs?: Float32Array,
-  outMys?: Float32Array
-): Promise<number> {
-  await ensureWasm('decodeLocationDictBatch');
-  return decodeLocationDictBatch(
-    rawBytes,
-    locCount,
-    outLats,
-    outLons,
-    outMxs,
-    outMys
-  );
 }
 
 /**

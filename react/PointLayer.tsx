@@ -14,7 +14,6 @@ import {
 } from '../core/pointLayer';
 import { CanvasLayer } from './CanvasLayer';
 import { useMap } from './MapContext';
-import { useWasmReady } from './useWasmReady';
 
 export interface PointLayerProps {
   points: PointItem[];
@@ -42,7 +41,6 @@ export const PointLayer: React.FC<PointLayerProps> = memo(
     const { camera, getContainer, subscribeClick } = useMap();
     const outXYRef = useRef<Float32Array>(new Float32Array(0));
     const outIdxRef = useRef<Int32Array>(new Int32Array(0));
-    const wasmReady = useWasmReady();
 
     useEffect(() => {
       return () => {
@@ -88,7 +86,7 @@ export const PointLayer: React.FC<PointLayerProps> = memo(
 
     const onDraw = useCallback(
       (ctx: CanvasRenderingContext2D, _state: ViewportState, cam: Camera) => {
-        if (!wasmReady || spatial.count === 0) return;
+        if (spatial.count === 0) return;
         if (outIdxRef.current.length < spatial.count) {
           outIdxRef.current = new Int32Array(spatial.count);
           outXYRef.current = new Float32Array(spatial.count * 2);
@@ -103,7 +101,7 @@ export const PointLayer: React.FC<PointLayerProps> = memo(
           marginPx
         );
       },
-      [wasmReady, points, spatial, marginPx]
+      [points, spatial, marginPx]
     );
 
     return <CanvasLayer zIndex={zIndex} onDraw={onDraw} />;

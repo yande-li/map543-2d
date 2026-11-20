@@ -37,8 +37,8 @@ Full prop types and JSDoc are included in TypeScript declarations (`.d.ts`).
 ## Core API (`map543-2d/core`, React-free, Web Worker compatible)
 
 - **Camera & Projections**: `Camera`, `MERCATOR_PROJECTION`, `createEquirectangular`, `latLngToNorm` / `normToLatLng`, `getViewportBounds`, `getWrappedSlices`.
-- **Formats & Curves**: `parseGeobufAsync` (auto-initializes WASM), `parseGeobuf`, `computeArc`, `computeArcsBatch`, `prepareArcs`, `drawTrajectories`.
-- **WASM & Reduced-Precision (`u16` / `i16`)**: `ensureWasm`, `initWasm`, `isWasmReady`, `decodeLocationDictBatchAsync` / `decodeLocationDictBatch`, `uploadStaticRings` / `uploadStaticRingsU16`, `uploadStaticPoints` / `uploadStaticPointsI16`, `batchProjectStaticPoints`, `hitTestStaticPoints`, `encodeNormU16`, `encodePointsToI16`.
+- **Formats & Curves**: `parseGeobuf`, `computeArc`, `computeArcsBatch`, `prepareArcs`, `drawTrajectories`.
+- **WASM & Reduced-Precision (`u16` / `i16`)**: WASM auto-initializes synchronously on first use (`decodeLocationDictBatch`, `uploadStaticRings` / `uploadStaticRingsU16`, `uploadStaticPoints` / `uploadStaticPointsI16`, `batchProjectStaticPoints`, `hitTestStaticPoints`, `encodeNormU16`, `encodePointsToI16`, `resetWasmArena`, `disposeWasm`).
 - **Controllers & Custom Layers**: `attachInteractions`, `attachGamepad`, `BlanketCanvasLayer`, `MapLayerRenderer`.
 
 ## Scripts
