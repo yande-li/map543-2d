@@ -26,16 +26,24 @@ jobs:
       - run: npm test
       - run: npm pack
       - name: Extract release notes from CHANGELOG.md
+        env:
+          VERSION: ${{ github.ref_name }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          node -e "
-            const fs = require('fs');
-            const md = fs.readFileSync('CHANGELOG.md', 'utf8');
-            const escaped = '${VERSION}'.replace(/\./g, '\\\\.');
-            const re = new RegExp('^## \\\\[' + escaped + '\\\\][^\\n]*\\n([\\s\\S]*?)(?=^## \\\\[|(?![\\s\\S]))', 'm');
-            const m = md.match(re);
-            fs.writeFileSync('release-notes.md', m ? m[1].trim() : '');
-          "
+          node - <<'EOF'
+          const fs = require('node:fs');
+          const version = (process.env.VERSION || '').replace(/^v/, '');
+          const lines = fs.readFileSync('CHANGELOG.md', 'utf8').split(/\r?\n/);
+          const start = lines.findIndex((l) => l.startsWith(`## [${version}]`));
+          if (start === -1) {
+            throw new Error(`No changelog section found for version ${version}`);
+          }
+          const end = lines.findIndex((l, i) => i > start && l.startsWith('## ['));
+          const body = lines.slice(start + 1, end === -1 ? lines.length : end).join('\n').trim();
+          if (!body) {
+            throw new Error(`Empty changelog section for version ${version}`);
+          }
+          fs.writeFileSync('release-notes.md', body + '\n');
+          EOF
       - uses: softprops/action-gh-release@v2
         with:
           body_path: release-notes.md
