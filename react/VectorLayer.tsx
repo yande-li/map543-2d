@@ -23,6 +23,8 @@ export interface VectorLayerProps {
   resetOnUpload?: boolean;
   /** WASM arena coordinate precision: 'f32' (default) or 'u16' (50% arena RAM reduction). */
   precision?: 'f32' | 'u16';
+  /** Max DPR during active pan/zoom interaction (default: 0.45 to reduce Canvas2D CPU/RAM). */
+  interactionMaxDpr?: number;
 }
 
 /**
@@ -39,6 +41,7 @@ export const VectorLayer: React.FC<VectorLayerProps> = memo(
     skipOnInteractLayers,
     resetOnUpload = false,
     precision = 'f32',
+    interactionMaxDpr = 0.45,
   }) => {
     const { camera } = useMap();
     const scratchRef = useRef<VectorScratchBuffers>({
@@ -113,7 +116,7 @@ export const VectorLayer: React.FC<VectorLayerProps> = memo(
       <CanvasLayer
         zIndex={zIndex}
         maxDpr={maxDpr}
-        interactionMaxDpr={Math.min(maxDpr, 0.45)}
+        interactionMaxDpr={Math.min(maxDpr, interactionMaxDpr)}
         onDraw={onDraw}
       />
     );

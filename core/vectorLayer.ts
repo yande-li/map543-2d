@@ -51,6 +51,7 @@ export interface DrawVectorOptions {
 }
 
 const EMPTY_LAYER_SET = new Set<string>();
+const dashArrayCache = new WeakMap<VectorLayerStyle, number[]>();
 
 export interface UploadVectorOptions {
   /** Reset the shared WASM arena before uploading (default: false to avoid invalidating other maps). */
@@ -240,10 +241,14 @@ export function drawVectorLayers(
     ctx.lineWidth = weight;
     ctx.globalAlpha = s.opacity ?? 1;
     if (!isInteracting && s.dashArray) {
-      const dashes = s.dashArray
-        .split(/[,\s]+/)
-        .map(Number)
-        .filter((v) => Number.isFinite(v) && v > 0);
+      let dashes = dashArrayCache.get(s);
+      if (dashes === undefined) {
+        dashes = s.dashArray
+          .split(/[,\s]+/)
+          .map(Number)
+          .filter((v) => Number.isFinite(v) && v > 0);
+        dashArrayCache.set(s, dashes);
+      }
       if (dashes.length > 0) ctx.setLineDash(dashes);
     }
     ctx.beginPath();
