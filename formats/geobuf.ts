@@ -1,6 +1,6 @@
-import type { PreparedFeature, PreparedLayer } from './fgb';
-import { cleanMercatorSeamFeature } from './geomUtils';
-import { LUT_OFFSET_BYTES, getWasmRuntime } from '../wasm/wasmBridge';
+import type { PreparedFeature, PreparedLayer } from './types';
+import { cleanSeamFeature } from './seam';
+import { LUT_OFFSET_BYTES, getWasmRuntime } from '../wasm/bridge';
 
 const textDecoder = new TextDecoder('utf-8');
 
@@ -77,10 +77,7 @@ class GeobufScratch {
   }
 }
 
-const DEFAULT_SEAM_CLEAN_LAYERS: ReadonlySet<string> = new Set([
-  'land',
-  'lakes',
-]);
+const SEAM_LAYERS: ReadonlySet<string> = new Set(['land', 'lakes']);
 
 function assertRange(r: PbReader, needed: number): void {
   if (needed < 0 || r.pos + needed > r.end) {
@@ -115,20 +112,7 @@ function readVarintNum(r: PbReader): number {
   let result = b0 & 0x7f;
   r.pos++;
   let factor = 128;
-  for (let i = 1; i < 8; i++) {
-    assertRange(r, 1);
-    const b = r.bytes[r.pos++];
-    result += (b & 0x7f) * factor;
-    if (b < 0x80) {
-      if (result > Number.MAX_SAFE_INTEGER) {
-        throw new Error('Geobuf integer exceeds safe JS range');
-      }
-      return result;
-    }
-    factor *= 128;
-  }
-  // 8+ byte varints: check remaining up to 10 bytes
-  for (let i = 8; i < 10; i++) {
+  for (let i = 1; i < 10; i++) {
     assertRange(r, 1);
     const b = r.bytes[r.pos++];
     result += (b & 0x7f) * factor;
@@ -220,40 +204,31 @@ function skipField(r: PbReader, wireType: number): void {
   }
 }
 
-function readPackedLengths(r: PbReader, sc: GeobufScratch): void {
+function withLengthPrefixedSubReader(
+  r: PbReader,
+  fn: (sub: PbReader) => void
+): void {
   const len = readVarintNum(r);
   assertRange(r, len);
   const subEnd = r.pos + len;
   const savedEnd = r.end;
   r.end = subEnd;
   while (r.pos < subEnd) {
-    sc.pushLength(readVarintNum(r));
+    fn(r);
   }
   r.end = savedEnd;
+}
+
+function readPackedLengths(r: PbReader, sc: GeobufScratch): void {
+  withLengthPrefixedSubReader(r, (sub) => sc.pushLength(readVarintNum(sub)));
 }
 
 function readPackedPropPairs(r: PbReader, sc: GeobufScratch): void {
-  const len = readVarintNum(r);
-  assertRange(r, len);
-  const subEnd = r.pos + len;
-  const savedEnd = r.end;
-  r.end = subEnd;
-  while (r.pos < subEnd) {
-    sc.pushPropPair(readVarintNum(r));
-  }
-  r.end = savedEnd;
+  withLengthPrefixedSubReader(r, (sub) => sc.pushPropPair(readVarintNum(sub)));
 }
 
 function readPackedCoords(r: PbReader, sc: GeobufScratch): void {
-  const len = readVarintNum(r);
-  assertRange(r, len);
-  const subEnd = r.pos + len;
-  const savedEnd = r.end;
-  r.end = subEnd;
-  while (r.pos < subEnd) {
-    sc.pushCoord(readZigZagNum(r));
-  }
-  r.end = savedEnd;
+  withLengthPrefixedSubReader(r, (sub) => sc.pushCoord(readZigZagNum(sub)));
 }
 
 function readValueString(r: PbReader): string | null {
@@ -333,7 +308,7 @@ function resolveLayerName(
   return defaultLayerName;
 }
 
-function streamFeatureIntoLayers(
+function appendFeature(
   r: PbReader,
   keys: string[],
   defaultLayerName: string,
@@ -342,6 +317,7 @@ function streamFeatureIntoLayers(
   sc: GeobufScratch,
   fillMap: Map<string, PreparedFeature[]>,
   strokeMap: Map<string, PreparedFeature[]>,
+  seamCleanLayers: ReadonlySet<string>,
   allowedLayers?: ReadonlySet<string>
 ): void {
   sc.resetFeature();
@@ -374,16 +350,15 @@ function streamFeatureIntoLayers(
   if (allowedLayers !== undefined && !allowedLayers.has(layerName)) {
     return;
   }
-  const needsCleanSeam = layerName === 'land' || layerName === 'lakes';
+  const needsCleanSeam = seamCleanLayers.has(layerName);
 
   let fillList = fillMap.get(layerName);
   let strokeList = strokeMap.get(layerName);
 
   for (let g = 0; g < geomSpans.length; g++) {
     const geom = parseGeometryScratch(geomSpans[g], sc);
-    const preparedStart = fillList ? fillList.length : 0;
     const tempOut: PreparedFeature[] = [];
-    buildPreparedFromGeometry(geom, dimensions, invScale, tempOut, sc);
+    prepareGeometry(geom, dimensions, invScale, tempOut, sc);
     if (tempOut.length === 0) continue;
 
     if (!fillList) {
@@ -399,13 +374,12 @@ function streamFeatureIntoLayers(
       const pf = tempOut[i];
       fillList.push(pf);
       if (needsCleanSeam && pf.isPolygon) {
-        const cleaned = cleanMercatorSeamFeature(pf);
+        const cleaned = cleanSeamFeature(pf);
         if (cleaned) strokeList.push(cleaned);
       } else {
         strokeList.push(pf);
       }
     }
-    void preparedStart;
   }
 }
 
@@ -457,7 +431,7 @@ function extractRingCounts(
   }
 }
 
-function buildPreparedFromGeometry(
+function prepareGeometry(
   geom: RawGeobufGeometry,
   dimensions: number,
   invScale: number,
@@ -466,12 +440,12 @@ function buildPreparedFromGeometry(
 ): void {
   if (geom.type === GeomType.GeometryCollection) {
     for (const sub of geom.subGeoms) {
-      buildPreparedFromGeometry(sub, dimensions, invScale, outFeatures, sc);
+      prepareGeometry(sub, dimensions, invScale, outFeatures, sc);
     }
     return;
   }
 
-  const totalPoints = Math.floor(geom.coordsLen / dimensions);
+  const totalPoints = (geom.coordsLen / dimensions) | 0;
   const isPolygon = extractRingCounts(geom, totalPoints, sc.ringPtCounts);
   const ringPtCounts = sc.ringPtCounts;
   if (ringPtCounts.length === 0 || totalPoints === 0) return;
@@ -497,7 +471,7 @@ function buildPreparedFromGeometry(
     const ringStart = outCursor;
     const availPts = Math.min(
       ptCount,
-      Math.floor((geom.coordsLen - coordCursor) / dimensions)
+      ((geom.coordsLen - coordCursor) / dimensions) | 0
     );
     if (availPts <= 0) continue;
 
@@ -510,7 +484,9 @@ function buildPreparedFromGeometry(
     const inOff = boundsOff + 16;
     const outOff = inOff + inBytes;
     if (!rt.ensureCapacity(outOff + outBytes)) {
-      throw new Error('WASM linear memory capacity exceeded during Geobuf decode');
+      throw new Error(
+        'WASM linear memory capacity exceeded during Geobuf decode'
+      );
     }
 
     rt.f64[accOff >> 3] = accLon;
@@ -551,7 +527,9 @@ function buildPreparedFromGeometry(
 
   outFeatures.push({
     packedXY:
-      outCursor === packedXY.length ? packedXY : packedXY.subarray(0, outCursor),
+      outCursor === packedXY.length
+        ? packedXY
+        : packedXY.subarray(0, outCursor),
     ringLengths,
     ringCount: ringLengths.length,
     isPolygon,
@@ -562,23 +540,16 @@ function buildPreparedFromGeometry(
   });
 }
 
-/**
- * Parses a Mapbox Geobuf (.geobuf / .pbf) binary buffer into normalized
- * Web Mercator PreparedLayer arrays compatible with map543-2d renderers.
- */
-export function parseGeobufToPreparedLayers(
-  rawBuffer: ArrayBuffer,
-  defaultLayerName = 'land',
-  allowedLayers?: ReadonlySet<string>,
-  seamCleanLayers: ReadonlySet<string> = DEFAULT_SEAM_CLEAN_LAYERS
-): { fillLayers: PreparedLayer[]; strokeLayers: PreparedLayer[] } {
-  const scratch = new GeobufScratch();
-  const bytes = new Uint8Array(rawBuffer);
-  if (bytes.length === 0) {
-    throw new Error('Geobuf binary buffer is empty');
-  }
+interface GeobufHeader {
+  keys: string[];
+  dimensions: number;
+  precision: number;
+  fcReader: PbReader | null;
+  singleFeatureReader: PbReader | null;
+  singleGeomReader: PbReader | null;
+}
 
-  const r: PbReader = { bytes, pos: 0, end: bytes.length };
+function parseGeobufHeader(r: PbReader): GeobufHeader {
   const keys: string[] = [];
   let dimensions = 2;
   let precision = 6;
@@ -615,6 +586,41 @@ export function parseGeobufToPreparedLayers(
     throw new Error(`Invalid Geobuf precision: ${precision}`);
   }
 
+  return {
+    keys,
+    dimensions,
+    precision,
+    fcReader,
+    singleFeatureReader,
+    singleGeomReader,
+  };
+}
+
+/**
+ * Parses a Mapbox Geobuf (.geobuf / .pbf) binary buffer into normalized
+ * Web Mercator PreparedLayer arrays compatible with map543-2d renderers.
+ */
+export function parseGeobuf(
+  rawBuffer: ArrayBuffer,
+  defaultLayerName = 'land',
+  allowedLayers?: ReadonlySet<string>,
+  seamCleanLayers: ReadonlySet<string> = SEAM_LAYERS
+): { fillLayers: PreparedLayer[]; strokeLayers: PreparedLayer[] } {
+  const scratch = new GeobufScratch();
+  const bytes = new Uint8Array(rawBuffer);
+  if (bytes.length === 0) {
+    throw new Error('Geobuf binary buffer is empty');
+  }
+
+  const {
+    keys,
+    dimensions,
+    precision,
+    fcReader,
+    singleFeatureReader,
+    singleGeomReader,
+  } = parseGeobufHeader({ bytes, pos: 0, end: bytes.length });
+
   const invScale = Math.pow(10, -precision);
   const fillMap = new Map<string, PreparedFeature[]>();
   const strokeMap = new Map<string, PreparedFeature[]>();
@@ -625,7 +631,7 @@ export function parseGeobufToPreparedLayers(
       const field = tag >>> 3;
       const wire = tag & 7;
       if (field === 1 && wire === 2) {
-        streamFeatureIntoLayers(
+        appendFeature(
           readSubReader(fcReader),
           keys,
           defaultLayerName,
@@ -634,6 +640,7 @@ export function parseGeobufToPreparedLayers(
           scratch,
           fillMap,
           strokeMap,
+          seamCleanLayers,
           allowedLayers
         );
       } else {
@@ -641,7 +648,7 @@ export function parseGeobufToPreparedLayers(
       }
     }
   } else if (singleFeatureReader) {
-    streamFeatureIntoLayers(
+    appendFeature(
       singleFeatureReader,
       keys,
       defaultLayerName,
@@ -650,25 +657,20 @@ export function parseGeobufToPreparedLayers(
       scratch,
       fillMap,
       strokeMap,
+      seamCleanLayers,
       allowedLayers
     );
   } else if (singleGeomReader) {
     const geom = parseGeometryScratch(singleGeomReader, scratch);
     const prepared: PreparedFeature[] = [];
-    buildPreparedFromGeometry(
-      geom,
-      dimensions,
-      invScale,
-      prepared,
-      scratch
-    );
+    prepareGeometry(geom, dimensions, invScale, prepared, scratch);
     if (prepared.length > 0) {
       fillMap.set(defaultLayerName, prepared);
       const needsCleanSeam = seamCleanLayers.has(defaultLayerName);
       const strokeList: PreparedFeature[] = [];
       for (const pf of prepared) {
         if (needsCleanSeam && pf.isPolygon) {
-          const cleaned = cleanMercatorSeamFeature(pf);
+          const cleaned = cleanSeamFeature(pf);
           if (cleaned) strokeList.push(cleaned);
         } else {
           strokeList.push(pf);

@@ -1,38 +1,13 @@
-import type { PreparedFeature } from './fgb';
-import { MAX_MERCATOR_LAT, projectLatToMercatorY } from '../core/projection';
-
-const INV_360 = 0.002777777777777778;
-const INV_TWO_PI = 0.15915494309189535;
+import type { PreparedFeature } from './types';
 
 const SEAM_EDGE_EPS = 0.0014; // ~0.5 deg from ±180° in [0, 1] Mercator X
 const SEAM_DELTA_EPS = 0.000003; // ~0.001 deg in [0, 1] Mercator X
 
 /**
- * Projects a WGS84 (lon, lat) coordinate into normalized Web Mercator [0, 1]^2
- * and updates the feature's geographic bounding box [minLon, minLat, maxLon, maxLat].
- */
-export function projectLonLatInPlace(
-  lon: number,
-  rawLat: number,
-  out: Float32Array,
-  outIdx: number,
-  bounds: [number, number, number, number]
-): void {
-  if (lon < bounds[0]) bounds[0] = lon;
-  if (rawLat < bounds[1]) bounds[1] = rawLat;
-  if (lon > bounds[2]) bounds[2] = lon;
-  if (rawLat > bounds[3]) bounds[3] = rawLat;
-
-  const lat = Math.max(-MAX_MERCATOR_LAT, Math.min(MAX_MERCATOR_LAT, rawLat));
-  out[outIdx] = (lon + 180) * INV_360;
-  out[outIdx + 1] = 0.5 - projectLatToMercatorY(lat) * INV_TWO_PI;
-}
-
-/**
  * Splits polygon stroke rings that touch or wrap across the ±180° antimeridian
  * so border strokes do not draw horizontal artifacts across the map.
  */
-export function cleanMercatorSeamFeature(
+export function cleanSeamFeature(
   feature: PreparedFeature
 ): PreparedFeature | null {
   const { packedXY, ringLengths, ringCount } = feature;
@@ -89,7 +64,8 @@ export function cleanMercatorSeamFeature(
   if (segCount === 0) return null;
   return {
     packedXY: outPos === outXY.length ? outXY : outXY.subarray(0, outPos),
-    ringLengths: segCount === outLens.length ? outLens : outLens.subarray(0, segCount),
+    ringLengths:
+      segCount === outLens.length ? outLens : outLens.subarray(0, segCount),
     ringCount: segCount,
     isPolygon: false,
     minLon: feature.minLon,

@@ -2,79 +2,75 @@ export {
   type LatLng,
   type Point2D,
   type LatLngBounds,
-  type ViewportProjectionState,
+  type ProjectionState,
   type ProjectionType,
   type BoundsSpec,
   type Projection,
   MERCATOR_PROJECTION,
-  createEquirectangularProjection,
+  createEquirectangular,
   resolveProjection,
   TILE_SIZE,
   MAX_MERCATOR_LAT,
   DEG_TO_RAD,
   RAD_TO_DEG,
   MERCATOR_Y_LOOKUP,
-  projectLatToMercatorY,
-  projectToNormalized,
-  projectToNormalizedInto,
-  unprojectFromNormalized,
+  latToMercatorY,
+  latLngToNorm,
+  latLngToNormInto,
+  normToLatLng,
   latLngToWorld,
   worldToLatLng,
-  projectLatLngToContainer,
-  unprojectContainerToLatLng,
+  latLngToPx,
+  pxToLatLng,
   getViewportBounds,
-  getWrappedViewportSlices,
-  type WrappedViewportSlice,
-  type WrappedViewportSlices,
-  computeDynamicMinZoom,
-  computeResponsiveZoom,
+  getWrappedSlices,
+  type WrappedSlice,
+  type WrappedSlices,
+  getMinZoom,
+  getResponsiveZoom,
   computeZoomForBounds,
   clampCenterToBounds,
 } from './core/projection';
 export {
-  computeQuadraticArc,
-  computeQuadraticArcsBatch,
+  computeArc,
+  computeArcsBatch,
   QUADRATIC_ARC_POINTS,
-  manhattanDegDistance,
-  computeTrajectoryTiming,
+  manhattanDeg,
+  getArcTiming,
   type TrajectoryTimingFn,
-  buildProjectedSvgPath,
-  buildSvgPathFromFlatXY,
-  projectInterleavedMercator,
-  traceScreenQuadraticArc,
+  latLngsToSvgPath,
+  xyToSvgPath,
+  projectMercator,
+  traceArc,
 } from './core/curves';
 export {
   ensureMarkerStyles,
   normalizePulseMode,
   resolveMarkerGeometry,
-  type EnsureMarkerStylesOptions,
+  type MarkerStyleOptions,
   type MarkerVariant,
   type MarkerPulse,
   type MarkerPulseMode,
   type MarkerGeometry,
 } from './core/marker';
 export {
-  isGeckoEngine,
-  scheduleStrokeAnimation,
-  animateTrajectoryStroke,
-  prepareTrajectoryBatch,
-  attachSvgTrajectorySync,
+  scheduleAnimation,
+  animateStroke,
+  prepareArcs,
+  attachSvgSync,
   type TrajectoryCurveMode,
   type TrajectorySpec,
   type TrajectoryTimingFn as CoreTrajectoryTimingFn,
-  type PreparedTrajectoryEntry,
-  type PreparedTrajectoryBatch,
+  type PreparedArc,
+  type PreparedArcs,
 } from './core/trajectory';
+export { createGlowDotSprite, drawTrajectories } from './core/canvasTrajectory';
 export {
-  createGlowDotSprite,
-  drawScreenTrajectoryBatch,
-} from './core/canvasTrajectory';
-export {
-  buildPointSpatialBuffers,
+  packPoints,
   drawBatchPoints,
-  attachPointHoverCursor,
+  attachPointHover,
   type PointItem,
-  type PointSpatialBuffers,
+  type PointBuffers,
 } from './core/pointLayer';
 export {
   uploadVectorLayers,
@@ -85,13 +81,8 @@ export {
   type VectorScratchBuffers,
   type DrawVectorOptions,
 } from './core/vectorLayer';
-export {
-  parseFgbToPreparedLayers,
-  type PreparedFeature,
-  type PreparedLayer,
-  type CleanSeamRingFn,
-} from './formats/fgb';
-export { parseGeobufToPreparedLayers } from './formats/geobuf';
+export { type PreparedFeature, type PreparedLayer } from './formats/types';
+export { parseGeobuf } from './formats/geobuf';
 
 export {
   Camera,
@@ -103,14 +94,19 @@ export {
 
 export {
   findNearestPoint,
-  findNearestPointFast,
+  hitTestPoints,
+  encodePointsToI16,
+  hitTestPointsI16,
   type SpatialPoints,
 } from './core/hitTest';
 
 export {
   batchProjectPoints,
+  batchProjectPointsI16,
   decimatePackedRings,
   uploadStaticRings,
+  encodeNormU16,
+  uploadStaticRingsU16,
   decimateStaticRings,
   type StaticGeometryHandle,
   cleanSeamRing,
@@ -118,12 +114,13 @@ export {
 export {
   type ZoomControlPosition,
   type VectorLodOptions,
-  computeEffectivePixelStep,
+  getPixelStep,
   shouldSkipLayer,
-  shouldCullFeatureOnInteract,
-  traceDecimatedFeature,
-  traceDecimatedStaticFeature,
-  traceStaticRingsDirect,
+  shouldCullFeature,
+  drawDecimatedRings,
+  drawStaticRings,
+  drawStaticDirect,
+  drawStaticU16Direct,
 } from './core/vectorLod';
 
 export {
@@ -136,20 +133,17 @@ export {
   getWasmMemoryStats,
   type WasmRuntime,
   type WasmMemoryStats,
-} from './wasm/wasmBridge';
+} from './wasm/bridge';
 export {
-  attachViewportInteractions,
-  type ViewportInteractionsOptions,
+  attachInteractions,
+  type InteractionOptions,
 } from './core/interactions';
-export {
-  attachGamepadControls,
-  type GamepadControlsOptions,
-} from './core/gamepad';
+export { attachGamepad, type GamepadOptions } from './core/gamepad';
 export {
   BlanketCanvasLayer,
-  type BlanketCanvasLayerOptions,
+  type BlanketLayerOptions,
   type BlanketDrawCallback,
-} from './core/blanketCanvasLayer';
+} from './core/blanketLayer';
 export {
   loadImage,
   drawImage,

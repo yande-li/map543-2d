@@ -4,7 +4,7 @@ export type MarkerPulseMode = 'radar' | 'expand' | 'ripple' | null;
 
 const MARKER_STYLE_ID = 'map543-marker-styles';
 
-export interface EnsureMarkerStylesOptions {
+export interface MarkerStyleOptions {
   target?: Document | ShadowRoot;
   nonce?: string;
 }
@@ -13,9 +13,7 @@ export interface EnsureMarkerStylesOptions {
  * Injects self-contained marker keyframe animations once into document.head (or a ShadowRoot).
  * Safe to call in non-DOM/SSR environments (no-op).
  */
-export function ensureMarkerStyles(
-  options: EnsureMarkerStylesOptions = {}
-): void {
+export function ensureMarkerStyles(options: MarkerStyleOptions = {}): void {
   if (typeof document === 'undefined') return;
   const root = options.target ?? document;
   const existing =

@@ -7,13 +7,13 @@ import {
   ProjectionType,
   TILE_SIZE,
   clampCenterToBounds,
-  computeDynamicMinZoom,
-  computeNormalizedBounds,
-  computeResponsiveZoom,
+  getMinZoom,
+  getNormBounds,
+  getResponsiveZoom,
   computeZoomForBounds,
   getViewportBounds,
   resolveProjection,
-  unprojectContainerToLatLng,
+  pxToLatLng,
 } from './projection';
 
 export interface ViewportState {
@@ -97,24 +97,31 @@ export class Camera {
         ? { unlockFps: initial.unlockFps }
         : {}),
     };
-    this.cachedNormBounds = computeNormalizedBounds(
+    this.cachedNormBounds = getNormBounds(
       this.state.maxBounds,
       this.projectionObj
     );
     if (this.state.width > 0 && this.state.height > 0) {
       const clampedZoom = this.clampZoom(this.state.zoom);
-      const clampedCenter = clampCenterToBounds(
+      const clampedCenter = this.clampStateCenter(
         this.state.center,
-        clampedZoom,
-        this.state.width,
-        this.state.height,
-        this.state.maxBounds,
-        this.cachedNormBounds,
-        this.projectionObj
+        clampedZoom
       );
       this.state = { ...this.state, zoom: clampedZoom, center: clampedCenter };
     }
     this.updateProjectionCache();
+  }
+
+  private clampStateCenter(center: LatLng, zoom: number): LatLng {
+    return clampCenterToBounds(
+      center,
+      zoom,
+      this.state.width,
+      this.state.height,
+      this.state.maxBounds,
+      this.cachedNormBounds,
+      this.projectionObj
+    );
   }
 
   getProjection(): Projection {
@@ -127,7 +134,7 @@ export class Camera {
 
   private updateProjectionCache(): void {
     this.cachedWorldSize = TILE_SIZE * Math.pow(2, this.state.zoom);
-    this.projectionObj.projectToNormalized(
+    this.projectionObj.latLngToNorm(
       this.state.center[0],
       this.state.center[1],
       this.tmpNorm
@@ -162,7 +169,7 @@ export class Camera {
   }
 
   getEffectiveMinZoom(): number {
-    const dynamicMin = computeDynamicMinZoom(
+    const dynamicMin = getMinZoom(
       this.state.width,
       this.state.height,
       this.state.maxBounds,
@@ -194,7 +201,7 @@ export class Camera {
         this.state.referenceWidth !== undefined &&
         this.state.referenceWidth > 0
       ) {
-        targetZoom = computeResponsiveZoom(
+        targetZoom = getResponsiveZoom(
           this.state.zoom,
           width,
           this.state.referenceWidth
@@ -206,15 +213,7 @@ export class Camera {
     const nextState: ViewportState = { ...this.state, width, height };
     this.state = nextState;
     const nextZoom = this.clampZoom(targetZoom);
-    const nextCenter = clampCenterToBounds(
-      nextState.center,
-      nextZoom,
-      width,
-      height,
-      nextState.maxBounds,
-      this.cachedNormBounds,
-      this.projectionObj
-    );
+    const nextCenter = this.clampStateCenter(nextState.center, nextZoom);
     this.state = { ...nextState, zoom: nextZoom, center: nextCenter };
     this.emit();
   }
@@ -225,7 +224,7 @@ export class Camera {
       this.state.referenceWidth !== undefined &&
       this.state.referenceWidth > 0
     ) {
-      return computeResponsiveZoom(
+      return getResponsiveZoom(
         baseZoom,
         this.state.width,
         this.state.referenceWidth
@@ -234,11 +233,7 @@ export class Camera {
     return baseZoom;
   }
 
-  fitBounds(
-    bounds: [LatLng, LatLng],
-    paddingPx = 0,
-    durationMs = 0
-  ): void {
+  fitBounds(bounds: [LatLng, LatLng], paddingPx = 0, durationMs = 0): void {
     const { center, zoom } = computeZoomForBounds(
       bounds,
       this.state.width,
@@ -291,11 +286,14 @@ export class Camera {
         delete this.state.projection;
       }
     }
-    this.cachedNormBounds = computeNormalizedBounds(
+    this.cachedNormBounds = getNormBounds(
       this.state.maxBounds,
       this.projectionObj
     );
-    if ('referenceWidth' in constraints && constraints.referenceWidth === undefined) {
+    if (
+      'referenceWidth' in constraints &&
+      constraints.referenceWidth === undefined
+    ) {
       delete this.state.referenceWidth;
     }
     if (
@@ -304,17 +302,12 @@ export class Camera {
     ) {
       delete this.state.preserveViewportSpan;
     }
+    if ('unlockFps' in constraints && constraints.unlockFps === undefined) {
+      delete this.state.unlockFps;
+    }
 
     const clampedZoom = this.clampZoom(this.state.zoom);
-    const clampedCenter = clampCenterToBounds(
-      this.state.center,
-      clampedZoom,
-      this.state.width,
-      this.state.height,
-      this.state.maxBounds,
-      this.cachedNormBounds,
-      this.projectionObj
-    );
+    const clampedCenter = this.clampStateCenter(this.state.center, clampedZoom);
     this.state = { ...this.state, zoom: clampedZoom, center: clampedCenter };
     this.emit();
   }
@@ -322,15 +315,7 @@ export class Camera {
   setView(center: LatLng, zoom: number): void {
     this.cancelAnimation();
     const clampedZoom = this.clampZoom(zoom);
-    const clampedCenter = clampCenterToBounds(
-      center,
-      clampedZoom,
-      this.state.width,
-      this.state.height,
-      this.state.maxBounds,
-      this.cachedNormBounds,
-      this.projectionObj
-    );
+    const clampedCenter = this.clampStateCenter(center, clampedZoom);
     this.state = {
       ...this.state,
       center: clampedCenter,
@@ -344,24 +329,16 @@ export class Camera {
     if (dx === 0 && dy === 0) return;
     this.cancelAnimation();
     const worldSize = TILE_SIZE * Math.pow(2, this.state.zoom);
-    const centerNorm = this.projectionObj.projectToNormalized(
+    const centerNorm = this.projectionObj.latLngToNorm(
       this.state.center[0],
       this.state.center[1],
       this.tmpNorm
     );
-    const nextCenter = this.projectionObj.unprojectFromNormalized(
+    const nextCenter = this.projectionObj.normToLatLng(
       centerNorm.x - dx / worldSize,
       centerNorm.y - dy / worldSize
     );
-    const clamped = clampCenterToBounds(
-      nextCenter,
-      this.state.zoom,
-      this.state.width,
-      this.state.height,
-      this.state.maxBounds,
-      this.cachedNormBounds,
-      this.projectionObj
-    );
+    const clamped = this.clampStateCenter(nextCenter, this.state.zoom);
     this.state = { ...this.state, center: clamped };
     this.lastChangeInteractive = true;
     this.emit();
@@ -372,14 +349,14 @@ export class Camera {
     const nextZoom = this.clampZoom(targetZoom);
     if (Math.abs(nextZoom - this.state.zoom) < 1e-5) return;
 
-    const anchorLatLng = unprojectContainerToLatLng(
+    const anchorLatLng = pxToLatLng(
       anchorX,
       anchorY,
       this.state,
       this.projectionObj
     );
     const nextWorldSize = TILE_SIZE * Math.pow(2, nextZoom);
-    const anchorNorm = this.projectionObj.projectToNormalized(
+    const anchorNorm = this.projectionObj.latLngToNorm(
       anchorLatLng[0],
       anchorLatLng[1],
       this.tmpNorm
@@ -389,19 +366,11 @@ export class Camera {
     const nextCenterNormY =
       anchorNorm.y - (anchorY - this.state.height * 0.5) / nextWorldSize;
 
-    const rawCenter = this.projectionObj.unprojectFromNormalized(
+    const rawCenter = this.projectionObj.normToLatLng(
       nextCenterNormX,
       nextCenterNormY
     );
-    const clampedCenter = clampCenterToBounds(
-      rawCenter,
-      nextZoom,
-      this.state.width,
-      this.state.height,
-      this.state.maxBounds,
-      this.cachedNormBounds,
-      this.projectionObj
-    );
+    const clampedCenter = this.clampStateCenter(rawCenter, nextZoom);
     this.state = { ...this.state, center: clampedCenter, zoom: nextZoom };
     this.lastChangeInteractive = true;
     this.emit();
@@ -412,15 +381,7 @@ export class Camera {
     const startCenter = this.state.center;
     const startZoom = this.state.zoom;
     const endZoom = this.clampZoom(targetZoom);
-    const endCenter = clampCenterToBounds(
-      targetCenter,
-      endZoom,
-      this.state.width,
-      this.state.height,
-      this.state.maxBounds,
-      this.cachedNormBounds,
-      this.projectionObj
-    );
+    const endCenter = this.clampStateCenter(targetCenter, endZoom);
 
     if (durationMs <= 0 || typeof requestAnimationFrame === 'undefined') {
       this.setView(endCenter, endZoom);
@@ -447,27 +408,21 @@ export class Camera {
       // Ease-out cubic
       const eased = 1 - Math.pow(1 - t, 3);
 
-      tmpFlyCenter[0] = startCenter[0] + (endCenter[0] - startCenter[0]) * eased;
-      tmpFlyCenter[1] = startCenter[1] + (endCenter[1] - startCenter[1]) * eased;
+      tmpFlyCenter[0] =
+        startCenter[0] + (endCenter[0] - startCenter[0]) * eased;
+      tmpFlyCenter[1] =
+        startCenter[1] + (endCenter[1] - startCenter[1]) * eased;
       const zoom = startZoom + (endZoom - startZoom) * eased;
 
-      const clampedCenter = clampCenterToBounds(
-        tmpFlyCenter,
-        zoom,
-        this.state.width,
-        this.state.height,
-        this.state.maxBounds,
-        this.cachedNormBounds,
-        this.projectionObj
-      );
+      const clampedCenter = this.clampStateCenter(tmpFlyCenter, zoom);
       this.state = { ...this.state, center: clampedCenter, zoom };
       this.lastChangeInteractive = true;
-      this.emit();
-
-      if (t < 1) {
-        this.flyRafId = requestAnimationFrame(tick);
-      } else {
+      if (t >= 1) {
         this.flyRafId = 0;
+        this.emit();
+      } else {
+        this.emit();
+        this.flyRafId = requestAnimationFrame(tick);
       }
     };
 
@@ -482,7 +437,7 @@ export class Camera {
    * Zero-allocation projection using cached center/worldSize state.
    */
   projectInto(lat: number, lon: number, out: Point2D): Point2D {
-    this.projectionObj.projectToNormalized(lat, lon, this.tmpNorm);
+    this.projectionObj.latLngToNorm(lat, lon, this.tmpNorm);
     out.x =
       this.cachedHalfW +
       (this.tmpNorm.x - this.cachedCenterNormX) * this.cachedWorldSize;
@@ -493,7 +448,7 @@ export class Camera {
   }
 
   unproject(px: number, py: number): LatLng {
-    return unprojectContainerToLatLng(px, py, this.state, this.projectionObj);
+    return pxToLatLng(px, py, this.state, this.projectionObj);
   }
 
   getBounds(): LatLngBounds {

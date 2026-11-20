@@ -1,11 +1,4 @@
-import React, {
-  memo,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { type ViewportState } from '../core/camera';
 import {
   type StyledVectorLayer,
@@ -13,10 +6,11 @@ import {
   drawVectorLayers,
   uploadVectorLayers,
 } from '../core/vectorLayer';
-import { type PreparedFeature } from '../formats/fgb';
+import { type PreparedFeature } from '../formats/types';
 import { type StaticGeometryHandle } from '../core/batch';
-import { initWasm, isWasmReady } from '../wasm/wasmBridge';
 import { CanvasLayer } from './CanvasLayer';
+import { useMap } from './MapContext';
+import { useWasmReady } from './useWasmReady';
 
 export interface VectorLayerProps {
   fillLayers: StyledVectorLayer[];
@@ -25,10 +19,12 @@ export interface VectorLayerProps {
   lowPower?: boolean;
   zIndex?: number;
   skipOnInteractLayers?: ReadonlySet<string>;
+  /** Reset the shared WASM static arena before uploading new layers (default: false). */
+  resetOnUpload?: boolean;
 }
 
 /**
- * Thin React wrapper around core/vectorLayer for WASM-accelerated FGB/Geobuf
+ * Thin React wrapper around core/vectorLayer for WASM-accelerated Geobuf
  * fill and stroke background rendering.
  */
 export const VectorLayer: React.FC<VectorLayerProps> = memo(
@@ -39,7 +35,9 @@ export const VectorLayer: React.FC<VectorLayerProps> = memo(
     lowPower = false,
     zIndex = 100,
     skipOnInteractLayers,
+    resetOnUpload = false,
   }) => {
+    const { camera } = useMap();
     const scratchRef = useRef<VectorScratchBuffers>({
       xy: new Float32Array(0),
       lens: new Int32Array(0),
@@ -47,17 +45,10 @@ export const VectorLayer: React.FC<VectorLayerProps> = memo(
     const handlesRef = useRef<WeakMap<PreparedFeature, StaticGeometryHandle>>(
       new WeakMap()
     );
-    const [wasmReady, setWasmReady] = useState(() => isWasmReady());
+    const wasmReady = useWasmReady();
 
     useEffect(() => {
-      let active = true;
-      if (!isWasmReady()) {
-        void initWasm().then((ok) => {
-          if (active && ok) setWasmReady(true);
-        });
-      }
       return () => {
-        active = false;
         scratchRef.current = {
           xy: new Float32Array(0),
           lens: new Int32Array(0),
@@ -68,12 +59,14 @@ export const VectorLayer: React.FC<VectorLayerProps> = memo(
 
     useEffect(() => {
       if (!wasmReady) return;
-      handlesRef.current = uploadVectorLayers(fillLayers, strokeLayers);
-    }, [wasmReady, fillLayers, strokeLayers]);
+      handlesRef.current = uploadVectorLayers(fillLayers, strokeLayers, {
+        reset: resetOnUpload,
+      });
+    }, [wasmReady, fillLayers, strokeLayers, resetOnUpload]);
 
     const maxDpr = useMemo(() => {
       if (lowPower) return 1;
-      const sf = smoothFactor || 1.0;
+      const sf = Math.max(0, smoothFactor ?? 1.0);
       if (sf >= 1.8) return 1;
       if (sf <= 0.6) return 2;
       return 1.5;
@@ -97,11 +90,19 @@ export const VectorLayer: React.FC<VectorLayerProps> = memo(
           {
             smoothFactor,
             isInteracting,
+            projection: camera.getProjection(),
             ...(skipOnInteractLayers ? { skipOnInteractLayers } : {}),
           }
         );
       },
-      [wasmReady, fillLayers, strokeLayers, smoothFactor, skipOnInteractLayers]
+      [
+        wasmReady,
+        fillLayers,
+        strokeLayers,
+        smoothFactor,
+        skipOnInteractLayers,
+        camera,
+      ]
     );
 
     return (

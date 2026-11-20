@@ -1,6 +1,6 @@
 import { type Camera } from './camera';
 import { LatLng } from './projection';
-import { LUT_OFFSET_BYTES, getWasmRuntime } from '../wasm/wasmBridge';
+import { LUT_OFFSET_BYTES, getWasmRuntime } from '../wasm/bridge';
 
 const BEZIER_STEPS = 18;
 const BEZIER_LOOKUP = new Float32Array((BEZIER_STEPS + 1) * 3);
@@ -18,7 +18,7 @@ for (let i = 0; i <= BEZIER_STEPS; i++) {
  * Generates a 19-point quadratic Bezier arc between two [lat, lon] points,
  * wrapping output longitudes into [-180, 180].
  */
-export function computeQuadraticArc(
+export function computeArc(
   src: LatLng,
   dst: LatLng,
   isShort = false
@@ -58,11 +58,11 @@ export function computeQuadraticArc(
 export const QUADRATIC_ARC_POINTS = BEZIER_STEPS + 1;
 
 /**
- * Zero-allocation batch variant of computeQuadraticArc that writes
+ * Zero-allocation batch variant of computeArc that writes
  * `count * 19` [lat, wrappedLon] pairs directly into `outLatLon`.
  * Returns the number of float32 values written (`count * 38`).
  */
-export function computeQuadraticArcsBatch(
+export function computeArcsBatch(
   srcLats: ArrayLike<number>,
   srcLons: ArrayLike<number>,
   dstLats: ArrayLike<number>,
@@ -98,7 +98,7 @@ export function computeQuadraticArcsBatch(
     rt.f32[(dLonOff >> 2) + i] = dstLons[i];
   }
 
-  const written = rt.exports.computeQuadraticArcsBatch(
+  const written = rt.exports.computeArcsBatch(
     count,
     sLatOff,
     sLonOff,
@@ -112,15 +112,10 @@ export function computeQuadraticArcsBatch(
   return written;
 }
 
-const SCREEN_CURVE_LOOKUP = new Float32Array(512);
-for (let i = 0; i < 512; i++) {
-  SCREEN_CURVE_LOOKUP[i] = i * 0.2;
-}
-
 /**
  * Returns the Manhattan distance in degrees between two [lat, lon] coordinates.
  */
-export function manhattanDegDistance(src: LatLng, dst: LatLng): number {
+export function manhattanDeg(src: LatLng, dst: LatLng): number {
   const dLat = src[0] - dst[0];
   const dLon = src[1] - dst[1];
   return (dLat < 0 ? -dLat : dLat) + (dLon < 0 ? -dLon : dLon);
@@ -134,7 +129,7 @@ export type TrajectoryTimingFn = (distDeg: number) => {
 /**
  * Default timing heuristic computing dash ratio and flight duration (ms) from a degree distance.
  */
-export function computeTrajectoryTiming(dist: number): {
+export function getArcTiming(dist: number): {
   dashRatio: number;
   duration: number;
 } {
@@ -149,9 +144,13 @@ export function computeTrajectoryTiming(dist: number): {
 /**
  * Projects an array of [lat, lon] points into an SVG `M...L...` path string.
  */
-export function buildProjectedSvgPath(
+export function latLngsToSvgPath(
   points: readonly LatLng[],
-  projectInto: (lat: number, lon: number, out: { x: number; y: number }) => void,
+  projectInto: (
+    lat: number,
+    lon: number,
+    out: { x: number; y: number }
+  ) => void,
   outPoint: { x: number; y: number } = { x: 0, y: 0 }
 ): string {
   if (points.length === 0) return '';
@@ -168,7 +167,7 @@ export function buildProjectedSvgPath(
  * Traces a screen-space upward quadratic Bezier arc (or straight line below `straightThreshold`)
  * onto a 2D canvas context. Caller must call `ctx.moveTo(srcX, srcY)` before invoking.
  */
-export function traceScreenQuadraticArc(
+export function traceArc(
   ctx: CanvasRenderingContext2D,
   srcX: number,
   srcY: number,
@@ -187,16 +186,15 @@ export function traceScreenQuadraticArc(
 
   const midX = (srcX + dstX) * 0.5;
   const midY = (srcY + dstY) * 0.5;
-  const lookupIdx = (dist | 0) & 511;
-  const offset = SCREEN_CURVE_LOOKUP[lookupIdx];
+  const offset = ((dist | 0) & 511) * 0.2;
   ctx.quadraticCurveTo(midX, midY - offset, dstX, dstY);
 }
 
 /**
  * Projects interleaved [lat, lon, ...] coordinates into screen [x, y, ...]
- * coordinates via the WASM `projectInterleavedMercator` kernel (zero culling).
+ * coordinates via the WASM `projectMercator` kernel (zero culling).
  */
-export function projectInterleavedMercator(
+export function projectMercator(
   inLatLon: Float32Array,
   ptCount: number,
   camera: Camera,
@@ -221,7 +219,7 @@ export function projectInterleavedMercator(
     inOff >> 2
   );
   const p = camera.getProjectionParams();
-  const written = rt.exports.projectInterleavedMercator(
+  const written = rt.exports.projectMercator(
     ptCount,
     LUT_OFFSET_BYTES,
     inOff,
@@ -243,7 +241,7 @@ export function projectInterleavedMercator(
  * When `smooth` is true and `ptCount >= 3`, emits C1-continuous quadratic Bezier
  * segments (`Q`) instead of a segmented polyline (`L`).
  */
-export function buildSvgPathFromFlatXY(
+export function xyToSvgPath(
   xy: Float32Array,
   startFloatIdx: number,
   ptCount: number,

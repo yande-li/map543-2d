@@ -40,6 +40,8 @@ export const Overlay: React.FC<OverlayProps> = ({
 }) => {
   const { camera } = useMap();
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const anchorX = anchor[0];
+  const anchorY = anchor[1];
   const fixedW = fixedSize?.[0];
   const fixedH = fixedSize?.[1];
 
@@ -70,8 +72,8 @@ export const Overlay: React.FC<OverlayProps> = ({
       }
       camera.projectInto(lat, lon, pt);
       // Snap both projected point and anchor offset to integer pixels to keep text crisp
-      const ox = Math.round(-anchor[0] * cachedWidth);
-      const oy = Math.round(-anchor[1] * cachedHeight);
+      const ox = Math.round(-anchorX * cachedWidth);
+      const oy = Math.round(-anchorY * cachedHeight);
       const x = Math.round(pt.x) + ox;
       const y = Math.round(pt.y) + oy;
       if (cullOffscreen) {
@@ -121,8 +123,8 @@ export const Overlay: React.FC<OverlayProps> = ({
     camera,
     lat,
     lon,
-    anchor[0],
-    anchor[1],
+    anchorX,
+    anchorY,
     fixedW,
     fixedH,
     cullOffscreen,
@@ -134,9 +136,7 @@ export const Overlay: React.FC<OverlayProps> = ({
       ref={wrapperRef}
       className={className}
       onClick={onClick}
-      onPointerDown={
-        interactive ? (e) => e.stopPropagation() : undefined
-      }
+      onPointerDown={interactive ? (e) => e.stopPropagation() : undefined}
       style={{
         position: 'absolute',
         top: 0,
@@ -175,11 +175,24 @@ export const Popup: React.FC<PopupProps> = ({
   zIndex = 3000,
   className = '',
   style,
-  onClose: _onClose,
+  onClose,
   children,
 }) => {
   const { camera } = useMap();
   const [flipped, setFlipped] = useState(false);
+
+  useEffect(() => {
+    if (!onClose || typeof window === 'undefined') return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onClose]);
 
   useEffect(() => {
     const pt = { x: 0, y: 0 };

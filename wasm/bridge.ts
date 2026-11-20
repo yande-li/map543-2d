@@ -7,14 +7,13 @@ function getDefaultWasmUrl(): string {
 const WASM_PAGE_BYTES = 65536;
 const MAX_WASM_BYTES = 512 * WASM_PAGE_BYTES; // 32 MiB hard ceiling
 export const LUT_OFFSET_BYTES = 0;
-export const SCRATCH_BASE_BYTES = 21632; // Aligned past 5401 * 4 = 21604 bytes
-export const ARENA_BASE_BYTES = SCRATCH_BASE_BYTES;
+const ARENA_BASE_BYTES = 21632; // Aligned past 5401 * 4 = 21604 bytes
 
 function align16(n: number): number {
   return (n + 15) & ~15;
 }
 
-export interface WasmKernelExports {
+interface WasmKernelExports {
   memory: WebAssembly.Memory;
   findNearestPointBatch: (
     clickX: number,
@@ -65,7 +64,7 @@ export interface WasmKernelExports {
     outSegLengthsOffset: number,
     outBboxOffset: number
   ) => number;
-  computeQuadraticArcsBatch: (
+  computeArcsBatch: (
     count: number,
     srcLatsOff: number,
     srcLonsOff: number,
@@ -92,11 +91,53 @@ export interface WasmKernelExports {
     mxsOff: number,
     mysOff: number
   ) => number;
-  projectInterleavedMercator: (
+  projectMercator: (
     ptCount: number,
     lutOff: number,
     inLatLonOff: number,
     outXYOff: number,
+    centerNormX: number,
+    centerNormY: number,
+    worldSize: number,
+    halfW: number,
+    halfH: number
+  ) => number;
+  decimateRingsBatchU16?: (
+    ringCount: number,
+    inXYOffset: number,
+    ringLengthsOffset: number,
+    outXYOffset: number,
+    outRingLengthsOffset: number,
+    scale: number,
+    offsetX: number,
+    offsetY: number,
+    pixelStep: number
+  ) => number;
+  batchProjectMercatorI16?: (
+    count: number,
+    lutOffset: number,
+    latsI16Offset: number,
+    lonsI16Offset: number,
+    outXYOffset: number,
+    outIdxOffset: number,
+    centerNormX: number,
+    centerNormY: number,
+    worldSize: number,
+    halfW: number,
+    halfH: number,
+    minX: number,
+    minY: number,
+    maxX: number,
+    maxY: number
+  ) => number;
+  findNearestPointBatchI16?: (
+    clickX: number,
+    clickY: number,
+    radiusSq: number,
+    count: number,
+    lutOffset: number,
+    latsI16Offset: number,
+    lonsI16Offset: number,
     centerNormX: number,
     centerNormY: number,
     worldSize: number,
@@ -110,6 +151,8 @@ export interface WasmRuntime {
   f32: Float32Array;
   f64: Float64Array;
   i32: Int32Array;
+  u16: Uint16Array;
+  i16: Int16Array;
   u8: Uint8Array;
   arenaEpoch: number;
   ensureCapacity: (requiredBytes: number) => boolean;
@@ -138,7 +181,7 @@ function isValidWasmExports(
     typeof raw.batchProjectMercator === 'function' &&
     typeof raw.decimateRingsBatch === 'function' &&
     typeof raw.cleanSeamRingBatch === 'function' &&
-    typeof raw.computeQuadraticArcsBatch === 'function' &&
+    typeof raw.computeArcsBatch === 'function' &&
     typeof raw.decodeGeobufRingMercator === 'function' &&
     typeof raw.decodeLocationDictBatch === 'function'
   );
@@ -153,6 +196,8 @@ function setupRuntime(instance: WebAssembly.Instance): WasmRuntime | null {
   let f32 = new Float32Array(cachedBuffer);
   let f64 = new Float64Array(cachedBuffer);
   let i32 = new Int32Array(cachedBuffer);
+  let u16 = new Uint16Array(cachedBuffer);
+  let i16 = new Int16Array(cachedBuffer);
   let u8 = new Uint8Array(cachedBuffer);
 
   // Copy MERCATOR_Y_LOOKUP into static LUT region once
@@ -164,10 +209,14 @@ function setupRuntime(instance: WebAssembly.Instance): WasmRuntime | null {
       f32 = new Float32Array(cachedBuffer);
       f64 = new Float64Array(cachedBuffer);
       i32 = new Int32Array(cachedBuffer);
+      u16 = new Uint16Array(cachedBuffer);
+      i16 = new Int16Array(cachedBuffer);
       u8 = new Uint8Array(cachedBuffer);
       rt.f32 = f32;
       rt.f64 = f64;
       rt.i32 = i32;
+      rt.u16 = u16;
+      rt.i16 = i16;
       rt.u8 = u8;
     }
   };
@@ -200,6 +249,8 @@ function setupRuntime(instance: WebAssembly.Instance): WasmRuntime | null {
     f32,
     f64,
     i32,
+    u16,
+    i16,
     u8,
     arenaEpoch: globalEpoch,
     ensureCapacity,
@@ -223,13 +274,7 @@ function setupRuntime(instance: WebAssembly.Instance): WasmRuntime | null {
   return rt;
 }
 
-const WASM_IMPORTS: WebAssembly.Imports = {
-  env: {
-    abort: () => {
-      // No-op abort handler for AssemblyScript stub runtime
-    },
-  },
-};
+const WASM_IMPORTS: WebAssembly.Imports = {};
 
 async function instantiateFromUrl(
   url: string | URL
@@ -283,8 +328,14 @@ export async function initWasm(
         return false;
       }
       runtime = setupRuntime(instance);
+      if (runtime === null && source === undefined && initPromise === task) {
+        initPromise = null;
+      }
       return runtime !== null;
     } catch {
+      if (source === undefined && initPromise === task) {
+        initPromise = null;
+      }
       return false;
     }
   })();

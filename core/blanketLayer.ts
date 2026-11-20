@@ -8,7 +8,7 @@ export type BlanketDrawCallback = (
   isInteracting: boolean
 ) => void;
 
-export interface BlanketCanvasLayerOptions {
+export interface BlanketLayerOptions {
   zIndex?: number;
   maxDpr?: number;
   interactionMaxDpr?: number;
@@ -17,12 +17,11 @@ export interface BlanketCanvasLayerOptions {
   onDraw: BlanketDrawCallback;
 }
 
-const DEFAULT_INTERACTION_IDLE_DELAY_MS = 140;
+const IDLE_DELAY_MS = 140;
 
 /**
- * ES6 class renderer inspired by Leaflet 2.0's BlanketOverlay.
- * Manages a DPR-aware <canvas>, rAF coalescing, and optional interaction
- * downsampling independently of any UI framework.
+ * Framework-agnostic 2D canvas layer renderer managing a DPR-aware `<canvas>`,
+ * rAF redraw coalescing, and optional interaction downsampling.
  */
 export class BlanketCanvasLayer implements MapLayerRenderer {
   private canvas: HTMLCanvasElement | null = null;
@@ -40,18 +39,18 @@ export class BlanketCanvasLayer implements MapLayerRenderer {
 
   private rafId = 0;
   private isInteracting = false;
-  private renderedLowDetail = false;
+  private renderedDuringInteraction = false;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private lastInteractionAt = 0;
   private lowResCanvas: HTMLCanvasElement | null = null;
   private lowResCtx: CanvasRenderingContext2D | null = null;
 
-  constructor(options: BlanketCanvasLayerOptions) {
+  constructor(options: BlanketLayerOptions) {
     this.zIndex = options.zIndex ?? 100;
     this.maxDpr = options.maxDpr ?? 2;
     this.interactionMaxDpr = options.interactionMaxDpr;
     this.interactionIdleDelayMs =
-      options.interactionIdleDelayMs ?? DEFAULT_INTERACTION_IDLE_DELAY_MS;
+      options.interactionIdleDelayMs ?? IDLE_DELAY_MS;
     this.className = options.className ?? '';
     this.onDraw = options.onDraw;
   }
@@ -100,7 +99,7 @@ export class BlanketCanvasLayer implements MapLayerRenderer {
     this.renderFrame();
   }
 
-  setOptions(partial: Partial<BlanketCanvasLayerOptions>): void {
+  setOptions(partial: Partial<BlanketLayerOptions>): void {
     if (partial.onDraw !== undefined) this.onDraw = partial.onDraw;
     if (partial.maxDpr !== undefined) this.maxDpr = partial.maxDpr;
     if ('interactionMaxDpr' in partial) {
@@ -156,7 +155,7 @@ export class BlanketCanvasLayer implements MapLayerRenderer {
     this.camera = null;
     this.ownsCanvas = false;
     this.isInteracting = false;
-    this.renderedLowDetail = false;
+    this.renderedDuringInteraction = false;
   }
 
   private releaseLowResCanvas(): void {
@@ -176,18 +175,17 @@ export class BlanketCanvasLayer implements MapLayerRenderer {
         this.idleTimer = null;
       }
       this.isInteracting = false;
-      this.renderedLowDetail = false;
+      this.renderedDuringInteraction = false;
+      this.releaseLowResCanvas();
       this.scheduleRedraw();
       return;
     }
     this.isInteracting = true;
     this.lastInteractionAt = performance.now();
-    if (this.idleTimer === null) {
-      this.idleTimer = setTimeout(
-        () => this.onIdleTimeout(),
-        this.interactionIdleDelayMs
-      );
-    }
+    this.idleTimer ??= setTimeout(
+      () => this.onIdleTimeout(),
+      this.interactionIdleDelayMs
+    );
     this.scheduleRedraw();
   }
 
@@ -200,8 +198,9 @@ export class BlanketCanvasLayer implements MapLayerRenderer {
     }
     this.idleTimer = null;
     this.isInteracting = false;
-    if (this.renderedLowDetail) {
-      this.renderedLowDetail = false;
+    this.releaseLowResCanvas();
+    if (this.renderedDuringInteraction) {
+      this.renderedDuringInteraction = false;
       this.scheduleRedraw();
     }
   }
@@ -255,7 +254,7 @@ export class BlanketCanvasLayer implements MapLayerRenderer {
         this.ctx.clearRect(0, 0, state.width, state.height);
         this.ctx.drawImage(this.lowResCanvas, 0, 0, state.width, state.height);
         this.ctx.restore();
-        this.renderedLowDetail = true;
+        this.renderedDuringInteraction = true;
         return;
       }
     }
@@ -265,6 +264,6 @@ export class BlanketCanvasLayer implements MapLayerRenderer {
     this.ctx.clearRect(0, 0, state.width, state.height);
     this.onDraw(this.ctx, state, this.camera, this.isInteracting);
     this.ctx.restore();
-    this.renderedLowDetail = this.isInteracting;
+    this.renderedDuringInteraction = this.isInteracting;
   }
 }

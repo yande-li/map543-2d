@@ -3,13 +3,10 @@ import {
   decimateStaticRings,
   StaticGeometryHandle,
 } from './batch';
-import { getWasmRuntime } from '../wasm/wasmBridge';
+import { getWasmRuntime } from '../wasm/bridge';
 
 export type ZoomControlPosition =
-  | 'top-left'
-  | 'top-right'
-  | 'bottom-left'
-  | 'bottom-right';
+  'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 
 export interface VectorLodOptions {
   /** Base screen-space decimation step in CSS pixels (default: 0.75). */
@@ -25,7 +22,7 @@ export interface VectorLodOptions {
 /**
  * Computes the effective decimation step in CSS pixels for the current frame.
  */
-export function computeEffectivePixelStep(
+export function getPixelStep(
   isInteracting: boolean,
   basePixelStep = 0.75,
   interactionPixelStep = 6
@@ -52,7 +49,7 @@ export function shouldSkipLayer(
 /**
  * Returns true if a feature's bounding box is smaller than minPx in both axes during interaction.
  */
-export function shouldCullFeatureOnInteract(
+export function shouldCullFeature(
   minLon: number,
   maxLon: number,
   minLat: number,
@@ -63,8 +60,7 @@ export function shouldCullFeatureOnInteract(
 ): boolean {
   if (!isInteracting || minPx <= 0) return false;
   return (
-    (maxLon - minLon) * pxPerDeg < minPx &&
-    (maxLat - minLat) * pxPerDeg < minPx
+    (maxLon - minLon) * pxPerDeg < minPx && (maxLat - minLat) * pxPerDeg < minPx
   );
 }
 
@@ -93,7 +89,7 @@ function traceCanvasRings(
 /**
  * Decimates packed WGS84 rings into screen-space coordinates and traces them onto a 2D canvas.
  */
-export function traceDecimatedFeature(
+export function drawDecimatedRings(
   ctx: CanvasRenderingContext2D,
   packedXY: Float32Array,
   ringLengths: Int32Array,
@@ -126,7 +122,7 @@ export function traceDecimatedFeature(
  * Decimates rings already resident in the WASM static arena and traces them onto a 2D canvas.
  * Returns true if traced via static handle, false if handle is missing/expired.
  */
-export function traceDecimatedStaticFeature(
+export function drawStaticRings(
   ctx: CanvasRenderingContext2D,
   handle: StaticGeometryHandle,
   scale: number,
@@ -160,29 +156,43 @@ export function traceDecimatedStaticFeature(
   return true;
 }
 
-/**
- * Zero-copy-out variant: decimates static arena rings and reads output directly from
- * WASM linear memory views (rt.f32 / rt.i32) with zero JS scratch allocation or TypedArray.set copies.
- */
-export function traceStaticRingsDirect(
+type DecimateKernelFn = (
+  ringCount: number,
+  inXYOffset: number,
+  ringLengthsOffset: number,
+  outXYOffset: number,
+  outRingLengthsOffset: number,
+  scale: number,
+  offsetX: number,
+  offsetY: number,
+  pixelStep: number
+) => number;
+
+function drawStaticDirectWith(
   ctx: CanvasRenderingContext2D,
   handle: StaticGeometryHandle,
   scale: number,
   offsetX: number,
   offsetY: number,
   pixelStep: number,
-  closePath: boolean
+  closePath: boolean,
+  selectKernel: (
+    rt: NonNullable<ReturnType<typeof getWasmRuntime>>
+  ) => DecimateKernelFn | undefined
 ): boolean {
   if (handle.ringCount <= 0) return false;
   const rt = getWasmRuntime();
   if (rt === null || handle.epoch !== rt.arenaEpoch) return false;
+
+  const kernel = selectKernel(rt);
+  if (!kernel) return false;
 
   const outXYOffset = rt.getScratchBase();
   const outLenOffset = outXYOffset + handle.totalInFloats * 4;
   const totalBytes = outLenOffset + handle.ringCount * 4;
   if (!rt.ensureCapacity(totalBytes)) return false;
 
-  const outFloats = rt.exports.decimateRingsBatch(
+  const outFloats = kernel(
     handle.ringCount,
     handle.xyOffset,
     handle.lenOffset,
@@ -205,4 +215,53 @@ export function traceStaticRingsDirect(
     closePath
   );
   return true;
+}
+
+/**
+ * Zero-copy-out variant: decimates static arena rings and reads output directly from
+ * WASM linear memory views (rt.f32 / rt.i32) with zero JS scratch allocation or TypedArray.set copies.
+ */
+export function drawStaticDirect(
+  ctx: CanvasRenderingContext2D,
+  handle: StaticGeometryHandle,
+  scale: number,
+  offsetX: number,
+  offsetY: number,
+  pixelStep: number,
+  closePath: boolean
+): boolean {
+  return drawStaticDirectWith(
+    ctx,
+    handle,
+    scale,
+    offsetX,
+    offsetY,
+    pixelStep,
+    closePath,
+    (rt) => rt.exports.decimateRingsBatch
+  );
+}
+
+/**
+ * Optional Uint16 variant of `drawStaticDirect` for 50% static arena RAM reduction.
+ */
+export function drawStaticU16Direct(
+  ctx: CanvasRenderingContext2D,
+  handle: StaticGeometryHandle,
+  scale: number,
+  offsetX: number,
+  offsetY: number,
+  pixelStep: number,
+  closePath: boolean
+): boolean {
+  return drawStaticDirectWith(
+    ctx,
+    handle,
+    scale,
+    offsetX,
+    offsetY,
+    pixelStep,
+    closePath,
+    (rt) => rt.exports.decimateRingsBatchU16
+  );
 }

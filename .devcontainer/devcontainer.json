@@ -1,9 +1,7 @@
 {
   "name": "map543-2d",
   "image": "mcr.microsoft.com/devcontainers/typescript-node:24-trixie",
-  "mounts": [
-    "source=map543-npm-cache,target=/home/node/.npm,type=volume"
-  ],
+  "mounts": ["source=map543-npm-cache,target=/home/node/.npm,type=volume"],
   "customizations": {
     "vscode": {
       "extensions": [

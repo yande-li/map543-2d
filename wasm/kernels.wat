@@ -11,149 +11,19 @@
  (type $9 (func (param i32 i32 i32 i32 i32 i32) (result i32)))
  (type $10 (func (param i32 i32 i32 i32 i32 i32 f64 i32) (result i32)))
  (type $11 (func (param i32 i32 i32 i32 i32 i32 i32) (result i32)))
- (import "env" "abort" (func $~lib/builtins/abort (param i32 i32 i32 i32)))
- (global $~lib/rt/stub/offset (mut i32) (i32.const 0))
- (global $~lib/rt/__rtti_base i32 (i32.const 1168))
  (memory $0 8 512)
- (data $0 (i32.const 1036) "<")
- (data $0.1 (i32.const 1048) "\02\00\00\00(\00\00\00A\00l\00l\00o\00c\00a\00t\00i\00o\00n\00 \00t\00o\00o\00 \00l\00a\00r\00g\00e")
- (data $1 (i32.const 1100) "<")
- (data $1.1 (i32.const 1112) "\02\00\00\00\1e\00\00\00~\00l\00i\00b\00/\00r\00t\00/\00s\00t\00u\00b\00.\00t\00s")
- (data $2 (i32.const 1168) "\04\00\00\00 \00\00\00 \00\00\00 ")
  (export "findNearestPointBatch" (func $wasm/kernels/findNearestPointBatch))
  (export "batchProjectMercator" (func $wasm/kernels/batchProjectMercator))
  (export "decimateRingsBatch" (func $wasm/kernels/decimateRingsBatch))
  (export "cleanSeamRingBatch" (func $wasm/kernels/cleanSeamRingBatch))
- (export "computeQuadraticArcsBatch" (func $wasm/kernels/computeQuadraticArcsBatch))
+ (export "computeArcsBatch" (func $wasm/kernels/computeArcsBatch))
  (export "decodeGeobufRingMercator" (func $wasm/kernels/decodeGeobufRingMercator))
  (export "decodeLocationDictBatch" (func $wasm/kernels/decodeLocationDictBatch))
- (export "projectInterleavedMercator" (func $wasm/kernels/projectInterleavedMercator))
- (export "__new" (func $~lib/rt/stub/__new))
- (export "__pin" (func $~lib/rt/stub/__pin))
- (export "__unpin" (func $~lib/rt/stub/__unpin))
- (export "__collect" (func $~lib/rt/stub/__collect))
- (export "__rtti_base" (global $~lib/rt/__rtti_base))
+ (export "projectMercator" (func $wasm/kernels/projectMercator))
+ (export "decimateRingsBatchU16" (func $wasm/kernels/decimateRingsBatchU16))
+ (export "batchProjectMercatorI16" (func $wasm/kernels/batchProjectMercatorI16))
+ (export "findNearestPointBatchI16" (func $wasm/kernels/findNearestPointBatchI16))
  (export "memory" (memory $0))
- (start $~start)
- (func $~start
-  i32.const 1196
-  global.set $~lib/rt/stub/offset
- )
- (func $~lib/rt/stub/__unpin (param $0 i32)
- )
- (func $~lib/rt/stub/__pin (param $0 i32) (result i32)
-  local.get $0
- )
- (func $~lib/rt/stub/__new (param $0 i32) (param $1 i32) (result i32)
-  (local $2 i32)
-  (local $3 i32)
-  (local $4 i32)
-  (local $5 i32)
-  (local $6 i32)
-  local.get $0
-  i32.const 1073741804
-  i32.gt_u
-  if
-   i32.const 1056
-   i32.const 1120
-   i32.const 86
-   i32.const 30
-   call $~lib/builtins/abort
-   unreachable
-  end
-  local.get $0
-  i32.const 16
-  i32.add
-  local.tee $3
-  i32.const 1073741820
-  i32.gt_u
-  if
-   i32.const 1056
-   i32.const 1120
-   i32.const 33
-   i32.const 29
-   call $~lib/builtins/abort
-   unreachable
-  end
-  global.get $~lib/rt/stub/offset
-  i32.const 4
-  i32.add
-  local.tee $2
-  local.get $3
-  i32.const 19
-  i32.add
-  i32.const -16
-  i32.and
-  i32.const 4
-  i32.sub
-  local.tee $3
-  i32.add
-  local.tee $4
-  memory.size
-  local.tee $5
-  i32.const 16
-  i32.shl
-  i32.const 15
-  i32.add
-  i32.const -16
-  i32.and
-  local.tee $6
-  i32.gt_u
-  if
-   local.get $5
-   local.get $4
-   local.get $6
-   i32.sub
-   i32.const 65535
-   i32.add
-   i32.const -65536
-   i32.and
-   i32.const 16
-   i32.shr_u
-   local.tee $6
-   local.get $5
-   local.get $6
-   i32.gt_s
-   select
-   memory.grow
-   i32.const 0
-   i32.lt_s
-   if
-    local.get $6
-    memory.grow
-    i32.const 0
-    i32.lt_s
-    if
-     unreachable
-    end
-   end
-  end
-  global.get $~lib/rt/stub/offset
-  local.get $4
-  global.set $~lib/rt/stub/offset
-  local.get $3
-  i32.store
-  local.get $2
-  i32.const 4
-  i32.sub
-  local.tee $3
-  i32.const 0
-  i32.store offset=4
-  local.get $3
-  i32.const 0
-  i32.store offset=8
-  local.get $3
-  local.get $1
-  i32.store offset=12
-  local.get $3
-  local.get $0
-  i32.store offset=16
-  local.get $2
-  i32.const 16
-  i32.add
- )
- (func $~lib/rt/stub/__collect
- )
  (func $wasm/kernels/findNearestPointBatch (param $0 f32) (param $1 f32) (param $2 f32) (param $3 i32) (param $4 i32) (param $5 i32) (param $6 i32) (param $7 f32) (param $8 f32) (param $9 f32) (param $10 f32) (param $11 f32) (result i32)
   (local $12 i32)
   (local $13 i32)
@@ -846,7 +716,7 @@
   end
   local.get $15
  )
- (func $wasm/kernels/computeQuadraticArcsBatch (type $9)
+ (func $wasm/kernels/computeArcsBatch (type $9)
   (param $count i32) (param $srcLatsOff i32) (param $srcLonsOff i32) (param $dstLatsOff i32) (param $dstLonsOff i32) (param $outOff i32) (result i32)
   (local $a i32) (local $i i32) (local $outCursor i32)
   (local $sLat f32) (local $sLon f32) (local $dLatVal f32) (local $dLonVal f32)
@@ -991,7 +861,7 @@
      (br $loc_loop))))
   (local.get $locCount)
  )
- (func $wasm/kernels/projectInterleavedMercator
+ (func $wasm/kernels/projectMercator
   (param $ptCount i32) (param $lutOff i32) (param $inLatLonOff i32) (param $outXYOff i32) (param $centerNormX f32) (param $centerNormY f32) (param $worldSize f32) (param $halfW f32) (param $halfH f32) (result i32)
   (local $i i32) (local $inPtr i32) (local $outPtr i32) (local $lat f32) (local $lon f32)
   (local $clampedLat f32) (local $idxFull f32) (local $idx i32) (local $lutPtr i32)
@@ -1041,5 +911,459 @@
      (local.set $i (i32.add (local.get $i) (i32.const 1)))
      (br $pt_loop))))
   (local.get $ptCount)
+ )
+ (func $wasm/kernels/decimateRingsBatchU16 (param $ringCount i32) (param $inXYPtr i32) (param $ringLensPtr i32) (param $outXYPtr i32) (param $outLensPtr i32) (param $scale f32) (param $offsetX f32) (param $offsetY f32) (param $pixelStep f32) (result i32)
+  (local $normStepU16 i32)
+  (local $scaleNorm f32)
+  (local $lastNx i32)
+  (local $lastNy i32)
+  (local $nx i32)
+  (local $ny i32)
+  (local $dx i32)
+  (local $dy i32)
+  (local $r i32)
+  (local $ringLen i32)
+  (local $inPtr i32)
+  (local $ringEndPtr i32)
+  (local $lastPtPtr i32)
+  (local $outPtr i32)
+  (local $outRingFloats i32)
+  (local $totalOutFloats i32)
+  (if (i32.le_s (local.get $ringCount) (i32.const 0))
+   (then (return (i32.const 0)))
+  )
+  (if (f32.gt (local.get $scale) (f32.const 0))
+   (then
+    (local.set $normStepU16 (i32.trunc_sat_f32_s (f32.div (f32.mul (local.get $pixelStep) (f32.const 65535)) (local.get $scale))))
+   )
+   (else
+    (local.set $normStepU16 (i32.const 0))
+   )
+  )
+  (local.set $scaleNorm (f32.div (local.get $scale) (f32.const 65535)))
+  (local.set $inPtr (local.get $inXYPtr))
+  (local.set $outPtr (local.get $outXYPtr))
+  (local.set $r (i32.const 0))
+  (local.set $totalOutFloats (i32.const 0))
+  (loop $ring_loop
+   (if (i32.lt_s (local.get $r) (local.get $ringCount))
+    (then
+     (local.set $ringLen
+      (i32.load (i32.add (local.get $ringLensPtr) (i32.shl (local.get $r) (i32.const 2))))
+     )
+     (if (i32.lt_s (local.get $ringLen) (i32.const 2))
+      (then
+       (i32.store
+        (i32.add (local.get $outLensPtr) (i32.shl (local.get $r) (i32.const 2)))
+        (i32.const 0)
+       )
+       (if (i32.gt_s (local.get $ringLen) (i32.const 0))
+        (then
+         (local.set $inPtr
+          (i32.add (local.get $inPtr) (i32.shl (local.get $ringLen) (i32.const 1)))
+         )
+        )
+       )
+      )
+      (else
+       (local.set $ringEndPtr
+        (i32.add (local.get $inPtr) (i32.shl (local.get $ringLen) (i32.const 1)))
+       )
+       (local.set $lastPtPtr (i32.sub (local.get $ringEndPtr) (i32.const 4)))
+       (local.set $lastNx (i32.load16_u (local.get $inPtr)))
+       (local.set $lastNy (i32.load16_u offset=2 (local.get $inPtr)))
+       (f32.store
+        (local.get $outPtr)
+        (f32.sub (f32.mul (f32.convert_i32_u (local.get $lastNx)) (local.get $scaleNorm)) (local.get $offsetX))
+       )
+       (f32.store offset=4
+        (local.get $outPtr)
+        (f32.sub (f32.mul (f32.convert_i32_u (local.get $lastNy)) (local.get $scaleNorm)) (local.get $offsetY))
+       )
+       (local.set $outPtr (i32.add (local.get $outPtr) (i32.const 8)))
+       (local.set $outRingFloats (i32.const 2))
+       (local.set $inPtr (i32.add (local.get $inPtr) (i32.const 4)))
+       (loop $pt_loop
+        (if (i32.lt_u (local.get $inPtr) (local.get $ringEndPtr))
+         (then
+          (local.set $nx (i32.load16_u (local.get $inPtr)))
+          (local.set $ny (i32.load16_u offset=2 (local.get $inPtr)))
+          (local.set $dx (i32.sub (local.get $nx) (local.get $lastNx)))
+          (local.set $dx (select (local.get $dx) (i32.sub (i32.const 0) (local.get $dx)) (i32.ge_s (local.get $dx) (i32.const 0))))
+          (local.set $dy (i32.sub (local.get $ny) (local.get $lastNy)))
+          (local.set $dy (select (local.get $dy) (i32.sub (i32.const 0) (local.get $dy)) (i32.ge_s (local.get $dy) (i32.const 0))))
+          (if
+           (i32.or
+            (i32.eq (local.get $inPtr) (local.get $lastPtPtr))
+            (i32.or
+             (i32.ge_s (local.get $dx) (local.get $normStepU16))
+             (i32.ge_s (local.get $dy) (local.get $normStepU16))
+            )
+           )
+           (then
+            (f32.store
+             (local.get $outPtr)
+             (f32.sub (f32.mul (f32.convert_i32_u (local.get $nx)) (local.get $scaleNorm)) (local.get $offsetX))
+            )
+            (f32.store offset=4
+             (local.get $outPtr)
+             (f32.sub (f32.mul (f32.convert_i32_u (local.get $ny)) (local.get $scaleNorm)) (local.get $offsetY))
+            )
+            (local.set $outPtr (i32.add (local.get $outPtr) (i32.const 8)))
+            (local.set $outRingFloats (i32.add (local.get $outRingFloats) (i32.const 2)))
+            (local.set $lastNx (local.get $nx))
+            (local.set $lastNy (local.get $ny))
+           )
+          )
+          (local.set $inPtr (i32.add (local.get $inPtr) (i32.const 4)))
+          (br $pt_loop)
+         )
+        )
+       )
+       (i32.store
+        (i32.add (local.get $outLensPtr) (i32.shl (local.get $r) (i32.const 2)))
+        (local.get $outRingFloats)
+       )
+       (local.set $totalOutFloats
+        (i32.add (local.get $totalOutFloats) (local.get $outRingFloats))
+       )
+       (local.set $inPtr (local.get $ringEndPtr))
+      )
+     )
+     (local.set $r (i32.add (local.get $r) (i32.const 1)))
+     (br $ring_loop)
+    )
+   )
+  )
+  (local.get $totalOutFloats)
+ )
+ (func $wasm/kernels/batchProjectMercatorI16 (param $0 i32) (param $1 i32) (param $2 i32) (param $3 i32) (param $4 i32) (param $5 i32) (param $6 f32) (param $7 f32) (param $8 f32) (param $9 f32) (param $10 f32) (param $11 f32) (param $12 f32) (param $13 f32) (param $14 f32) (result i32)
+  (local $15 i32)
+  (local $16 i32)
+  (local $17 i32)
+  (local $18 f32)
+  (local $19 f32)
+  (local $20 f32)
+  (local $21 i32)
+  (local $22 f32)
+  local.get $0
+  i32.const 0
+  i32.le_s
+  if
+   i32.const 0
+   return
+  end
+  loop $for-loop|0
+   local.get $0
+   local.get $17
+   i32.gt_s
+   if
+    local.get $17
+    i32.const 1
+    i32.shl
+    local.tee $16
+    local.get $3
+    i32.add
+    i32.load16_s
+    f32.convert_i32_s
+    f32.const 0.005493331705679494
+    f32.mul
+    f32.const 180
+    f32.add
+    f32.const 2.7777778450399637e-03
+    f32.mul
+    local.get $6
+    f32.sub
+    local.get $8
+    f32.mul
+    local.get $9
+    f32.add
+    local.tee $18
+    local.get $11
+    f32.ge
+    local.get $13
+    local.get $18
+    f32.ge
+    i32.and
+    if
+     block $clampLat (result f32)
+      f32.const 85.05113220214844
+      local.get $2
+      local.get $16
+      i32.add
+      i32.load16_s
+      f32.convert_i32_s
+      f32.const 0.002746665852839747
+      f32.mul
+      local.tee $19
+      f32.const 85.05113220214844
+      f32.gt
+      br_if $clampLat
+      drop
+      f32.const -85.05113220214844
+      local.get $19
+      f32.const -85.05113220214844
+      f32.lt
+      br_if $clampLat
+      drop
+      local.get $19
+     end
+     local.tee $19
+     f32.neg
+     local.get $19
+     local.get $19
+     f32.const 0
+     f32.lt
+     select
+     f32.const 60
+     f32.mul
+     local.tee $20
+     i32.trunc_sat_f32_s
+     local.tee $16
+     i32.const 5400
+     i32.ge_s
+     if
+      i32.const 5399
+      local.set $16
+     end
+     f32.const 0.5
+     local.get $1
+     local.get $16
+     i32.const 2
+     i32.shl
+     i32.add
+     local.tee $21
+     f32.load
+     local.tee $22
+     local.get $21
+     f32.load offset=4
+     local.get $22
+     f32.sub
+     local.get $20
+     local.get $16
+     f32.convert_i32_s
+     f32.sub
+     f32.mul
+     f32.add
+     local.tee $20
+     f32.neg
+     local.get $20
+     local.get $19
+     f32.const 0
+     f32.lt
+     select
+     f32.const 0.15915493667125702
+     f32.mul
+     f32.sub
+     local.get $7
+     f32.sub
+     local.get $8
+     f32.mul
+     local.get $10
+     f32.add
+     local.tee $19
+     local.get $12
+     f32.ge
+     local.get $14
+     local.get $19
+     f32.ge
+     i32.and
+     if
+      local.get $4
+      local.get $15
+      i32.const 3
+      i32.shl
+      i32.add
+      local.tee $16
+      local.get $18
+      f32.store
+      local.get $16
+      local.get $19
+      f32.store offset=4
+      local.get $5
+      local.get $15
+      i32.const 2
+      i32.shl
+      i32.add
+      local.get $17
+      i32.store
+      local.get $15
+      i32.const 1
+      i32.add
+      local.set $15
+     end
+    end
+    local.get $17
+    i32.const 1
+    i32.add
+    local.set $17
+    br $for-loop|0
+   end
+  end
+  local.get $15
+ )
+ (func $wasm/kernels/findNearestPointBatchI16 (param $0 f32) (param $1 f32) (param $2 f32) (param $3 i32) (param $4 i32) (param $5 i32) (param $6 i32) (param $7 f32) (param $8 f32) (param $9 f32) (param $10 f32) (param $11 f32) (result i32)
+  (local $12 i32)
+  (local $13 i32)
+  (local $14 i32)
+  (local $15 i32)
+  (local $16 f32)
+  (local $17 f32)
+  (local $18 f32)
+  local.get $3
+  i32.const 0
+  i32.le_s
+  local.get $2
+  f32.const 0
+  f32.lt
+  i32.or
+  if
+   i32.const -1
+   return
+  end
+  i32.const -1
+  local.set $13
+  loop $for-loop|0
+   local.get $3
+   local.get $12
+   i32.gt_s
+   if
+    local.get $12
+    i32.const 1
+    i32.shl
+    local.tee $14
+    local.get $6
+    i32.add
+    i32.load16_s
+    f32.convert_i32_s
+    f32.const 0.005493331705679494
+    f32.mul
+    f32.const 180
+    f32.add
+    f32.const 2.7777778450399637e-03
+    f32.mul
+    local.get $7
+    f32.sub
+    local.get $9
+    f32.mul
+    local.get $10
+    f32.add
+    local.get $0
+    f32.sub
+    local.tee $16
+    local.get $16
+    f32.mul
+    local.tee $16
+    local.get $2
+    f32.le
+    if
+     block $clampLat (result f32)
+      f32.const 85.05113220214844
+      local.get $5
+      local.get $14
+      i32.add
+      i32.load16_s
+      f32.convert_i32_s
+      f32.const 0.002746665852839747
+      f32.mul
+      local.tee $17
+      f32.const 85.05113220214844
+      f32.gt
+      br_if $clampLat
+      drop
+      f32.const -85.05113220214844
+      local.get $17
+      f32.const -85.05113220214844
+      f32.lt
+      br_if $clampLat
+      drop
+      local.get $17
+     end
+     local.tee $17
+     f32.neg
+     local.get $17
+     local.get $17
+     f32.const 0
+     f32.lt
+     select
+     f32.const 60
+     f32.mul
+     local.tee $18
+     i32.trunc_sat_f32_s
+     local.tee $14
+     i32.const 5400
+     i32.ge_s
+     if
+      i32.const 5399
+      local.set $14
+     end
+     f32.const 0.5
+     local.get $4
+     local.get $14
+     i32.const 2
+     i32.shl
+     i32.add
+     local.tee $15
+     f32.load
+     local.tee $18
+     local.get $15
+     f32.load offset=4
+     local.get $18
+     f32.sub
+     local.get $17
+     f32.neg
+     local.get $17
+     local.get $17
+     f32.const 0
+     f32.lt
+     select
+     f32.const 60
+     f32.mul
+     local.get $14
+     f32.convert_i32_s
+     f32.sub
+     f32.mul
+     f32.add
+     local.tee $18
+     f32.neg
+     local.get $18
+     local.get $17
+     f32.const 0
+     f32.lt
+     select
+     f32.const 0.15915493667125702
+     f32.mul
+     f32.sub
+     local.get $8
+     f32.sub
+     local.get $9
+     f32.mul
+     local.get $11
+     f32.add
+     local.get $1
+     f32.sub
+     local.tee $17
+     local.get $17
+     f32.mul
+     local.get $16
+     f32.add
+     local.tee $16
+     local.get $2
+     f32.le
+     if
+      local.get $12
+      local.set $13
+      local.get $16
+      local.set $2
+     end
+    end
+    local.get $12
+    i32.const 1
+    i32.add
+    local.set $12
+    br $for-loop|0
+   end
+  end
+  local.get $13
  )
 )

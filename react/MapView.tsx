@@ -5,19 +5,11 @@ import React, {
   useCallback,
   useState,
 } from 'react';
-import { Camera } from '../core/camera';
-import {
-  Projection,
-  LatLng,
-  ProjectionType,
-} from '../core/projection';
+import { Camera, type CameraConstraints } from '../core/camera';
+import { Projection, LatLng, ProjectionType } from '../core/projection';
 import { ZoomControlPosition } from '../core/vectorLod';
-import { attachViewportInteractions } from '../core/interactions';
-import {
-  MapContextValue,
-  MapProvider,
-  MapClickListener,
-} from './MapContext';
+import { attachInteractions } from '../core/interactions';
+import { MapContextValue, MapProvider, MapClickListener } from './MapContext';
 
 export interface MapViewProps {
   center?: LatLng;
@@ -55,6 +47,114 @@ export interface MapViewProps {
   /** Sync external center/zoom prop updates to camera after initial mount. */
   syncViewOnPropsChange?: boolean;
   children?: React.ReactNode;
+}
+
+interface ZoomControlsProps {
+  position: ZoomControlPosition;
+  zoomInLabel: string;
+  zoomOutLabel: string;
+  canZoomIn: boolean;
+  canZoomOut: boolean;
+  onZoomIn: (e: React.MouseEvent) => void;
+  onZoomOut: (e: React.MouseEvent) => void;
+}
+
+const ZoomControls: React.FC<ZoomControlsProps> = ({
+  position,
+  zoomInLabel,
+  zoomOutLabel,
+  canZoomIn,
+  canZoomOut,
+  onZoomIn,
+  onZoomOut,
+}) => (
+  <div
+    className={`geo-zoom-controls ${position}`}
+    onPointerDown={(e) => e.stopPropagation()}
+    onDoubleClick={(e) => e.stopPropagation()}
+    style={{
+      position: 'absolute',
+      ...(position.startsWith('top-') ? { top: '16px' } : { bottom: '16px' }),
+      ...(position.endsWith('-left') ? { left: '16px' } : { right: '16px' }),
+      zIndex: 800,
+      display: 'flex',
+      flexDirection: 'column',
+    }}
+  >
+    <button
+      type="button"
+      className="geo-zoom-btn geo-zoom-in"
+      aria-label={zoomInLabel}
+      disabled={!canZoomIn}
+      onClick={onZoomIn}
+    >
+      +
+    </button>
+    <button
+      type="button"
+      className="geo-zoom-btn geo-zoom-out"
+      aria-label={zoomOutLabel}
+      disabled={!canZoomOut}
+      onClick={onZoomOut}
+    >
+      −
+    </button>
+  </div>
+);
+
+function buildCameraConstraints(opts: {
+  minZoom: number;
+  maxZoom: number;
+  maxBounds: [LatLng, LatLng] | undefined;
+  referenceWidth: number | undefined;
+  preserveViewportSpan: boolean;
+  projection: ProjectionType | Projection | undefined;
+  unlockFps: boolean;
+}): CameraConstraints {
+  return {
+    minZoom: opts.minZoom,
+    maxZoom: opts.maxZoom,
+    ...(opts.maxBounds ? { maxBounds: opts.maxBounds } : {}),
+    ...(opts.referenceWidth !== undefined
+      ? { referenceWidth: opts.referenceWidth }
+      : {}),
+    preserveViewportSpan: opts.preserveViewportSpan,
+    ...(opts.projection !== undefined ? { projection: opts.projection } : {}),
+    unlockFps: opts.unlockFps,
+  };
+}
+
+function buildContainerStyle(
+  interactive: boolean,
+  style?: React.CSSProperties
+): React.CSSProperties {
+  return {
+    position: 'relative',
+    width: '100%',
+    height: '100%',
+    overflow: 'hidden',
+    touchAction: interactive ? 'none' : 'auto',
+    userSelect: 'none',
+    cursor: interactive ? 'grab' : 'default',
+    ...style,
+  };
+}
+
+function getContainerA11yProps(
+  interactive: boolean,
+  keyboard: boolean,
+  ariaLabel: string
+): {
+  role?: 'region';
+  'aria-label'?: string;
+  tabIndex?: number;
+} {
+  if (!interactive) return {};
+  return {
+    role: 'region',
+    'aria-label': ariaLabel,
+    ...(keyboard ? { tabIndex: 0 } : {}),
+  };
 }
 
 export const MapView: React.FC<MapViewProps> = ({
@@ -101,27 +201,37 @@ export const MapView: React.FC<MapViewProps> = ({
       new Camera({
         center,
         zoom,
-        minZoom,
-        maxZoom,
-        ...(maxBounds ? { maxBounds } : {}),
-        ...(referenceWidth !== undefined ? { referenceWidth } : {}),
-        preserveViewportSpan,
-        ...(projection !== undefined ? { projection } : {}),
-        unlockFps,
+        ...buildCameraConstraints({
+          minZoom,
+          maxZoom,
+          maxBounds,
+          referenceWidth,
+          preserveViewportSpan,
+          projection,
+          unlockFps,
+        }),
       })
   );
 
+  const isFirstConstraintsMountRef = useRef(true);
+
   // Sync constraints without recreating camera
   useEffect(() => {
-    camera.setConstraints({
-      minZoom,
-      maxZoom,
-      ...(maxBounds ? { maxBounds } : {}),
-      ...(referenceWidth !== undefined ? { referenceWidth } : {}),
-      preserveViewportSpan,
-      ...(projection !== undefined ? { projection } : {}),
-      unlockFps,
-    });
+    if (isFirstConstraintsMountRef.current) {
+      isFirstConstraintsMountRef.current = false;
+      return;
+    }
+    camera.setConstraints(
+      buildCameraConstraints({
+        minZoom,
+        maxZoom,
+        maxBounds,
+        referenceWidth,
+        preserveViewportSpan,
+        projection,
+        unlockFps,
+      })
+    );
   }, [
     camera,
     minZoom,
@@ -143,16 +253,19 @@ export const MapView: React.FC<MapViewProps> = ({
     if (!syncViewOnPropsChange) return;
     if (!Number.isFinite(center[0]) || !Number.isFinite(center[1])) return;
     const last = lastSyncedViewRef.current;
-    if (last.lat === center[0] && last.lon === center[1] && last.zoom === zoom) {
+    if (
+      last.lat === center[0] &&
+      last.lon === center[1] &&
+      last.zoom === zoom
+    ) {
       return;
     }
     lastSyncedViewRef.current = { lat: center[0], lon: center[1], zoom };
     camera.setView(center, camera.getResponsiveZoom(zoom));
   }, [camera, syncViewOnPropsChange, center, zoom]);
 
-  // Subscribe onMove / onMoveEnd callbacks & zoom button disabled state (skip zoom-limit work when controls are disabled)
+  // Subscribe onMove callback & zoom button disabled state (skip zoom-limit work when controls are disabled)
   useEffect(() => {
-    let moveEndTimer: ReturnType<typeof setTimeout> | null = null;
     const syncZoomLimits = () => {
       if (!showZoomControls || !interactive) return;
       const s = camera.getState();
@@ -168,50 +281,41 @@ export const MapView: React.FC<MapViewProps> = ({
     if (showZoomControls && interactive) {
       syncZoomLimits();
     }
-    const unsubscribe = camera.subscribe(() => {
+    return camera.subscribe(() => {
       if (showZoomControls && interactive) {
         syncZoomLimits();
       }
       onMoveRef.current?.();
-      if (onMoveEndRef.current) {
-        if (moveEndTimer !== null) clearTimeout(moveEndTimer);
-        moveEndTimer = setTimeout(() => {
-          moveEndTimer = null;
-          onMoveEndRef.current?.();
-        }, moveEndDelayMs);
-      }
     });
-    return () => {
-      unsubscribe();
-      if (moveEndTimer !== null) clearTimeout(moveEndTimer);
-    };
-  }, [camera, showZoomControls, interactive, moveEndDelayMs]);
+  }, [camera, showZoomControls, interactive]);
 
-  // Attach framework-agnostic DOM viewport interactions (ResizeObserver, wheel, drag, pinch, dblclick, click)
+  // Attach framework-agnostic DOM viewport interactions (ResizeObserver, wheel, drag, pinch, dblclick, click, onMoveEnd)
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    return attachViewportInteractions(el, camera, {
+    return attachInteractions(el, camera, {
       interactive,
       keyboard,
       zoomDelta,
       observeResize: true,
+      moveEndDelayMs,
+      onMoveEnd: () => onMoveEndRef.current?.(),
       onClick: (px, py, latLng) => {
         for (const listener of clickListenersRef.current) {
           listener(px, py, latLng);
         }
       },
     });
-  }, [camera, interactive, keyboard, zoomDelta]);
+  }, [camera, interactive, keyboard, zoomDelta, moveEndDelayMs]);
 
   useEffect(() => {
     if (!gamepad || !interactive) return;
     let cleanup: (() => void) | undefined;
     let unmounted = false;
 
-    import('../core/gamepad').then(({ attachGamepadControls }) => {
+    import('../core/gamepad').then(({ attachGamepad }) => {
       if (!unmounted) {
-        cleanup = attachGamepadControls(camera);
+        cleanup = attachGamepad(camera);
       }
     });
 
@@ -259,59 +363,21 @@ export const MapView: React.FC<MapViewProps> = ({
     <MapProvider value={contextValue}>
       <div
         ref={containerRef}
-        role={interactive ? 'region' : undefined}
-        aria-label={interactive ? ariaLabel : undefined}
-        tabIndex={interactive && keyboard ? 0 : undefined}
-        className={`geo-map-container ${interactive ? 'is-interactive' : 'is-static'} ${className}`}
-        style={{
-          position: 'relative',
-          width: '100%',
-          height: '100%',
-          overflow: 'hidden',
-          touchAction: interactive ? 'none' : 'auto',
-          userSelect: 'none',
-          cursor: interactive ? 'grab' : 'default',
-          ...style,
-        }}
+        {...getContainerA11yProps(interactive, keyboard, ariaLabel)}
+        className={`geo-map-container ${interactive ? 'is-interactive' : 'is-static'} ${className}`.trim()}
+        style={buildContainerStyle(interactive, style)}
       >
         {children}
         {showZoomControls && interactive && (
-          <div
-            className={`geo-zoom-controls ${zoomControlPosition}`}
-            onPointerDown={(e) => e.stopPropagation()}
-            onDoubleClick={(e) => e.stopPropagation()}
-            style={{
-              position: 'absolute',
-              ...(zoomControlPosition.startsWith('top-')
-                ? { top: '16px' }
-                : { bottom: '16px' }),
-              ...(zoomControlPosition.endsWith('-left')
-                ? { left: '16px' }
-                : { right: '16px' }),
-              zIndex: 800,
-              display: 'flex',
-              flexDirection: 'column',
-            }}
-          >
-            <button
-              type="button"
-              className="geo-zoom-btn geo-zoom-in"
-              aria-label={zoomInLabel}
-              disabled={!zoomLimits.canZoomIn}
-              onClick={handleZoomIn}
-            >
-              +
-            </button>
-            <button
-              type="button"
-              className="geo-zoom-btn geo-zoom-out"
-              aria-label={zoomOutLabel}
-              disabled={!zoomLimits.canZoomOut}
-              onClick={handleZoomOut}
-            >
-              −
-            </button>
-          </div>
+          <ZoomControls
+            position={zoomControlPosition}
+            zoomInLabel={zoomInLabel}
+            zoomOutLabel={zoomOutLabel}
+            canZoomIn={zoomLimits.canZoomIn}
+            canZoomOut={zoomLimits.canZoomOut}
+            onZoomIn={handleZoomIn}
+            onZoomOut={handleZoomOut}
+          />
         )}
       </div>
     </MapProvider>

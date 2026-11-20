@@ -1,0 +1,6 @@
+dist/
+node_modules/
+data/
+wasm/*.wasm
+wasm/*.wat
+package-lock.json

@@ -35,7 +35,8 @@ function bench(name: string, fn: () => void, minTimeMs = 250): void {
     samples.sort((a, b) => a - b);
     const sum = samples.reduce((acc, v) => acc + v, 0);
     const meanMs = sum / samples.length;
-    const p99Ms = samples[Math.min(samples.length - 1, Math.floor(samples.length * 0.99))];
+    const p99Ms =
+      samples[Math.min(samples.length - 1, Math.floor(samples.length * 0.99))];
     const opsPerSec = meanMs > 0 ? 1000 / meanMs : Infinity;
 
     const stats: BenchStats = {
@@ -56,25 +57,31 @@ import {
   initWasm,
   resetWasmArena,
   uploadStaticRings,
-  traceStaticRingsDirect,
-  traceDecimatedFeature,
+  encodeNormU16,
+  uploadStaticRingsU16,
+  drawStaticDirect,
+  drawStaticU16Direct,
+  drawDecimatedRings,
   findNearestPoint,
-  findNearestPointFast,
+  hitTestPoints,
+  encodePointsToI16,
+  hitTestPointsI16,
   batchProjectPoints,
-  projectToNormalizedInto,
-  getWrappedViewportSlices,
-  computeQuadraticArc,
-  computeQuadraticArcsBatch,
+  batchProjectPointsI16,
+  latLngToNormInto,
+  getWrappedSlices,
+  computeArc,
+  computeArcsBatch,
   QUADRATIC_ARC_POINTS,
-  projectInterleavedMercator,
-  buildSvgPathFromFlatXY,
-  prepareTrajectoryBatch,
-  drawScreenTrajectoryBatch,
-  buildPointSpatialBuffers,
+  projectMercator,
+  xyToSvgPath,
+  prepareArcs,
+  drawTrajectories,
+  packPoints,
   drawBatchPoints,
   drawVectorLayers,
   cleanSeamRing,
-  parseGeobufToPreparedLayers,
+  parseGeobuf,
   type StaticGeometryHandle,
   type PreparedFeature,
   type Point2D,
@@ -88,12 +95,17 @@ import { getWasmRuntime, LUT_OFFSET_BYTES } from 'map543-2d/core';
 const wasmBytes = readFileSync(
   resolve(import.meta.dirname, '../wasm/kernels.wasm')
 );
+const defaultGzPath = resolve(
+  import.meta.dirname,
+  '../../../../../backend/internal/assets/maps/WorldMap-all.geobuf.gz'
+);
+const localGeobufPath = resolve(
+  import.meta.dirname,
+  '../data/WorldMap-all.geobuf'
+);
 const worldGeobufPath =
   process.env.WORLD_GEOBUF_PATH ??
-  resolve(
-    import.meta.dirname,
-    '../../../../../backend/internal/assets/maps/WorldMap-all.geobuf.gz'
-  );
+  (existsSync(defaultGzPath) ? defaultGzPath : localGeobufPath);
 
 const noopCtx = {
   moveTo: () => {},
@@ -131,6 +143,10 @@ const landHandles: Array<{
   feature: PreparedFeature;
   handle: StaticGeometryHandle;
 }> = [];
+const landHandlesU16: Array<{
+  feature: PreparedFeature;
+  handle: StaticGeometryHandle;
+}> = [];
 let maxScratchXY = new Float32Array(0);
 let maxScratchLens = new Int32Array(0);
 
@@ -151,6 +167,8 @@ const pts100 = createPointDataset(100);
 const pts1000 = createPointDataset(1000);
 const pts10000 = createPointDataset(10000);
 const pts50000 = createPointDataset(50000);
+const pts10000I16 = encodePointsToI16(pts10000.lats, pts10000.lons);
+const pts50000I16 = encodePointsToI16(pts50000.lats, pts50000.lons);
 
 const batchOutXY = new Float32Array(50000 * 2);
 const batchOutIdx = new Int32Array(50000);
@@ -166,13 +184,17 @@ beforeAll(async () => {
     landFeatures = [];
     return;
   }
-  const raw = gunzipSync(readFileSync(worldGeobufPath));
+  const fileBytes = readFileSync(worldGeobufPath);
+  const raw =
+    fileBytes[0] === 0x1f && fileBytes[1] === 0x8b
+      ? gunzipSync(fileBytes)
+      : fileBytes;
   worldGeobufBuffer = raw.buffer.slice(
     raw.byteOffset,
     raw.byteOffset + raw.byteLength
   );
 
-  const { fillLayers } = parseGeobufToPreparedLayers(worldGeobufBuffer, 'land');
+  const { fillLayers } = parseGeobuf(worldGeobufBuffer, 'land');
   const land = fillLayers.find((l) => l.name === 'land');
   landFeatures = land ? land.features : [];
 
@@ -185,103 +207,168 @@ beforeAll(async () => {
     if (h) {
       landHandles.push({ feature: f, handle: h });
     }
+    const hu16 = uploadStaticRingsU16(
+      encodeNormU16(f.packedXY),
+      f.ringLengths,
+      f.ringCount
+    );
+    if (hu16) {
+      landHandlesU16.push({ feature: f, handle: hu16 });
+    }
   }
   maxScratchXY = new Float32Array(maxXYLen);
   maxScratchLens = new Int32Array(maxRingCount);
 });
 
 describe.runIf(RUN_BENCH)('1. Geobuf parsing (WorldMap-all)', () => {
-  bench('parseGeobufToPreparedLayers (4,876 features)', () => {
-    parseGeobufToPreparedLayers(worldGeobufBuffer, 'land');
+  bench('parseGeobuf (4,876 features)', () => {
+    parseGeobuf(worldGeobufBuffer, 'land');
   });
 });
 
-describe.runIf(RUN_BENCH)('2. Vector LOD & Static Arena (WorldMap-all land layer)', () => {
-  bench('traceDecimatedFeature (per-frame JS->WASM copy, zoom 1.5)', () => {
-    const state = cameraZoom1.getState();
-    const { scale, offsetY, viewLatMin, viewLatMax, slices } =
-      getWrappedViewportSlices(state, 2);
-    for (const { drawOffsetX, adjLonMin, adjLonMax } of slices) {
-      for (const f of landFeatures) {
-        if (
-          f.maxLon < adjLonMin ||
-          f.minLon > adjLonMax ||
-          f.maxLat < viewLatMin ||
-          f.minLat > viewLatMax
-        ) {
-          continue;
+describe.runIf(RUN_BENCH)(
+  '2. Vector LOD & Static Arena (WorldMap-all land layer)',
+  () => {
+    bench('drawDecimatedRings (per-frame JS->WASM copy, zoom 1.5)', () => {
+      const state = cameraZoom1.getState();
+      const { scale, offsetY, viewLatMin, viewLatMax, slices } =
+        getWrappedSlices(state, 2);
+      for (const { drawOffsetX, adjLonMin, adjLonMax } of slices) {
+        for (const f of landFeatures) {
+          if (
+            f.maxLon < adjLonMin ||
+            f.minLon > adjLonMax ||
+            f.maxLat < viewLatMin ||
+            f.minLat > viewLatMax
+          ) {
+            continue;
+          }
+          drawDecimatedRings(
+            noopCtx,
+            f.packedXY,
+            f.ringLengths,
+            f.ringCount,
+            scale,
+            drawOffsetX,
+            offsetY,
+            1.0,
+            true,
+            maxScratchXY,
+            maxScratchLens
+          );
         }
-        traceDecimatedFeature(
-          noopCtx,
-          f.packedXY,
-          f.ringLengths,
-          f.ringCount,
-          scale,
-          drawOffsetX,
-          offsetY,
-          1.0,
-          true,
-          maxScratchXY,
-          maxScratchLens
-        );
       }
-    }
-  });
+    });
 
-  bench('traceStaticRingsDirect (WASM Arena zero-copy, zoom 1.5)', () => {
-    const state = cameraZoom1.getState();
-    const { scale, offsetY, viewLatMin, viewLatMax, slices } =
-      getWrappedViewportSlices(state, 2);
-    for (const { drawOffsetX, adjLonMin, adjLonMax } of slices) {
-      for (const { feature: f, handle } of landHandles) {
-        if (
-          f.maxLon < adjLonMin ||
-          f.minLon > adjLonMax ||
-          f.maxLat < viewLatMin ||
-          f.minLat > viewLatMax
-        ) {
-          continue;
+    bench('drawStaticDirect (WASM Arena zero-copy, zoom 1.5)', () => {
+      const state = cameraZoom1.getState();
+      const { scale, offsetY, viewLatMin, viewLatMax, slices } =
+        getWrappedSlices(state, 2);
+      for (const { drawOffsetX, adjLonMin, adjLonMax } of slices) {
+        for (const { feature: f, handle } of landHandles) {
+          if (
+            f.maxLon < adjLonMin ||
+            f.minLon > adjLonMax ||
+            f.maxLat < viewLatMin ||
+            f.minLat > viewLatMax
+          ) {
+            continue;
+          }
+          drawStaticDirect(
+            noopCtx,
+            handle,
+            scale,
+            drawOffsetX,
+            offsetY,
+            1.0,
+            true
+          );
         }
-        traceStaticRingsDirect(
-          noopCtx,
-          handle,
-          scale,
-          drawOffsetX,
-          offsetY,
-          1.0,
-          true
-        );
       }
-    }
-  });
+    });
 
-  bench('traceStaticRingsDirect (WASM Arena zero-copy, zoom 4)', () => {
-    const state = cameraZoom4.getState();
-    const { scale, offsetY, viewLatMin, viewLatMax, slices } =
-      getWrappedViewportSlices(state, 2);
-    for (const { drawOffsetX, adjLonMin, adjLonMax } of slices) {
-      for (const { feature: f, handle } of landHandles) {
-        if (
-          f.maxLon < adjLonMin ||
-          f.minLon > adjLonMax ||
-          f.maxLat < viewLatMin ||
-          f.minLat > viewLatMax
-        ) {
-          continue;
+    bench('drawStaticDirect (WASM Arena zero-copy, zoom 4)', () => {
+      const state = cameraZoom4.getState();
+      const { scale, offsetY, viewLatMin, viewLatMax, slices } =
+        getWrappedSlices(state, 2);
+      for (const { drawOffsetX, adjLonMin, adjLonMax } of slices) {
+        for (const { feature: f, handle } of landHandles) {
+          if (
+            f.maxLon < adjLonMin ||
+            f.minLon > adjLonMax ||
+            f.maxLat < viewLatMin ||
+            f.minLat > viewLatMax
+          ) {
+            continue;
+          }
+          drawStaticDirect(
+            noopCtx,
+            handle,
+            scale,
+            drawOffsetX,
+            offsetY,
+            1.0,
+            true
+          );
         }
-        traceStaticRingsDirect(
-          noopCtx,
-          handle,
-          scale,
-          drawOffsetX,
-          offsetY,
-          1.0,
-          true
-        );
       }
-    }
-  });
-});
+    });
+
+    bench('drawStaticU16Direct (WASM u16 Arena, zoom 1.5)', () => {
+      const state = cameraZoom1.getState();
+      const { scale, offsetY, viewLatMin, viewLatMax, slices } =
+        getWrappedSlices(state, 2);
+      for (const { drawOffsetX, adjLonMin, adjLonMax } of slices) {
+        for (const { feature: f, handle } of landHandlesU16) {
+          if (
+            f.maxLon < adjLonMin ||
+            f.minLon > adjLonMax ||
+            f.maxLat < viewLatMin ||
+            f.minLat > viewLatMax
+          ) {
+            continue;
+          }
+          drawStaticU16Direct(
+            noopCtx,
+            handle,
+            scale,
+            drawOffsetX,
+            offsetY,
+            1.0,
+            true
+          );
+        }
+      }
+    });
+
+    bench('drawStaticU16Direct (WASM u16 Arena, zoom 4)', () => {
+      const state = cameraZoom4.getState();
+      const { scale, offsetY, viewLatMin, viewLatMax, slices } =
+        getWrappedSlices(state, 2);
+      for (const { drawOffsetX, adjLonMin, adjLonMax } of slices) {
+        for (const { feature: f, handle } of landHandlesU16) {
+          if (
+            f.maxLon < adjLonMin ||
+            f.minLon > adjLonMax ||
+            f.maxLat < viewLatMin ||
+            f.minLat > viewLatMax
+          ) {
+            continue;
+          }
+          drawStaticU16Direct(
+            noopCtx,
+            handle,
+            scale,
+            drawOffsetX,
+            offsetY,
+            1.0,
+            true
+          );
+        }
+      }
+    });
+  }
+);
 
 describe.runIf(RUN_BENCH)('3. Hit-Test & Batch Projection (JS vs WASM)', () => {
   const projectIntoFn = (lat: number, lon: number, out: Point2D) =>
@@ -290,22 +377,33 @@ describe.runIf(RUN_BENCH)('3. Hit-Test & Batch Projection (JS vs WASM)', () => {
   bench('findNearestPoint (JS) - 100 pts', () => {
     findNearestPoint(960, 540, pts100, projectIntoFn, 16);
   });
-  bench('findNearestPointFast (WASM) - 100 pts', () => {
-    findNearestPointFast(960, 540, pts100, cameraZoom4, 16);
+  bench('hitTestPoints (WASM) - 100 pts', () => {
+    hitTestPoints(960, 540, pts100, cameraZoom4, 16);
   });
 
   bench('findNearestPoint (JS) - 1,000 pts', () => {
     findNearestPoint(960, 540, pts1000, projectIntoFn, 16);
   });
-  bench('findNearestPointFast (WASM) - 1,000 pts', () => {
-    findNearestPointFast(960, 540, pts1000, cameraZoom4, 16);
+  bench('hitTestPoints (WASM) - 1,000 pts', () => {
+    hitTestPoints(960, 540, pts1000, cameraZoom4, 16);
   });
 
   bench('findNearestPoint (JS) - 10,000 pts', () => {
     findNearestPoint(960, 540, pts10000, projectIntoFn, 16);
   });
-  bench('findNearestPointFast (WASM) - 10,000 pts', () => {
-    findNearestPointFast(960, 540, pts10000, cameraZoom4, 16);
+  bench('hitTestPoints (WASM) - 10,000 pts', () => {
+    hitTestPoints(960, 540, pts10000, cameraZoom4, 16);
+  });
+  bench('hitTestPointsI16 (WASM i16) - 10,000 pts', () => {
+    hitTestPointsI16(
+      960,
+      540,
+      pts10000I16.latsI16,
+      pts10000I16.lonsI16,
+      pts10000I16.count,
+      cameraZoom4,
+      16
+    );
   });
 
   bench('Camera.projectInto loop (JS) - 50,000 pts', () => {
@@ -325,19 +423,30 @@ describe.runIf(RUN_BENCH)('3. Hit-Test & Batch Projection (JS vs WASM)', () => {
       batchOutIdx
     );
   });
+  bench('batchProjectPointsI16 (WASM i16) - 50,000 pts', () => {
+    batchProjectPointsI16(
+      pts50000I16.latsI16,
+      pts50000I16.lonsI16,
+      pts50000I16.count,
+      cameraZoom4,
+      32,
+      batchOutXY,
+      batchOutIdx
+    );
+  });
 });
 
 describe.runIf(RUN_BENCH)('4. Projection & Bezier Curves', () => {
   const normOut: Point2D = { x: 0, y: 0 };
 
-  bench('projectToNormalizedInto x 1,000', () => {
+  bench('latLngToNormInto x 1,000', () => {
     for (let i = 0; i < 1000; i++) {
-      projectToNormalizedInto(pts1000.lats[i], pts1000.lons[i], normOut);
+      latLngToNormInto(pts1000.lats[i], pts1000.lons[i], normOut);
     }
   });
 
-  bench('getWrappedViewportSlices', () => {
-    getWrappedViewportSlices(cameraZoom1.getState(), 2);
+  bench('getWrappedSlices', () => {
+    getWrappedSlices(cameraZoom1.getState(), 2);
   });
 
   const arcCount = 500;
@@ -347,14 +456,14 @@ describe.runIf(RUN_BENCH)('4. Projection & Bezier Curves', () => {
   const arcDstLons = new Float32Array(arcCount).fill(-122.4194);
   const arcOut = new Float32Array(arcCount * QUADRATIC_ARC_POINTS * 2);
 
-  bench('computeQuadraticArc x 500 (JS tuples)', () => {
+  bench('computeArc x 500 (JS tuples)', () => {
     for (let i = 0; i < 500; i++) {
-      computeQuadraticArc([25.033, 121.5654], [37.7749, -122.4194], false);
+      computeArc([25.033, 121.5654], [37.7749, -122.4194], false);
     }
   });
 
-  bench('computeQuadraticArcsBatch x 500 (zero-alloc Float32Array)', () => {
-    computeQuadraticArcsBatch(
+  bench('computeArcsBatch x 500 (zero-alloc Float32Array)', () => {
+    computeArcsBatch(
       arcSrcLats,
       arcSrcLons,
       arcDstLats,
@@ -377,7 +486,7 @@ describe.runIf(RUN_BENCH)('5. Trajectory, PointLayer & VectorLayer', () => {
   const tmpPt = { x: 0, y: 0 };
 
   bench('JS camera.projectInto x 6,500 (500 arcs)', () => {
-    computeQuadraticArcsBatch(
+    computeArcsBatch(
       srcLats500,
       srcLons500,
       dstLats500,
@@ -394,8 +503,8 @@ describe.runIf(RUN_BENCH)('5. Trajectory, PointLayer & VectorLayer', () => {
     }
   });
 
-  bench('WASM projectInterleavedMercator x 6,500 (500 arcs)', () => {
-    computeQuadraticArcsBatch(
+  bench('WASM projectMercator x 6,500 (500 arcs)', () => {
+    computeArcsBatch(
       srcLats500,
       srcLons500,
       dstLats500,
@@ -403,12 +512,7 @@ describe.runIf(RUN_BENCH)('5. Trajectory, PointLayer & VectorLayer', () => {
       arcCount500,
       arcLatLon500
     );
-    projectInterleavedMercator(
-      arcLatLon500,
-      ptCount6500,
-      cameraZoom1,
-      projectedXY6500
-    );
+    projectMercator(arcLatLon500, ptCount6500, cameraZoom1, projectedXY6500);
   });
 
   const makeSpecs = (n: number): TrajectorySpec[] =>
@@ -425,10 +529,10 @@ describe.runIf(RUN_BENCH)('5. Trajectory, PointLayer & VectorLayer', () => {
   const specs1000 = makeSpecs(1000);
   const svgOutXY1000 = new Float32Array(1000 * QUADRATIC_ARC_POINTS * 2);
 
-  bench('prepareTrajectoryBatch + SVG paths x 500', () => {
-    const batch = prepareTrajectoryBatch(specs500);
+  bench('prepareArcs + SVG paths x 500', () => {
+    const batch = prepareArcs(specs500);
     if (batch.arcBuffer) {
-      projectInterleavedMercator(
+      projectMercator(
         batch.arcBuffer,
         batch.arcCount * QUADRATIC_ARC_POINTS,
         cameraZoom1,
@@ -436,15 +540,15 @@ describe.runIf(RUN_BENCH)('5. Trajectory, PointLayer & VectorLayer', () => {
       );
       const stride = QUADRATIC_ARC_POINTS * 2;
       for (let i = 0; i < batch.arcCount; i++) {
-        buildSvgPathFromFlatXY(svgOutXY1000, i * stride, QUADRATIC_ARC_POINTS);
+        xyToSvgPath(svgOutXY1000, i * stride, QUADRATIC_ARC_POINTS);
       }
     }
   });
 
-  bench('Legacy JS (computeQuadraticArc + projectInto + SVG paths) x 1,000', () => {
+  bench('Legacy JS (computeArc + projectInto + SVG paths) x 1,000', () => {
     for (let i = 0; i < specs1000.length; i++) {
       const s = specs1000[i];
-      const pts = computeQuadraticArc([s.srcLat, s.srcLon], [s.dstLat, s.dstLon], false);
+      const pts = computeArc([s.srcLat, s.srcLon], [s.dstLat, s.dstLon], false);
       let _d = '';
       for (let j = 0; j < pts.length; j++) {
         cameraZoom1.projectInto(pts[j][0], pts[j][1], tmpPt);
@@ -453,10 +557,10 @@ describe.runIf(RUN_BENCH)('5. Trajectory, PointLayer & VectorLayer', () => {
     }
   });
 
-  bench('New WASM (prepareTrajectoryBatch + projectInterleavedMercator + SVG paths) x 1,000', () => {
-    const batch = prepareTrajectoryBatch(specs1000);
+  bench('New WASM (prepareArcs + projectMercator + SVG paths) x 1,000', () => {
+    const batch = prepareArcs(specs1000);
     if (batch.arcBuffer) {
-      projectInterleavedMercator(
+      projectMercator(
         batch.arcBuffer,
         batch.arcCount * QUADRATIC_ARC_POINTS,
         cameraZoom1,
@@ -464,7 +568,7 @@ describe.runIf(RUN_BENCH)('5. Trajectory, PointLayer & VectorLayer', () => {
       );
       const stride = QUADRATIC_ARC_POINTS * 2;
       for (let i = 0; i < batch.arcCount; i++) {
-        buildSvgPathFromFlatXY(svgOutXY1000, i * stride, QUADRATIC_ARC_POINTS);
+        xyToSvgPath(svgOutXY1000, i * stride, QUADRATIC_ARC_POINTS);
       }
     }
   });
@@ -475,8 +579,8 @@ describe.runIf(RUN_BENCH)('5. Trajectory, PointLayer & VectorLayer', () => {
     screenSrcXY1000[i * 2 + 1] = (i * 29) % 1080;
   }
 
-  bench('drawScreenTrajectoryBatch x 1,000 (Canvas)', () => {
-    drawScreenTrajectoryBatch(
+  bench('drawTrajectories x 1,000 (Canvas)', () => {
+    drawTrajectories(
       noopCtx,
       screenSrcXY1000,
       1000,
@@ -496,7 +600,7 @@ describe.runIf(RUN_BENCH)('5. Trajectory, PointLayer & VectorLayer', () => {
     color: i % 2 === 0 ? '#d45d5d' : '#ebb14d',
     alpha: 0.35 + (i % 4) * 0.15,
   }));
-  const pointSpatial5000 = buildPointSpatialBuffers(pointItems5000);
+  const pointSpatial5000 = packPoints(pointItems5000);
   const ptOutXY5000 = new Float32Array(5000 * 2);
   const ptOutIdx5000 = new Int32Array(5000);
 
@@ -541,26 +645,32 @@ describe.runIf(RUN_BENCH)('5. Trajectory, PointLayer & VectorLayer', () => {
 });
 
 describe.runIf(RUN_BENCH)('6. Legacy vs New, Geometry & Camera', () => {
-  const legacyPoints5000: PointItem[] = Array.from({ length: 5000 }, (_, i) => ({
-    lat: ((i * 37) % 140) - 70,
-    lon: ((i * 73) % 360) - 180,
-    radius: 4 + (i % 5) * 3,
-    color: i % 2 === 0 ? '#d45d5d' : '#ebb14d',
-    alpha: 0.35 + (i % 4) * 0.15,
-  }));
+  const legacyPoints5000: PointItem[] = Array.from(
+    { length: 5000 },
+    (_, i) => ({
+      lat: ((i * 37) % 140) - 70,
+      lon: ((i * 73) % 360) - 180,
+      radius: 4 + (i % 5) * 3,
+      color: i % 2 === 0 ? '#d45d5d' : '#ebb14d',
+      alpha: 0.35 + (i % 4) * 0.15,
+    })
+  );
   const legacyPt = { x: 0, y: 0 };
 
-  bench('Legacy JS PointLayer x 5,000 (per-point projectInto + arc + fill)', () => {
-    for (let i = 0; i < legacyPoints5000.length; i++) {
-      const p = legacyPoints5000[i];
-      cameraZoom1.projectInto(p.lat, p.lon, legacyPt);
-      noopCtx.beginPath();
-      noopCtx.fillStyle = p.color;
-      noopCtx.globalAlpha = p.alpha ?? 0.7;
-      noopCtx.arc(legacyPt.x, legacyPt.y, p.radius, 0, Math.PI * 2);
-      noopCtx.fill();
+  bench(
+    'Legacy JS PointLayer x 5,000 (per-point projectInto + arc + fill)',
+    () => {
+      for (let i = 0; i < legacyPoints5000.length; i++) {
+        const p = legacyPoints5000[i];
+        cameraZoom1.projectInto(p.lat, p.lon, legacyPt);
+        noopCtx.beginPath();
+        noopCtx.fillStyle = p.color;
+        noopCtx.globalAlpha = p.alpha ?? 0.7;
+        noopCtx.arc(legacyPt.x, legacyPt.y, p.radius, 0, Math.PI * 2);
+        noopCtx.fill();
+      }
     }
-  });
+  );
 
   const interactScratch: VectorScratchBuffers = {
     xy: new Float32Array(0),

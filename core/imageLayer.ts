@@ -1,5 +1,8 @@
 import { Camera } from './camera';
-import { LatLng } from './projection';
+import { LatLng, Point2D } from './projection';
+
+const TMP_NW: Point2D = { x: 0, y: 0 };
+const TMP_SE: Point2D = { x: 0, y: 0 };
 
 export type ImageBounds = [LatLng, LatLng];
 
@@ -46,8 +49,8 @@ export function drawImage(
   const minLon = Math.min(bounds[0][1], bounds[1][1]);
   const maxLon = Math.max(bounds[0][1], bounds[1][1]);
 
-  const nw = camera.project(maxLat, minLon);
-  const se = camera.project(minLat, maxLon);
+  const nw = camera.projectInto(maxLat, minLon, TMP_NW);
+  const se = camera.projectInto(minLat, maxLon, TMP_SE);
   const drawW = se.x - nw.x;
   const drawH = se.y - nw.y;
   if (drawW <= 0 || drawH <= 0) return;

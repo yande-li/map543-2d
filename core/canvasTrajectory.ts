@@ -1,4 +1,4 @@
-import { traceScreenQuadraticArc } from './curves';
+import { traceArc } from './curves';
 
 /**
  * Creates a small offscreen radial-gradient dot sprite for fast Canvas blitting.
@@ -29,21 +29,131 @@ export function createGlowDotSprite(
   return sprite;
 }
 
+interface ParsedTrajectoryArgs {
+  dstArray: Float32Array | null;
+  singleDstX: number;
+  singleDstY: number;
+  viewportW: number;
+  viewportH: number;
+  color: string;
+  sprite: HTMLCanvasElement | null;
+  margin: number;
+  straightLimit: number;
+}
+
+function parseTrajectoryArgs(
+  dstXOrXY: number | Float32Array,
+  dstYOrViewportW: number,
+  viewportWOrH: number,
+  viewportHOrColor?: number | string,
+  colorOrSprite?: string | HTMLCanvasElement | null,
+  spriteOrMargin?: HTMLCanvasElement | null | number,
+  marginOrStraightThreshold?: number,
+  straightThreshold = 100
+): ParsedTrajectoryArgs {
+  if (typeof dstXOrXY === 'number') {
+    return {
+      dstArray: null,
+      singleDstX: dstXOrXY,
+      singleDstY: dstYOrViewportW,
+      viewportW: viewportWOrH,
+      viewportH: viewportHOrColor as number,
+      color: (colorOrSprite as string | undefined) ?? '#0ebf9c',
+      sprite: (spriteOrMargin as HTMLCanvasElement | null | undefined) ?? null,
+      margin: marginOrStraightThreshold ?? 50,
+      straightLimit: straightThreshold,
+    };
+  }
+  return {
+    dstArray: dstXOrXY,
+    singleDstX: 0,
+    singleDstY: 0,
+    viewportW: dstYOrViewportW,
+    viewportH: viewportWOrH,
+    color: (viewportHOrColor as string | undefined) ?? '#0ebf9c',
+    sprite: (colorOrSprite as HTMLCanvasElement | null | undefined) ?? null,
+    margin: typeof spriteOrMargin === 'number' ? spriteOrMargin : 50,
+    straightLimit: marginOrStraightThreshold ?? straightThreshold,
+  };
+}
+
+function drawTrajectorySourceDots(
+  ctx: CanvasRenderingContext2D,
+  srcXY: Float32Array,
+  count: number,
+  color: string,
+  sprite: HTMLCanvasElement | null,
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number
+): void {
+  if (sprite) {
+    const half = sprite.width / 2;
+    ctx.globalAlpha = 0.9;
+    for (let i = 0; i < count; i++) {
+      const srcX = srcXY[i * 2];
+      const srcY = srcXY[i * 2 + 1];
+      if (srcX < minX || srcX > maxX || srcY < minY || srcY > maxY) continue;
+      ctx.drawImage(sprite, srcX - half, srcY - half);
+    }
+    return;
+  }
+
+  ctx.beginPath();
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 0.7;
+  for (let i = 0; i < count; i++) {
+    const srcX = srcXY[i * 2];
+    const srcY = srcXY[i * 2 + 1];
+    if (srcX < minX || srcX > maxX || srcY < minY || srcY > maxY) continue;
+    ctx.rect(srcX - 2, srcY - 2, 4, 4);
+  }
+  ctx.fill();
+}
+
 /**
  * Draws a batch of screen-space quadratic Bezier trajectories (with frustum culling,
  * dual-stroke glow without shadowBlur, and optional pre-rendered source dot sprites).
  *
- * Supports both multi-to-one (scalar dstX, dstY) and multi-to-multi (Float32Array dstXY)
- * with zero heap allocations in the hot rendering loop.
+ * Multi-to-one overload (shared destination point).
  */
-export function drawScreenTrajectoryBatch(
+export function drawTrajectories(
+  ctx: CanvasRenderingContext2D,
+  srcXY: Float32Array,
+  count: number,
+  dstX: number,
+  dstY: number,
+  viewportW: number,
+  viewportH: number,
+  color?: string,
+  sprite?: HTMLCanvasElement | null,
+  margin?: number,
+  straightThreshold?: number
+): void;
+/**
+ * Multi-to-multi overload (per-trajectory destination coordinates in `dstXY`).
+ */
+export function drawTrajectories(
+  ctx: CanvasRenderingContext2D,
+  srcXY: Float32Array,
+  count: number,
+  dstXY: Float32Array,
+  viewportW: number,
+  viewportH: number,
+  color?: string,
+  sprite?: HTMLCanvasElement | null,
+  margin?: number,
+  straightThreshold?: number
+): void;
+export function drawTrajectories(
   ctx: CanvasRenderingContext2D,
   srcXY: Float32Array,
   count: number,
   dstXOrXY: number | Float32Array,
   dstYOrViewportW: number,
   viewportWOrH: number,
-  viewportHOrColor: number | string,
+  viewportHOrColor?: number | string,
   colorOrSprite?: string | HTMLCanvasElement | null,
   spriteOrMargin?: HTMLCanvasElement | null | number,
   marginOrStraightThreshold?: number,
@@ -51,36 +161,33 @@ export function drawScreenTrajectoryBatch(
 ): void {
   if (count <= 0) return;
 
-  const isMultiDst = typeof dstXOrXY !== 'number';
-  const dstArray = isMultiDst ? (dstXOrXY as Float32Array) : null;
-  const singleDstX = isMultiDst ? 0 : (dstXOrXY as number);
-  const singleDstY = isMultiDst ? 0 : dstYOrViewportW;
-
-  const viewportW = isMultiDst ? dstYOrViewportW : viewportWOrH;
-  const viewportH = (isMultiDst ? viewportWOrH : (viewportHOrColor as number));
-  const color = (isMultiDst
-    ? (viewportHOrColor as string)
-    : (colorOrSprite as string)) ?? '#0ebf9c';
-  const sprite = (isMultiDst
-    ? (colorOrSprite as HTMLCanvasElement | null)
-    : (spriteOrMargin as HTMLCanvasElement | null)) ?? null;
-  const margin = (isMultiDst
-    ? (typeof spriteOrMargin === 'number' ? spriteOrMargin : 50)
-    : (typeof marginOrStraightThreshold === 'number'
-        ? marginOrStraightThreshold
-        : 50));
-  const straightLimit = isMultiDst
-    ? (typeof marginOrStraightThreshold === 'number'
-        ? marginOrStraightThreshold
-        : straightThreshold)
-    : straightThreshold;
+  const {
+    dstArray,
+    singleDstX,
+    singleDstY,
+    viewportW,
+    viewportH,
+    color,
+    sprite,
+    margin,
+    straightLimit,
+  } = parseTrajectoryArgs(
+    dstXOrXY,
+    dstYOrViewportW,
+    viewportWOrH,
+    viewportHOrColor,
+    colorOrSprite,
+    spriteOrMargin,
+    marginOrStraightThreshold,
+    straightThreshold
+  );
 
   const minX = -margin;
   const minY = -margin;
   const maxX = viewportW + margin;
   const maxY = viewportH + margin;
   const singleDstIn =
-    !isMultiDst &&
+    dstArray === null &&
     singleDstX >= minX &&
     singleDstX <= maxX &&
     singleDstY >= minY &&
@@ -108,7 +215,7 @@ export function drawScreenTrajectoryBatch(
     if (!srcIn && !dstIn) continue;
 
     ctx.moveTo(srcX, srcY);
-    traceScreenQuadraticArc(ctx, srcX, srcY, targetX, targetY, straightLimit);
+    traceArc(ctx, srcX, srcY, targetX, targetY, straightLimit);
   }
 
   ctx.lineWidth = 3.5;
@@ -119,25 +226,15 @@ export function drawScreenTrajectoryBatch(
   ctx.globalAlpha = 0.72;
   ctx.stroke();
 
-  if (sprite) {
-    const half = sprite.width / 2;
-    ctx.globalAlpha = 0.9;
-    for (let i = 0; i < count; i++) {
-      const srcX = srcXY[i * 2];
-      const srcY = srcXY[i * 2 + 1];
-      if (srcX < minX || srcX > maxX || srcY < minY || srcY > maxY) continue;
-      ctx.drawImage(sprite, srcX - half, srcY - half);
-    }
-  } else {
-    ctx.beginPath();
-    ctx.fillStyle = color;
-    ctx.globalAlpha = 0.7;
-    for (let i = 0; i < count; i++) {
-      const srcX = srcXY[i * 2];
-      const srcY = srcXY[i * 2 + 1];
-      if (srcX < minX || srcX > maxX || srcY < minY || srcY > maxY) continue;
-      ctx.rect(srcX - 2, srcY - 2, 4, 4);
-    }
-    ctx.fill();
-  }
+  drawTrajectorySourceDots(
+    ctx,
+    srcXY,
+    count,
+    color,
+    sprite,
+    minX,
+    minY,
+    maxX,
+    maxY
+  );
 }

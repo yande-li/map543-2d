@@ -1,10 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Camera, ViewportState } from '../core/camera';
-import {
-  drawImage,
-  ImageBounds,
-  loadImage,
-} from '../core/imageLayer';
+import { drawImage, ImageBounds, loadImage } from '../core/imageLayer';
 import { CanvasLayer } from './CanvasLayer';
 
 export interface ImageLayerProps {
@@ -37,6 +33,10 @@ export const ImageLayer: React.FC<ImageLayerProps> = ({
   className = '',
 }) => {
   const [loadedImg, setLoadedImg] = useState<HTMLImageElement | null>(null);
+  const b0Lat = bounds[0][0];
+  const b0Lon = bounds[0][1];
+  const b1Lat = bounds[1][0];
+  const b1Lon = bounds[1][1];
 
   useEffect(() => {
     if (!src) {
@@ -57,18 +57,23 @@ export const ImageLayer: React.FC<ImageLayerProps> = ({
   }, [src]);
 
   const onDraw = useCallback(
-    (
-      ctx: CanvasRenderingContext2D,
-      _state: ViewportState,
-      cam: Camera
-    ) => {
+    (ctx: CanvasRenderingContext2D, _state: ViewportState, cam: Camera) => {
       if (!loadedImg) return;
-      drawImage(ctx, loadedImg, bounds, cam, {
-        opacity,
-        imageSmoothingEnabled,
-      });
+      drawImage(
+        ctx,
+        loadedImg,
+        [
+          [b0Lat, b0Lon],
+          [b1Lat, b1Lon],
+        ],
+        cam,
+        {
+          opacity,
+          imageSmoothingEnabled,
+        }
+      );
     },
-    [loadedImg, bounds, opacity, imageSmoothingEnabled]
+    [loadedImg, b0Lat, b0Lon, b1Lat, b1Lon, opacity, imageSmoothingEnabled]
   );
 
   return (

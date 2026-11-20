@@ -1,21 +1,37 @@
 import { Camera } from './camera';
-import {
-  LUT_OFFSET_BYTES,
-  getWasmRuntime,
-} from '../wasm/wasmBridge';
+import { LUT_OFFSET_BYTES, getWasmRuntime } from '../wasm/bridge';
 
-/**
- * Batch-projects (lat, lon) arrays into screen coordinates with viewport AABB culling
- * using the WebAssembly kernel. Returns 0 if WASM is not yet initialized.
- */
-export function batchProjectPoints(
-  lats: Float32Array,
-  lons: Float32Array,
+type BatchProjectKernelFn = (
+  count: number,
+  lutOffset: number,
+  latsOffset: number,
+  lonsOffset: number,
+  outXYOffset: number,
+  outIdxOffset: number,
+  centerNormX: number,
+  centerNormY: number,
+  worldSize: number,
+  halfW: number,
+  halfH: number,
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number
+) => number;
+
+function runBatchProjectKernel<T extends Float32Array | Int16Array>(
+  lats: T,
+  lons: T,
   count: number,
   camera: Camera,
   margin: number,
   outXY: Float32Array,
-  outIndices: Int32Array
+  outIndices: Int32Array,
+  elemShift: 1 | 2,
+  getView: (rt: NonNullable<ReturnType<typeof getWasmRuntime>>) => T,
+  selectKernel: (
+    rt: NonNullable<ReturnType<typeof getWasmRuntime>>
+  ) => BatchProjectKernelFn | undefined
 ): number {
   if (
     count <= 0 ||
@@ -29,28 +45,31 @@ export function batchProjectPoints(
 
   const rt = getWasmRuntime();
   if (rt === null) return 0;
+  const kernel = selectKernel(rt);
+  if (!kernel) return 0;
 
-  const f32Bytes = count * 4;
+  const inBytes = count << elemShift;
   const latsOffset = rt.getScratchBase();
-  const lonsOffset = latsOffset + f32Bytes;
-  const outXYOffset = lonsOffset + f32Bytes;
-  const outIdxOffset = outXYOffset + f32Bytes * 2;
-  const totalBytes = outIdxOffset + f32Bytes;
+  const lonsOffset = latsOffset + inBytes;
+  const outXYOffset = (lonsOffset + inBytes + 3) & ~3;
+  const outIdxOffset = outXYOffset + count * 8;
+  const totalBytes = outIdxOffset + count * 4;
 
   if (!rt.ensureCapacity(totalBytes)) return 0;
 
-  rt.f32.set(
+  const view = getView(rt);
+  view.set(
     count === lats.length ? lats : lats.subarray(0, count),
-    latsOffset >> 2
+    latsOffset >> elemShift
   );
-  rt.f32.set(
+  view.set(
     count === lons.length ? lons : lons.subarray(0, count),
-    lonsOffset >> 2
+    lonsOffset >> elemShift
   );
 
   const state = camera.getState();
   const p = camera.getProjectionParams();
-  const visible = rt.exports.batchProjectMercator(
+  const visible = kernel(
     count,
     LUT_OFFSET_BYTES,
     latsOffset,
@@ -77,6 +96,60 @@ export function batchProjectPoints(
     );
   }
   return visible;
+}
+
+/**
+ * Batch-projects (lat, lon) arrays into screen coordinates with viewport AABB culling
+ * using the WebAssembly kernel. Returns 0 if WASM is not yet initialized.
+ */
+export function batchProjectPoints(
+  lats: Float32Array,
+  lons: Float32Array,
+  count: number,
+  camera: Camera,
+  margin: number,
+  outXY: Float32Array,
+  outIndices: Int32Array
+): number {
+  return runBatchProjectKernel(
+    lats,
+    lons,
+    count,
+    camera,
+    margin,
+    outXY,
+    outIndices,
+    2,
+    (rt) => rt.f32,
+    (rt) => rt.exports.batchProjectMercator
+  );
+}
+
+/**
+ * Batch-projects Int16 quantized (lat, lon) arrays (lat * 32767/90, lon * 32767/180)
+ * into screen coordinates with viewport AABB culling using the WebAssembly kernel.
+ */
+export function batchProjectPointsI16(
+  latsI16: Int16Array,
+  lonsI16: Int16Array,
+  count: number,
+  camera: Camera,
+  margin: number,
+  outXY: Float32Array,
+  outIndices: Int32Array
+): number {
+  return runBatchProjectKernel(
+    latsI16,
+    lonsI16,
+    count,
+    camera,
+    margin,
+    outXY,
+    outIndices,
+    1,
+    (rt) => rt.i16,
+    (rt) => rt.exports.batchProjectMercatorI16
+  );
 }
 
 /**
@@ -169,44 +242,39 @@ export interface StaticGeometryHandle {
   xyOffset: number;
   lenOffset: number;
   ringCount: number;
+  /** Total scalar element count in the uploaded buffer (Float32 or Uint16 elements). */
   totalInFloats: number;
 }
 
-/**
- * Uploads static packed rings into the WASM bump arena once so subsequent frames
- * can decimate without copying packedXY/ringLengths across the JS-WASM boundary.
- */
-export function uploadStaticRings(
-  packedXY: Float32Array,
+function uploadStaticRingsTyped<T extends Float32Array | Uint16Array>(
+  packed: T,
   ringLengths: Int32Array,
-  ringCount: number
+  ringCount: number,
+  elemShift: 1 | 2,
+  getView: (rt: NonNullable<ReturnType<typeof getWasmRuntime>>) => T
 ): StaticGeometryHandle | null {
-  if (
-    ringCount <= 0 ||
-    ringCount > ringLengths.length ||
-    packedXY.length === 0
-  ) {
+  if (ringCount <= 0 || ringCount > ringLengths.length || packed.length === 0) {
     return null;
   }
-  let expectedFloats = 0;
+  let expectedUnits = 0;
   for (let r = 0; r < ringCount; r++) {
     const len = ringLengths[r];
     if (len < 0 || (len & 1) !== 0) return null;
-    expectedFloats += len;
-    if (expectedFloats > packedXY.length) return null;
+    expectedUnits += len;
+    if (expectedUnits > packed.length) return null;
   }
-  if (expectedFloats === 0) return null;
+  if (expectedUnits === 0) return null;
 
   const rt = getWasmRuntime();
   if (rt === null) return null;
 
-  const totalInFloats = packedXY.length;
-  const xyOffset = rt.allocStatic(totalInFloats * 4);
+  const totalInFloats = packed.length;
+  const xyOffset = rt.allocStatic(totalInFloats << elemShift);
   if (xyOffset === null) return null;
   const lenOffset = rt.allocStatic(ringCount * 4);
   if (lenOffset === null) return null;
 
-  rt.f32.set(packedXY, xyOffset >> 2);
+  getView(rt).set(packed, xyOffset >> elemShift);
   rt.i32.set(
     ringCount === ringLengths.length
       ? ringLengths
@@ -221,6 +289,56 @@ export function uploadStaticRings(
     ringCount,
     totalInFloats,
   };
+}
+
+/**
+ * Uploads static packed rings into the WASM bump arena once so subsequent frames
+ * can decimate without copying packedXY/ringLengths across the JS-WASM boundary.
+ */
+export function uploadStaticRings(
+  packedXY: Float32Array,
+  ringLengths: Int32Array,
+  ringCount: number
+): StaticGeometryHandle | null {
+  return uploadStaticRingsTyped(
+    packedXY,
+    ringLengths,
+    ringCount,
+    2,
+    (rt) => rt.f32
+  );
+}
+
+/**
+ * Quantizes normalized Web Mercator [0, 1] coordinates from Float32Array into Uint16Array
+ * (50% RAM reduction, sub-pixel up to ~Zoom 8).
+ */
+export function encodeNormU16(packedXY: Float32Array): Uint16Array {
+  const out = new Uint16Array(packedXY.length);
+  for (let i = 0; i < packedXY.length; i++) {
+    const v = packedXY[i];
+    const clamped = v < 0 ? 0 : v > 1 ? 1 : v;
+    out[i] = (clamped * 65535 + 0.5) | 0;
+  }
+  return out;
+}
+
+/**
+ * Uploads Uint16 quantized static packed rings into the WASM bump arena once
+ * (50% arena RAM reduction vs Float32).
+ */
+export function uploadStaticRingsU16(
+  packedU16: Uint16Array,
+  ringLengths: Int32Array,
+  ringCount: number
+): StaticGeometryHandle | null {
+  return uploadStaticRingsTyped(
+    packedU16,
+    ringLengths,
+    ringCount,
+    1,
+    (rt) => rt.u16
+  );
 }
 
 /**

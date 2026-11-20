@@ -1,6 +1,6 @@
 import { Camera } from './camera';
 
-export interface GamepadControlsOptions {
+export interface GamepadOptions {
   /** Maximum pan speed in CSS px/sec at full stick deflection (default: 700). */
   panSpeedPxPerSec?: number;
   /** Maximum zoom speed in zoom-levels/sec at full stick/trigger deflection (default: 2.2). */
@@ -24,9 +24,9 @@ function applyDeadzoneCurve(raw: number, deadzone: number): number {
  * Attaches tree-shakeable Gamepad API navigation to a Camera.
  * Zero idle overhead: only runs a requestAnimationFrame loop while at least one gamepad is connected.
  */
-export function attachGamepadControls(
+export function attachGamepad(
   camera: Camera,
-  options: GamepadControlsOptions = {}
+  options: GamepadOptions = {}
 ): () => void {
   if (
     typeof window === 'undefined' ||
@@ -55,13 +55,15 @@ export function attachGamepadControls(
   let prevLb = false;
   let prevRb = false;
 
-  const hasConnectedGamepad = (): boolean => {
+  const findConnectedGamepad = (): Gamepad | null => {
     const pads = navigator.getGamepads();
     for (let i = 0; i < pads.length; i++) {
-      if (pads[i]?.connected) return true;
+      if (pads[i]?.connected) return pads[i];
     }
-    return false;
+    return null;
   };
+
+  const hasConnectedGamepad = (): boolean => findConnectedGamepad() !== null;
 
   const stopLoop = () => {
     if (rafId !== 0) {
@@ -75,6 +77,34 @@ export function attachGamepadControls(
     prevRb = false;
   };
 
+  const readPanDelta = (pad: Gamepad, dt: number): [number, number] => {
+    const axisX = applyDeadzoneCurve(pad.axes[0] ?? 0, deadzone);
+    const axisY = applyDeadzoneCurve(pad.axes[1] ?? 0, deadzone);
+    let panDx = -axisX * panSpeedPxPerSec * dt;
+    let panDy = -axisY * panSpeedPxPerSec * dt;
+    // D-pad (standard mapping: 12=Up, 13=Down, 14=Left, 15=Right)
+    if (pad.buttons[12]?.pressed) panDy += dpadStepPx;
+    if (pad.buttons[13]?.pressed) panDy -= dpadStepPx;
+    if (pad.buttons[14]?.pressed) panDx += dpadStepPx;
+    if (pad.buttons[15]?.pressed) panDx -= dpadStepPx;
+    return [panDx, panDy];
+  };
+
+  const readZoomDelta = (pad: Gamepad, dt: number): number => {
+    const rightY = applyDeadzoneCurve(pad.axes[3] ?? 0, deadzone);
+    const lt = pad.buttons[6]?.value ?? 0;
+    const rt = pad.buttons[7]?.value ?? 0;
+    const triggerDelta = (rt > deadzone ? rt : 0) - (lt > deadzone ? lt : 0);
+    const lbPressed = Boolean(pad.buttons[4]?.pressed);
+    const rbPressed = Boolean(pad.buttons[5]?.pressed);
+    let discreteZoom = 0;
+    if (rbPressed && !prevRb) discreteZoom += zoomStep;
+    if (lbPressed && !prevLb) discreteZoom -= zoomStep;
+    prevLb = lbPressed;
+    prevRb = rbPressed;
+    return (-rightY + triggerDelta) * zoomSpeedPerSec * dt + discreteZoom;
+  };
+
   const tick = (now: number) => {
     rafId = 0;
     const minInterval = wasActive ? ACTIVE_INTERVAL_MS : IDLE_INTERVAL_MS;
@@ -84,14 +114,7 @@ export function attachGamepadControls(
     }
     lastPollTime = now;
 
-    const pads = navigator.getGamepads();
-    let activePad: Gamepad | null = null;
-    for (let i = 0; i < pads.length; i++) {
-      if (pads[i]?.connected) {
-        activePad = pads[i];
-        break;
-      }
-    }
+    const activePad = findConnectedGamepad();
     if (!activePad) {
       stopLoop();
       return;
@@ -100,39 +123,12 @@ export function attachGamepadControls(
     const dt = lastTime > 0 ? Math.min(0.1, (now - lastTime) / 1000) : 1 / 30;
     lastTime = now;
 
-    // Left stick: smooth analog pan
-    const axisX = applyDeadzoneCurve(activePad.axes[0] ?? 0, deadzone);
-    const axisY = applyDeadzoneCurve(activePad.axes[1] ?? 0, deadzone);
-    let panDx = -axisX * panSpeedPxPerSec * dt;
-    let panDy = -axisY * panSpeedPxPerSec * dt;
-
-    // D-pad (standard mapping: 12=Up, 13=Down, 14=Left, 15=Right)
-    if (activePad.buttons[12]?.pressed) panDy += dpadStepPx;
-    if (activePad.buttons[13]?.pressed) panDy -= dpadStepPx;
-    if (activePad.buttons[14]?.pressed) panDx += dpadStepPx;
-    if (activePad.buttons[15]?.pressed) panDx -= dpadStepPx;
-
+    const [panDx, panDy] = readPanDelta(activePad, dt);
     if (panDx !== 0 || panDy !== 0) {
       camera.panBy(panDx, panDy);
     }
 
-    // Right stick Y (axis 3) or triggers (LT=6, RT=7) for continuous zoom
-    const rightY = applyDeadzoneCurve(activePad.axes[3] ?? 0, deadzone);
-    const lt = activePad.buttons[6]?.value ?? 0;
-    const rt = activePad.buttons[7]?.value ?? 0;
-    const triggerDelta =
-      (rt > deadzone ? rt : 0) - (lt > deadzone ? lt : 0);
-    const zoomInput = -rightY + triggerDelta;
-
-    const lbPressed = Boolean(activePad.buttons[4]?.pressed);
-    const rbPressed = Boolean(activePad.buttons[5]?.pressed);
-    let discreteZoom = 0;
-    if (rbPressed && !prevRb) discreteZoom += zoomStep;
-    if (lbPressed && !prevLb) discreteZoom -= zoomStep;
-    prevLb = lbPressed;
-    prevRb = rbPressed;
-
-    const totalZoomDelta = zoomInput * zoomSpeedPerSec * dt + discreteZoom;
+    const totalZoomDelta = readZoomDelta(activePad, dt);
     if (totalZoomDelta !== 0) {
       const s = camera.getState();
       camera.zoomAt(s.zoom + totalZoomDelta, s.width * 0.5, s.height * 0.5);

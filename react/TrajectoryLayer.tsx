@@ -1,15 +1,15 @@
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
-  type PreparedTrajectoryEntry,
+  type PreparedArc,
   type TrajectoryCurveMode,
   type TrajectorySpec,
-  animateTrajectoryStroke,
-  attachSvgTrajectorySync,
-  prepareTrajectoryBatch,
-  scheduleStrokeAnimation,
+  animateStroke,
+  attachSvgSync,
+  prepareArcs,
+  scheduleAnimation,
 } from '../core/trajectory';
-import { initWasm, isWasmReady } from '../wasm/wasmBridge';
 import { useMap } from './MapContext';
+import { useWasmReady } from './useWasmReady';
 
 export type { TrajectoryCurveMode, TrajectorySpec as TrajectoryItem };
 
@@ -27,7 +27,7 @@ export interface TrajectoryLayerProps {
 }
 
 interface TrajectoryStrokeProps {
-  item: PreparedTrajectoryEntry;
+  item: PreparedArc;
   animationKey: number;
   strokeWidth: number;
   lowPower: boolean;
@@ -54,7 +54,7 @@ const TrajectoryStroke: React.FC<TrajectoryStrokeProps> = memo(
           animationRef.current.cancel();
           animationRef.current = null;
         }
-        animationRef.current = animateTrajectoryStroke(
+        animationRef.current = animateStroke(
           currentEl,
           item.dashRatio,
           item.duration,
@@ -62,7 +62,7 @@ const TrajectoryStroke: React.FC<TrajectoryStrokeProps> = memo(
         );
       };
 
-      const cancelScheduled = scheduleStrokeAnimation(runAnimation);
+      const cancelScheduled = scheduleAnimation(runAnimation);
       return () => {
         cancelScheduled();
         if (animationRef.current) {
@@ -112,27 +112,10 @@ export const TrajectoryLayer: React.FC<TrajectoryLayerProps> = memo(
     smooth = false,
   }) => {
     const { camera } = useMap();
-    const [wasmReady, setWasmReady] = useState(() => isWasmReady());
+    const wasmReady = useWasmReady();
     const svgRef = useRef<SVGSVGElement | null>(null);
     const pathRefs = useRef<Map<string, SVGPathElement>>(new Map());
     const basePathRefs = useRef<Map<string, SVGPathElement>>(new Map());
-
-    useEffect(() => {
-      if (wasmReady) return;
-      let cancelled = false;
-      void initWasm()
-        .then(() => {
-          if (!cancelled) {
-            setWasmReady(true);
-          }
-        })
-        .catch(() => {
-          // Keep wasmReady false if WASM runtime fails to initialize
-        });
-      return () => {
-        cancelled = true;
-      };
-    }, [wasmReady]);
 
     const registerPath = useCallback(
       (key: string, el: SVGPathElement | null) => {
@@ -145,11 +128,17 @@ export const TrajectoryLayer: React.FC<TrajectoryLayerProps> = memo(
       []
     );
 
-    const prepared = useMemo(() => prepareTrajectoryBatch(items), [items]);
+    const prepared = useMemo(
+      () =>
+        wasmReady
+          ? prepareArcs(items)
+          : { items: [], arcCount: 0, arcBuffer: null },
+      [items, wasmReady]
+    );
 
     useEffect(() => {
       if (!wasmReady) return;
-      return attachSvgTrajectorySync(
+      return attachSvgSync(
         svgRef.current,
         camera,
         prepared,

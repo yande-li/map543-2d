@@ -1,12 +1,12 @@
 import { type Camera } from './camera';
 import {
   QUADRATIC_ARC_POINTS,
-  buildProjectedSvgPath,
-  buildSvgPathFromFlatXY,
-  computeQuadraticArcsBatch,
-  computeTrajectoryTiming,
-  manhattanDegDistance,
-  projectInterleavedMercator,
+  latLngsToSvgPath,
+  xyToSvgPath,
+  computeArcsBatch,
+  getArcTiming,
+  manhattanDeg,
+  projectMercator,
   type TrajectoryTimingFn,
 } from './curves';
 import { type LatLng, MERCATOR_PROJECTION } from './projection';
@@ -29,7 +29,7 @@ export interface TrajectorySpec {
 
 export type { TrajectoryTimingFn };
 
-export interface PreparedTrajectoryEntry {
+export interface PreparedArc {
   key: string;
   src: LatLng;
   dst: LatLng;
@@ -41,36 +41,30 @@ export interface PreparedTrajectoryEntry {
   className: string | undefined;
 }
 
-export interface PreparedTrajectoryBatch {
-  items: PreparedTrajectoryEntry[];
+export interface PreparedArcs {
+  items: PreparedArc[];
   arcCount: number;
   arcBuffer: Float32Array | null;
-}
-
-export function isGeckoEngine(): boolean {
-  return typeof navigator !== 'undefined' && /Gecko\/\d/.test(navigator.userAgent);
 }
 
 // Shared rAF queue so all stroke animations start in a single frame callback
 const pendingAnimations = new Set<() => void>();
 let sharedRafId: number | null = null;
 
-export function scheduleStrokeAnimation(fn: () => void): () => void {
+export function scheduleAnimation(fn: () => void): () => void {
   if (typeof requestAnimationFrame === 'undefined') {
     fn();
     return () => {};
   }
   pendingAnimations.add(fn);
-  if (sharedRafId === null) {
-    sharedRafId = requestAnimationFrame(() => {
-      sharedRafId = null;
-      const tasks = Array.from(pendingAnimations);
-      pendingAnimations.clear();
-      for (const task of tasks) {
-        task();
-      }
-    });
-  }
+  sharedRafId ??= requestAnimationFrame(() => {
+    sharedRafId = null;
+    const tasks = Array.from(pendingAnimations);
+    pendingAnimations.clear();
+    for (const task of tasks) {
+      task();
+    }
+  });
   return () => {
     pendingAnimations.delete(fn);
     if (
@@ -88,7 +82,7 @@ export function scheduleStrokeAnimation(fn: () => void): () => void {
  * Starts a Web Animations API dash-flight animation along an SVG path with `pathLength="1"`.
  * Defaults to 18fps stepped easing; pass `smooth = true` to unlock full native frame rate.
  */
-export function animateTrajectoryStroke(
+export function animateStroke(
   el: SVGPathElement,
   dashRatio: number,
   duration: number,
@@ -116,11 +110,11 @@ export function animateTrajectoryStroke(
 /**
  * Prepares trajectory timings and computes all curved arcs in one WASM batch.
  */
-export function prepareTrajectoryBatch(
+export function prepareArcs(
   items: readonly TrajectorySpec[],
-  timingFn: TrajectoryTimingFn = computeTrajectoryTiming
-): PreparedTrajectoryBatch {
-  const result: PreparedTrajectoryEntry[] = [];
+  timingFn: TrajectoryTimingFn = getArcTiming
+): PreparedArcs {
+  const result: PreparedArc[] = [];
   const arcIndices: number[] = [];
 
   for (const item of items) {
@@ -128,7 +122,7 @@ export function prepareTrajectoryBatch(
     const src: LatLng = [item.srcLat, item.srcLon];
     const dst: LatLng = [item.dstLat, item.dstLon];
     const isStraight = item.curve === 'straight';
-    const dist = manhattanDegDistance(src, dst);
+    const dist = manhattanDeg(src, dst);
     const timing = timingFn(dist);
 
     const idx = result.length;
@@ -164,7 +158,7 @@ export function prepareTrajectoryBatch(
       dLons[i] = entry.dst[1];
     }
     arcBuffer = new Float32Array(arcCount * QUADRATIC_ARC_POINTS * 2);
-    computeQuadraticArcsBatch(sLats, sLons, dLats, dLons, arcCount, arcBuffer);
+    computeArcsBatch(sLats, sLons, dLats, dLons, arcCount, arcBuffer);
   }
 
   return { items: result, arcCount, arcBuffer };
@@ -174,10 +168,10 @@ export function prepareTrajectoryBatch(
  * Attaches a framework-agnostic camera subscription to an SVG container:
  * translates via GPU `translate3d` on pan, and batch-projects via WASM on zoom/init.
  */
-export function attachSvgTrajectorySync(
+export function attachSvgSync(
   svg: SVGSVGElement | null,
   camera: Camera,
-  batch: PreparedTrajectoryBatch,
+  batch: PreparedArcs,
   getPathEl: (key: string) => SVGPathElement | undefined,
   getBasePathEl: (key: string) => SVGPathElement | undefined,
   smooth = false
@@ -189,7 +183,7 @@ export function attachSvgTrajectorySync(
   let originNormY = 0;
   const tmpPt = { x: 0, y: 0 };
   const stride = QUADRATIC_ARC_POINTS * 2;
-  const nonMercatorTmpXY = new Float32Array(stride);
+  let nonMercatorTmpXY: Float32Array | null = null;
   const projectedXY =
     batch.arcBuffer && batch.arcCount > 0
       ? new Float32Array(batch.arcCount * stride)
@@ -205,7 +199,7 @@ export function attachSvgTrajectorySync(
     const isMercator = camera.getProjection() === MERCATOR_PROJECTION;
 
     if (batch.arcBuffer && projectedXY && isMercator) {
-      projectInterleavedMercator(
+      projectMercator(
         batch.arcBuffer,
         batch.arcCount * QUADRATIC_ARC_POINTS,
         camera,
@@ -216,13 +210,14 @@ export function attachSvgTrajectorySync(
     for (const item of batch.items) {
       let d: string;
       if (item.batchIndex >= 0 && projectedXY && isMercator) {
-        d = buildSvgPathFromFlatXY(
+        d = xyToSvgPath(
           projectedXY,
           item.batchIndex * stride,
           QUADRATIC_ARC_POINTS,
           smooth
         );
       } else if (item.batchIndex >= 0 && batch.arcBuffer) {
+        nonMercatorTmpXY ??= new Float32Array(stride);
         const base = item.batchIndex * stride;
         for (let i = 0; i < QUADRATIC_ARC_POINTS; i++) {
           const lat = batch.arcBuffer[base + i * 2];
@@ -231,14 +226,9 @@ export function attachSvgTrajectorySync(
           nonMercatorTmpXY[i * 2] = tmpPt.x;
           nonMercatorTmpXY[i * 2 + 1] = tmpPt.y;
         }
-        d = buildSvgPathFromFlatXY(
-          nonMercatorTmpXY,
-          0,
-          QUADRATIC_ARC_POINTS,
-          smooth
-        );
+        d = xyToSvgPath(nonMercatorTmpXY, 0, QUADRATIC_ARC_POINTS, smooth);
       } else {
-        d = buildProjectedSvgPath(
+        d = latLngsToSvgPath(
           [item.src, item.dst],
           (lat, lon, out) => camera.projectInto(lat, lon, out),
           tmpPt

@@ -2,54 +2,49 @@ export {
   type LatLng,
   type Point2D,
   type LatLngBounds,
-  type ViewportProjectionState,
+  type ProjectionState,
   type ProjectionType,
   type BoundsSpec,
   type Projection,
   MERCATOR_PROJECTION,
-  createEquirectangularProjection,
+  createEquirectangular,
   resolveProjection,
   TILE_SIZE,
   MAX_MERCATOR_LAT,
   DEG_TO_RAD,
   RAD_TO_DEG,
   MERCATOR_Y_LOOKUP,
-  projectLatToMercatorY,
-  projectToNormalized,
-  projectToNormalizedInto,
-  unprojectFromNormalized,
+  latToMercatorY,
+  latLngToNorm,
+  latLngToNormInto,
+  normToLatLng,
   latLngToWorld,
   worldToLatLng,
-  projectLatLngToContainer,
-  unprojectContainerToLatLng,
+  latLngToPx,
+  pxToLatLng,
   getViewportBounds,
-  getWrappedViewportSlices,
-  type WrappedViewportSlice,
-  type WrappedViewportSlices,
-  computeDynamicMinZoom,
-  computeResponsiveZoom,
+  getWrappedSlices,
+  type WrappedSlice,
+  type WrappedSlices,
+  getMinZoom,
+  getResponsiveZoom,
   computeZoomForBounds,
   clampCenterToBounds,
 } from './core/projection';
 export {
-  computeQuadraticArc,
-  computeQuadraticArcsBatch,
+  computeArc,
+  computeArcsBatch,
   QUADRATIC_ARC_POINTS,
-  manhattanDegDistance,
-  computeTrajectoryTiming,
+  manhattanDeg,
+  getArcTiming,
   type TrajectoryTimingFn,
-  buildProjectedSvgPath,
-  buildSvgPathFromFlatXY,
-  projectInterleavedMercator,
-  traceScreenQuadraticArc,
+  latLngsToSvgPath,
+  xyToSvgPath,
+  projectMercator,
+  traceArc,
 } from './core/curves';
-export {
-  parseFgbToPreparedLayers,
-  type PreparedFeature,
-  type PreparedLayer,
-  type CleanSeamRingFn,
-} from './formats/fgb';
-export { parseGeobufToPreparedLayers } from './formats/geobuf';
+export { type PreparedFeature, type PreparedLayer } from './formats/types';
+export { parseGeobuf } from './formats/geobuf';
 
 export {
   Camera,
@@ -61,13 +56,18 @@ export {
 
 export {
   findNearestPoint,
-  findNearestPointFast,
+  hitTestPoints,
+  encodePointsToI16,
+  hitTestPointsI16,
   type SpatialPoints,
 } from './core/hitTest';
 export {
   batchProjectPoints,
+  batchProjectPointsI16,
   decimatePackedRings,
   uploadStaticRings,
+  encodeNormU16,
+  uploadStaticRingsU16,
   decimateStaticRings,
   type StaticGeometryHandle,
   cleanSeamRing,
@@ -75,12 +75,13 @@ export {
 export {
   type ZoomControlPosition,
   type VectorLodOptions,
-  computeEffectivePixelStep,
+  getPixelStep,
   shouldSkipLayer,
-  shouldCullFeatureOnInteract,
-  traceDecimatedFeature,
-  traceDecimatedStaticFeature,
-  traceStaticRingsDirect,
+  shouldCullFeature,
+  drawDecimatedRings,
+  drawStaticRings,
+  drawStaticDirect,
+  drawStaticU16Direct,
 } from './core/vectorLod';
 export {
   initWasm,
@@ -92,30 +93,24 @@ export {
   getWasmMemoryStats,
   type WasmRuntime,
   type WasmMemoryStats,
-} from './wasm/wasmBridge';
+} from './wasm/bridge';
 export {
-  attachViewportInteractions,
-  type ViewportInteractionsOptions,
+  attachInteractions,
+  type InteractionOptions,
 } from './core/interactions';
-export {
-  attachGamepadControls,
-  type GamepadControlsOptions,
-} from './core/gamepad';
+export { attachGamepad, type GamepadOptions } from './core/gamepad';
 export {
   BlanketCanvasLayer,
-  type BlanketCanvasLayerOptions,
+  type BlanketLayerOptions,
   type BlanketDrawCallback,
-} from './core/blanketCanvasLayer';
+} from './core/blanketLayer';
 export {
   loadImage,
   drawImage,
   type ImageBounds,
   type DrawImageOptions,
 } from './core/imageLayer';
-export {
-  ImageLayer,
-  type ImageLayerProps,
-} from './react/ImageLayer';
+export { ImageLayer, type ImageLayerProps } from './react/ImageLayer';
 export { type MapLayerRenderer } from './core/renderer';
 
 export {
@@ -125,15 +120,9 @@ export {
   type MapClickListener,
 } from './react/MapContext';
 
-export {
-  MapView,
-  type MapViewProps,
-} from './react/MapView';
+export { MapView, type MapViewProps } from './react/MapView';
 
-export {
-  CanvasLayer,
-  type CanvasLayerProps,
-} from './react/CanvasLayer';
+export { CanvasLayer, type CanvasLayerProps } from './react/CanvasLayer';
 
 export {
   Overlay,
@@ -160,39 +149,32 @@ export {
   ensureMarkerStyles,
   normalizePulseMode,
   resolveMarkerGeometry,
-  type EnsureMarkerStylesOptions,
+  type MarkerStyleOptions,
   type MarkerPulseMode,
   type MarkerGeometry,
 } from './core/marker';
 
 export {
-  isGeckoEngine,
-  scheduleStrokeAnimation,
-  animateTrajectoryStroke,
-  prepareTrajectoryBatch,
-  attachSvgTrajectorySync,
+  scheduleAnimation,
+  animateStroke,
+  prepareArcs,
+  attachSvgSync,
   type TrajectorySpec,
-  type PreparedTrajectoryEntry,
-  type PreparedTrajectoryBatch,
+  type PreparedArc,
+  type PreparedArcs,
 } from './core/trajectory';
 
-export {
-  createGlowDotSprite,
-  drawScreenTrajectoryBatch,
-} from './core/canvasTrajectory';
+export { createGlowDotSprite, drawTrajectories } from './core/canvasTrajectory';
 
 export {
-  buildPointSpatialBuffers,
+  packPoints,
   drawBatchPoints,
-  attachPointHoverCursor,
+  attachPointHover,
   type PointItem,
-  type PointSpatialBuffers,
+  type PointBuffers,
 } from './core/pointLayer';
 
-export {
-  PointLayer,
-  type PointLayerProps,
-} from './react/PointLayer';
+export { PointLayer, type PointLayerProps } from './react/PointLayer';
 
 export {
   uploadVectorLayers,
@@ -204,7 +186,4 @@ export {
   type DrawVectorOptions,
 } from './core/vectorLayer';
 
-export {
-  VectorLayer,
-  type VectorLayerProps,
-} from './react/VectorLayer';
+export { VectorLayer, type VectorLayerProps } from './react/VectorLayer';

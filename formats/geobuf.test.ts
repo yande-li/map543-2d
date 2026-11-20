@@ -1,8 +1,9 @@
+/// <reference types="node" />
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { initWasm } from '../wasm/wasmBridge';
-import { parseGeobufToPreparedLayers } from './geobuf';
+import { initWasm } from '../wasm/bridge';
+import { parseGeobuf } from './geobuf';
 
 beforeAll(async () => {
   const wasmBytes = readFileSync(
@@ -22,7 +23,7 @@ function pushVarint(out: number[], v: number): void {
 
 function pushZigZag(out: number[], v: number): void {
   const n = BigInt(v);
-  const zz = n >= 0n ? n << 1n : ((-n) << 1n) - 1n;
+  const zz = n >= 0n ? n << 1n : (-n << 1n) - 1n;
   let u = zz;
   while (u >= 0x80n) {
     out.push(Number((u & 0x7fn) | 0x80n));
@@ -111,7 +112,7 @@ function buildTestGeobufPolygon(options?: {
   return Uint8Array.from(data).buffer;
 }
 
-describe('parseGeobufToPreparedLayers', () => {
+describe('parseGeobuf', () => {
   it('decodes a Geobuf Polygon and closes the ring with Mercator projection', () => {
     const buf = buildTestGeobufPolygon({
       precision: 5,
@@ -119,7 +120,7 @@ describe('parseGeobufToPreparedLayers', () => {
       layerName: 'urban',
     });
 
-    const { fillLayers, strokeLayers } = parseGeobufToPreparedLayers(buf);
+    const { fillLayers, strokeLayers } = parseGeobuf(buf);
     expect(fillLayers).toHaveLength(1);
     expect(strokeLayers).toHaveLength(1);
     expect(fillLayers[0].name).toBe('urban');
@@ -179,10 +180,7 @@ describe('parseGeobufToPreparedLayers', () => {
     const data: number[] = [];
     pushBytesField(data, 6, geom);
 
-    const { fillLayers } = parseGeobufToPreparedLayers(
-      Uint8Array.from(data).buffer,
-      'land'
-    );
+    const { fillLayers } = parseGeobuf(Uint8Array.from(data).buffer, 'land');
     expect(fillLayers).toHaveLength(1);
     expect(fillLayers[0].name).toBe('land');
     const feat = fillLayers[0].features[0];
@@ -191,14 +189,14 @@ describe('parseGeobufToPreparedLayers', () => {
   });
 
   it('rejects empty, truncated, and invalid-dimension Geobuf buffers', () => {
-    expect(() => parseGeobufToPreparedLayers(new ArrayBuffer(0))).toThrow();
+    expect(() => parseGeobuf(new ArrayBuffer(0))).toThrow();
 
     // Truncated length-delimited field
     const truncated = Uint8Array.from([0x22, 0x10, 0x01]).buffer;
-    expect(() => parseGeobufToPreparedLayers(truncated)).toThrow();
+    expect(() => parseGeobuf(truncated)).toThrow();
 
     // Invalid dimensions = 1
     const badDims = Uint8Array.from([0x10, 0x01]).buffer;
-    expect(() => parseGeobufToPreparedLayers(badDims)).toThrow();
+    expect(() => parseGeobuf(badDims)).toThrow();
   });
 });

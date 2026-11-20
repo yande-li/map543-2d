@@ -1,7 +1,7 @@
 import { Camera } from './camera';
 import { LatLng } from './projection';
 
-export interface ViewportInteractionsOptions {
+export interface InteractionOptions {
   /** Enable drag, pinch, wheel, double-click, and click events (default: true). */
   interactive?: boolean;
   /** Enable keyboard navigation (Arrow keys to pan, +/- to zoom) when focused (default: true). */
@@ -27,17 +27,17 @@ interface ActivePointer {
   y: number;
 }
 
-const CLICK_MOVE_THRESHOLD_SQ = 25; // 5px
+const CLICK_SLOP_SQ = 25; // 5px
 
 /**
  * Attaches framework-agnostic DOM viewport interactions (ResizeObserver, pointer drag,
  * two-finger pinch, wheel zoom, double-click zoom, and click detection) to an HTMLElement.
  * Suitable for Vue, Svelte, or Vanilla JS integrations. Returns a cleanup function.
  */
-export function attachViewportInteractions(
+export function attachInteractions(
   el: HTMLElement,
   camera: Camera,
-  options: ViewportInteractionsOptions = {}
+  options: InteractionOptions = {}
 ): () => void {
   const {
     interactive = true,
@@ -73,7 +73,10 @@ export function attachViewportInteractions(
   }
 
   if (typeof window !== 'undefined') {
-    window.addEventListener('scroll', syncRect, { passive: true, capture: true });
+    window.addEventListener('scroll', syncRect, {
+      passive: true,
+      capture: true,
+    });
     cleanups.push(() =>
       window.removeEventListener('scroll', syncRect, { capture: true })
     );
@@ -102,8 +105,7 @@ export function attachViewportInteractions(
     let dragOrigin: { x: number; y: number; moved: boolean } | null = null;
     let lastPinchDist: number | null = null;
 
-    const useRaf =
-      coalesceFrame && typeof requestAnimationFrame === 'function';
+    const useRaf = coalesceFrame && typeof requestAnimationFrame === 'function';
     let rafId = 0;
     let pendingPanX = 0;
     let pendingPanY = 0;
@@ -188,7 +190,7 @@ export function attachViewportInteractions(
         if (dragOrigin) {
           const totalDx = e.clientX - dragOrigin.x;
           const totalDy = e.clientY - dragOrigin.y;
-          if (totalDx * totalDx + totalDy * totalDy > CLICK_MOVE_THRESHOLD_SQ) {
+          if (totalDx * totalDx + totalDy * totalDy > CLICK_SLOP_SQ) {
             dragOrigin.moved = true;
           }
         }
@@ -223,7 +225,7 @@ export function attachViewportInteractions(
       }
     };
 
-    const handlePointerUpOrCancel = (e: PointerEvent) => {
+    const endPointer = (e: PointerEvent) => {
       const wasTracked = pointers.has(e.pointerId);
       pointers.delete(e.pointerId);
       if (pointers.size < 2) {
@@ -309,9 +311,9 @@ export function attachViewportInteractions(
     el.addEventListener('wheel', handleWheel, { passive: false });
     el.addEventListener('pointerdown', handlePointerDown);
     el.addEventListener('pointermove', handlePointerMove);
-    el.addEventListener('pointerup', handlePointerUpOrCancel);
-    el.addEventListener('pointercancel', handlePointerUpOrCancel);
-    el.addEventListener('lostpointercapture', handlePointerUpOrCancel);
+    el.addEventListener('pointerup', endPointer);
+    el.addEventListener('pointercancel', endPointer);
+    el.addEventListener('lostpointercapture', endPointer);
     el.addEventListener('dblclick', handleDoubleClick);
     if (keyboard) {
       el.addEventListener('keydown', handleKeyDown);
@@ -329,9 +331,9 @@ export function attachViewportInteractions(
       el.removeEventListener('wheel', handleWheel);
       el.removeEventListener('pointerdown', handlePointerDown);
       el.removeEventListener('pointermove', handlePointerMove);
-      el.removeEventListener('pointerup', handlePointerUpOrCancel);
-      el.removeEventListener('pointercancel', handlePointerUpOrCancel);
-      el.removeEventListener('lostpointercapture', handlePointerUpOrCancel);
+      el.removeEventListener('pointerup', endPointer);
+      el.removeEventListener('pointercancel', endPointer);
+      el.removeEventListener('lostpointercapture', endPointer);
       el.removeEventListener('dblclick', handleDoubleClick);
       if (keyboard) {
         el.removeEventListener('keydown', handleKeyDown);

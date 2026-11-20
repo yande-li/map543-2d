@@ -12,7 +12,7 @@ export interface LatLngBounds {
   west: number;
 }
 
-export interface ViewportProjectionState {
+export interface ProjectionState {
   center: LatLng;
   zoom: number;
   width: number;
@@ -44,7 +44,7 @@ for (let i = 0; i <= TABLE_SIZE; i++) {
 /**
  * Converts latitude to Mercator Y (radians-like space) using lookup + linear interpolation.
  */
-export function projectLatToMercatorY(lat: number): number {
+export function latToMercatorY(lat: number): number {
   const clamped = Math.max(-MAX_MERCATOR_LAT, Math.min(MAX_MERCATOR_LAT, lat));
   const idxFull = Math.min(TABLE_SIZE, Math.abs(clamped) * 60);
   const idx = idxFull | 0;
@@ -59,36 +59,33 @@ export function projectLatToMercatorY(lat: number): number {
  * Projects [lat, lon] into normalized Web Mercator [0..1, 0..1] world coordinates
  * using the precomputed lookup table.
  */
-export function projectToNormalized(lat: number, lon: number): Point2D {
+export function latLngToNorm(lat: number, lon: number): Point2D {
   const nx = (lon + 180) * INV_360;
-  const ny = 0.5 - projectLatToMercatorY(lat) * INV_TWO_PI;
+  const ny = 0.5 - latToMercatorY(lat) * INV_TWO_PI;
   return { x: nx, y: ny };
 }
 
 /**
- * Zero-allocation variant of projectToNormalized that writes into an existing Point2D.
+ * Zero-allocation variant of latLngToNorm that writes into an existing Point2D.
  */
-export function projectToNormalizedInto(
+export function latLngToNormInto(
   lat: number,
   lon: number,
   out: Point2D
 ): Point2D {
   out.x = (lon + 180) * INV_360;
-  out.y = 0.5 - projectLatToMercatorY(lat) * INV_TWO_PI;
+  out.y = 0.5 - latToMercatorY(lat) * INV_TWO_PI;
   return out;
 }
 
 /**
  * Unprojects normalized Web Mercator [0..1, 0..1] coordinates back to [lat, lon].
  */
-export function unprojectFromNormalized(nx: number, ny: number): LatLng {
+export function normToLatLng(nx: number, ny: number): LatLng {
   const lon = nx * 360 - 180;
   const expVal = Math.exp((0.5 - ny) * 2 * Math.PI);
   const lat = (2 * Math.atan(expVal) - Math.PI / 2) * RAD_TO_DEG;
-  return [
-    Math.max(-MAX_MERCATOR_LAT, Math.min(MAX_MERCATOR_LAT, lat)),
-    lon,
-  ];
+  return [Math.max(-MAX_MERCATOR_LAT, Math.min(MAX_MERCATOR_LAT, lat)), lon];
 }
 
 /**
@@ -101,7 +98,7 @@ export function latLngToWorld(
   projection: Projection = MERCATOR_PROJECTION
 ): Point2D {
   const worldSize = TILE_SIZE * Math.pow(2, zoom);
-  const norm = projection.projectToNormalized(lat, lon);
+  const norm = projection.latLngToNorm(lat, lon);
   return { x: norm.x * worldSize, y: norm.y * worldSize };
 }
 
@@ -115,25 +112,25 @@ export function worldToLatLng(
   projection: Projection = MERCATOR_PROJECTION
 ): LatLng {
   const worldSize = TILE_SIZE * Math.pow(2, zoom);
-  return projection.unprojectFromNormalized(wx / worldSize, wy / worldSize);
+  return projection.normToLatLng(wx / worldSize, wy / worldSize);
 }
 
 /**
  * Projects [lat, lon] into container pixel coordinates relative to top-left of the viewport.
  */
-export function projectLatLngToContainer(
+export function latLngToPx(
   lat: number,
   lon: number,
-  state: ViewportProjectionState,
+  state: ProjectionState,
   projection: Projection = MERCATOR_PROJECTION
 ): Point2D {
   const worldSize = TILE_SIZE * Math.pow(2, state.zoom);
-  const centerNorm = projection.projectToNormalized(
+  const centerNorm = projection.latLngToNorm(
     state.center[0],
     state.center[1],
     TMP_NORM
   );
-  const ptNorm = projection.projectToNormalized(lat, lon, TMP_NORM_2);
+  const ptNorm = projection.latLngToNorm(lat, lon, TMP_NORM_2);
   return {
     x: state.width * 0.5 + (ptNorm.x - centerNorm.x) * worldSize,
     y: state.height * 0.5 + (ptNorm.y - centerNorm.y) * worldSize,
@@ -143,37 +140,32 @@ export function projectLatLngToContainer(
 /**
  * Unprojects container pixel coordinates back to [lat, lon].
  */
-export function unprojectContainerToLatLng(
+export function pxToLatLng(
   px: number,
   py: number,
-  state: ViewportProjectionState,
+  state: ProjectionState,
   projection: Projection = MERCATOR_PROJECTION
 ): LatLng {
   const worldSize = TILE_SIZE * Math.pow(2, state.zoom);
-  const centerNorm = projection.projectToNormalized(
+  const centerNorm = projection.latLngToNorm(
     state.center[0],
     state.center[1],
     TMP_NORM
   );
   const nx = centerNorm.x + (px - state.width * 0.5) / worldSize;
   const ny = centerNorm.y + (py - state.height * 0.5) / worldSize;
-  return projection.unprojectFromNormalized(nx, ny);
+  return projection.normToLatLng(nx, ny);
 }
 
 /**
  * Returns the geographic bounding box currently visible in the viewport.
  */
 export function getViewportBounds(
-  state: ViewportProjectionState,
+  state: ProjectionState,
   projection: Projection = MERCATOR_PROJECTION
 ): LatLngBounds {
-  const nw = unprojectContainerToLatLng(0, 0, state, projection);
-  const se = unprojectContainerToLatLng(
-    state.width,
-    state.height,
-    state,
-    projection
-  );
+  const nw = pxToLatLng(0, 0, state, projection);
+  const se = pxToLatLng(state.width, state.height, state, projection);
   return {
     north: nw[0],
     west: nw[1],
@@ -193,22 +185,22 @@ export interface BoundsSpec {
 
 export interface Projection {
   readonly id: string;
-  projectToNormalized: (lat: number, lon: number, out?: Point2D) => Point2D;
-  unprojectFromNormalized: (nx: number, ny: number) => LatLng;
+  latLngToNorm: (lat: number, lon: number, out?: Point2D) => Point2D;
+  normToLatLng: (nx: number, ny: number) => LatLng;
 }
 
 export const MERCATOR_PROJECTION: Projection = {
   id: 'mercator',
-  projectToNormalized: (lat: number, lon: number, out?: Point2D): Point2D =>
-    out ? projectToNormalizedInto(lat, lon, out) : projectToNormalized(lat, lon),
-  unprojectFromNormalized,
+  latLngToNorm: (lat: number, lon: number, out?: Point2D): Point2D =>
+    out ? latLngToNormInto(lat, lon, out) : latLngToNorm(lat, lon),
+  normToLatLng,
 };
 
 /**
  * Creates an Equirectangular (Plate Carree) projection preserving the 2:1 geographic
  * aspect ratio when spanning [-180, 180] x [-90, 90] (nx in [0, 1], ny in [0, 0.5]).
  */
-export function createEquirectangularProjection(
+export function createEquirectangular(
   bounds: Partial<BoundsSpec> = {}
 ): Projection {
   const minLat = bounds.minLat ?? -90;
@@ -221,7 +213,7 @@ export function createEquirectangularProjection(
 
   return {
     id: 'equirectangular',
-    projectToNormalized: (lat: number, lon: number, out?: Point2D): Point2D => {
+    latLngToNorm: (lat: number, lon: number, out?: Point2D): Point2D => {
       const clampedLat = Math.max(minLat, Math.min(maxLat, lat));
       const nx = (lon - minLon) / lonSpan;
       const ny = ((maxLat - clampedLat) / latSpan) * yScale;
@@ -232,7 +224,7 @@ export function createEquirectangularProjection(
       }
       return { x: nx, y: ny };
     },
-    unprojectFromNormalized: (nx: number, ny: number): LatLng => {
+    normToLatLng: (nx: number, ny: number): LatLng => {
       const lon = minLon + nx * lonSpan;
       const lat = maxLat - (ny / yScale) * latSpan;
       return [Math.max(minLat, Math.min(maxLat, lat)), lon];
@@ -240,7 +232,7 @@ export function createEquirectangularProjection(
   };
 }
 
-const DEFAULT_EQUIRECTANGULAR_PROJECTION = createEquirectangularProjection();
+const BASE_EQUIRECT = createEquirectangular();
 
 export function resolveProjection(
   projection?: ProjectionType | Projection
@@ -249,7 +241,7 @@ export function resolveProjection(
     return MERCATOR_PROJECTION;
   }
   if (projection === 'equirectangular') {
-    return DEFAULT_EQUIRECTANGULAR_PROJECTION;
+    return BASE_EQUIRECT;
   }
   return projection;
 }
@@ -264,7 +256,7 @@ export interface NormalizedBounds {
 /**
  * Pre-projects geographic maxBounds into normalized [0, 1] space.
  */
-export function computeNormalizedBounds(
+export function getNormBounds(
   maxBounds?: [LatLng, LatLng],
   projection: Projection = MERCATOR_PROJECTION
 ): NormalizedBounds {
@@ -279,21 +271,17 @@ export function computeNormalizedBounds(
     : isEq
       ? 90
       : 85;
-  const minLon = maxBounds
-    ? Math.min(maxBounds[0][1], maxBounds[1][1])
-    : -180;
-  const maxLon = maxBounds
-    ? Math.max(maxBounds[0][1], maxBounds[1][1])
-    : 180;
-  const nw = projection.projectToNormalized(maxLat, minLon, TMP_NORM);
-  const se = projection.projectToNormalized(minLat, maxLon, TMP_NORM_2);
+  const minLon = maxBounds ? Math.min(maxBounds[0][1], maxBounds[1][1]) : -180;
+  const maxLon = maxBounds ? Math.max(maxBounds[0][1], maxBounds[1][1]) : 180;
+  const nw = projection.latLngToNorm(maxLat, minLon, TMP_NORM);
+  const se = projection.latLngToNorm(minLat, maxLon, TMP_NORM_2);
   return { nwX: nw.x, nwY: nw.y, seX: se.x, seY: se.y };
 }
 
 /**
  * Computes the minimum zoom level required so the viewport does not exceed maxBounds.
  */
-export function computeDynamicMinZoom(
+export function getMinZoom(
   width: number,
   height: number,
   maxBounds?: [LatLng, LatLng],
@@ -301,7 +289,7 @@ export function computeDynamicMinZoom(
   projection: Projection = MERCATOR_PROJECTION
 ): number {
   if (width <= 0 || height <= 0) return 0;
-  const nb = cachedBounds ?? computeNormalizedBounds(maxBounds, projection);
+  const nb = cachedBounds ?? getNormBounds(maxBounds, projection);
   const spanX = Math.max(1e-6, nb.seX - nb.nwX);
   const spanY = Math.max(1e-6, nb.seY - nb.nwY);
 
@@ -314,7 +302,7 @@ export function computeDynamicMinZoom(
  * Scales a base zoom level relative to a reference viewport width so the
  * horizontal geographic span remains consistent across screen resolutions.
  */
-export function computeResponsiveZoom(
+export function getResponsiveZoom(
   baseZoom: number,
   viewportWidth: number,
   referenceWidth = 1920
@@ -339,11 +327,11 @@ export function computeZoomForBounds(
   const minLon = Math.min(bounds[0][1], bounds[1][1]);
   const maxLon = Math.max(bounds[0][1], bounds[1][1]);
 
-  const nw = projection.projectToNormalized(maxLat, minLon, TMP_NORM);
-  const se = projection.projectToNormalized(minLat, maxLon, TMP_NORM_2);
+  const nw = projection.latLngToNorm(maxLat, minLon, TMP_NORM);
+  const se = projection.latLngToNorm(minLat, maxLon, TMP_NORM_2);
   const centerNormX = (nw.x + se.x) * 0.5;
   const centerNormY = (nw.y + se.y) * 0.5;
-  const center = projection.unprojectFromNormalized(centerNormX, centerNormY);
+  const center = projection.normToLatLng(centerNormX, centerNormY);
 
   const availW = Math.max(1, width - paddingPx * 2);
   const availH = Math.max(1, height - paddingPx * 2);
@@ -358,32 +346,33 @@ export function computeZoomForBounds(
   return { center, zoom: Math.min(zoomX, zoomY) };
 }
 
-export interface WrappedViewportSlice {
+export interface WrappedSlice {
   wrapShiftPx: number;
   drawOffsetX: number;
   adjLonMin: number;
   adjLonMax: number;
 }
 
-export interface WrappedViewportSlices {
+export interface WrappedSlices {
   scale: number;
   baseOffsetX: number;
   offsetY: number;
   viewLatMin: number;
   viewLatMax: number;
-  slices: WrappedViewportSlice[];
+  slices: WrappedSlice[];
 }
 
 /**
  * Computes world-wrapped horizontal viewport slices (including -360/+360 antimeridian
  * copies when visible) for canvas layers that render across the ±180° seam.
  */
-export function getWrappedViewportSlices(
-  state: ViewportProjectionState,
-  padDeg = 2
-): WrappedViewportSlices {
+export function getWrappedSlices(
+  state: ProjectionState,
+  padDeg = 2,
+  projection: Projection = MERCATOR_PROJECTION
+): WrappedSlices {
   const scale = TILE_SIZE * Math.pow(2, state.zoom);
-  const centerNorm = projectToNormalizedInto(
+  const centerNorm = projection.latLngToNorm(
     state.center[0],
     state.center[1],
     TMP_NORM
@@ -391,8 +380,8 @@ export function getWrappedViewportSlices(
   const baseOffsetX = centerNorm.x * scale - state.width * 0.5;
   const offsetY = centerNorm.y * scale - state.height * 0.5;
 
-  const nw = unprojectFromNormalized(baseOffsetX / scale, offsetY / scale);
-  const se = unprojectFromNormalized(
+  const nw = projection.normToLatLng(baseOffsetX / scale, offsetY / scale);
+  const se = projection.normToLatLng(
     (baseOffsetX + state.width) / scale,
     (offsetY + state.height) / scale
   );
@@ -401,7 +390,7 @@ export function getWrappedViewportSlices(
   const viewLatMin = se[0] - padDeg;
   const viewLatMax = nw[0] + padDeg;
 
-  const slices: WrappedViewportSlice[] = [
+  const slices: WrappedSlice[] = [
     {
       wrapShiftPx: 0,
       drawOffsetX: baseOffsetX,
@@ -458,11 +447,11 @@ export function clampCenterToBounds(
   }
 
   const worldSize = TILE_SIZE * Math.pow(2, zoom);
-  const nb = cachedBounds ?? computeNormalizedBounds(maxBounds, projection);
+  const nb = cachedBounds ?? getNormBounds(maxBounds, projection);
   const halfW = (width * 0.5) / worldSize;
   const halfH = (height * 0.5) / worldSize;
 
-  const norm = projection.projectToNormalized(center[0], center[1], TMP_NORM);
+  const norm = projection.latLngToNorm(center[0], center[1], TMP_NORM);
   const minX = nb.nwX + halfW;
   const maxX = nb.seX - halfW;
   const minY = nb.nwY + halfH;
@@ -477,5 +466,5 @@ export function clampCenterToBounds(
       ? (nb.nwY + nb.seY) * 0.5
       : Math.max(minY, Math.min(maxY, norm.y));
 
-  return projection.unprojectFromNormalized(clampedX, clampedY);
+  return projection.normToLatLng(clampedX, clampedY);
 }

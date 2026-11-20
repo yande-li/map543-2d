@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import {
   BlanketCanvasLayer,
   type BlanketDrawCallback,
-} from '../core/blanketCanvasLayer';
+} from '../core/blanketLayer';
 import { useMap } from './MapContext';
 
 export interface CanvasLayerProps {
@@ -21,7 +21,7 @@ export interface CanvasLayerProps {
   onDraw: BlanketDrawCallback;
 }
 
-const DEFAULT_INTERACTION_IDLE_DELAY_MS = 140;
+const IDLE_DELAY_MS = 140;
 
 /**
  * DPR-aware canvas layer synchronized with camera viewport changes via BlanketCanvasLayer.
@@ -30,7 +30,7 @@ export const CanvasLayer: React.FC<CanvasLayerProps> = ({
   zIndex = 100,
   maxDpr = 2,
   interactionMaxDpr,
-  interactionIdleDelayMs = DEFAULT_INTERACTION_IDLE_DELAY_MS,
+  interactionIdleDelayMs = IDLE_DELAY_MS,
   className = '',
   onDraw,
 }) => {
@@ -60,13 +60,11 @@ export const CanvasLayer: React.FC<CanvasLayerProps> = ({
 
     const opts = latestOptionsRef.current;
     const layer = new BlanketCanvasLayer({
-      zIndex: opts.zIndex,
       maxDpr: opts.maxDpr,
       ...(opts.interactionMaxDpr !== undefined
         ? { interactionMaxDpr: opts.interactionMaxDpr }
         : {}),
       interactionIdleDelayMs: opts.interactionIdleDelayMs,
-      className: opts.className,
       onDraw: opts.onDraw,
     });
     layerRef.current = layer;
