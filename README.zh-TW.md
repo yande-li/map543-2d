@@ -67,6 +67,8 @@ Root viewport container，支援 `ResizeObserver`、拖曳、pinch、滾輪/雙�
 | `lowPower`             | `boolean`             | `false`     | 省電模式                    |
 | `zIndex`               | `number`              | `100`       | 圖層堆疊順序                |
 | `skipOnInteractLayers` | `ReadonlySet<string>` | `undefined` | 平移/縮放期間略過的圖層名稱 |
+| `resetOnUpload`        | `boolean`             | `false`     | 上傳前重設 WASM arena       |
+| `precision`            | `'f32' \| 'u16'`      | `'f32'`     | Arena 座標精度              |
 
 ### `<PointLayer>`
 
@@ -78,6 +80,7 @@ Canvas point layer，支援 WASM batch projection 與最近點點擊/hover hit-t
 | `zIndex`       | `number`                 | `300`       | 圖層堆疊順序                    |
 | `hitRadiusPx`  | `number`                 | `18`        | Hit-test 半徑（px）             |
 | `marginPx`     | `number`                 | `30`        | Off-screen culling margin（px） |
+| `precision`    | `'f32' \| 'i16'`         | `'f32'`     | 座標緩衝區精度                  |
 | `onPointClick` | `(point, index) => void` | `undefined` | 點擊 callback                   |
 
 ### `<TrajectoryLayer>`
@@ -158,7 +161,9 @@ const camera = new Camera({
 ### Vector Formats, Controllers & Hit Testing
 
 - Format parser：`parseGeobuf(buffer, defaultLayerName?)`（Mapbox Geobuf `.geobuf` / `.pbf`）。
+- Location dictionary decoder：`decodeLocationDictBatch(rawBytes, locCount, outLats, outLons, outMxs?, outMys?)`。
 - 16-bit API（`u16` / `i16`）：`encodeNormU16`、`uploadStaticRingsU16`、`drawStaticU16Direct`、`encodePointsToI16`、`batchProjectPointsI16`、`hitTestPointsI16`。
+- Static Point Arena（零輸入拷貝）：`uploadStaticPoints`、`uploadStaticPointsI16`、`batchProjectStaticPoints`、`hitTestStaticPoints`。
 - Curves：`computeArc(src, dst, isShort)` — 含 ±180° 經度正規化的 quadratic Bézier 弧線。
 - Controllers：`attachInteractions(el, camera, options)`、`attachGamepad(camera, options)`、`BlanketCanvasLayer`。
 - Hit testing：`findNearestPoint(clickX, clickY, points, projectFn, radiusPx = 14)`、`hitTestPoints(clickX, clickY, points, camera, radiusPx = 14)`。

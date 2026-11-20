@@ -97,17 +97,22 @@ export {
   hitTestPoints,
   encodePointsToI16,
   hitTestPointsI16,
+  hitTestStaticPoints,
   type SpatialPoints,
 } from './core/hitTest';
 
 export {
   batchProjectPoints,
   batchProjectPointsI16,
+  uploadStaticPoints,
+  uploadStaticPointsI16,
+  batchProjectStaticPoints,
+  type StaticPointsHandle,
   decimatePackedRings,
   uploadStaticRings,
   encodeNormU16,
   uploadStaticRingsU16,
-  decimateStaticRings,
+  decodeLocationDictBatch,
   type StaticGeometryHandle,
   cleanSeamRing,
 } from './core/batch';
@@ -118,7 +123,6 @@ export {
   shouldSkipLayer,
   shouldCullFeature,
   drawDecimatedRings,
-  drawStaticRings,
   drawStaticDirect,
   drawStaticU16Direct,
 } from './core/vectorLod';

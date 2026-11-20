@@ -4,16 +4,21 @@ import {
   MERCATOR_PROJECTION,
   getWrappedSlices,
 } from './projection';
-import { type StaticGeometryHandle, uploadStaticRings } from './batch';
+import {
+  type StaticGeometryHandle,
+  encodeNormU16,
+  uploadStaticRings,
+  uploadStaticRingsU16,
+} from './batch';
 import {
   getPixelStep,
   shouldCullFeature,
   shouldSkipLayer,
   drawDecimatedRings,
-  drawStaticDirect,
+  drawStaticWithRuntime,
 } from './vectorLod';
 import { type PreparedFeature } from '../formats/types';
-import { resetWasmArena } from '../wasm/bridge';
+import { getWasmRuntime, resetWasmArena } from '../wasm/bridge';
 
 export interface VectorLayerStyle {
   color?: string;
@@ -50,6 +55,8 @@ const EMPTY_LAYER_SET = new Set<string>();
 export interface UploadVectorOptions {
   /** Reset the shared WASM arena before uploading (default: false to avoid invalidating other maps). */
   reset?: boolean;
+  /** Arena coordinate precision: 'f32' (default) or 'u16' (50% arena RAM reduction). */
+  precision?: 'f32' | 'u16';
 }
 
 /**
@@ -63,16 +70,19 @@ export function uploadVectorLayers(
   if (options.reset) {
     resetWasmArena();
   }
+  const useU16 = options.precision === 'u16';
   const handles = new WeakMap<PreparedFeature, StaticGeometryHandle>();
   const upload = (layers: readonly StyledVectorLayer[]) => {
     for (const layer of layers) {
       for (const f of layer.features) {
         if (handles.has(f)) continue;
-        const handle = uploadStaticRings(
-          f.packedXY,
-          f.ringLengths,
-          f.ringCount
-        );
+        const handle = useU16
+          ? uploadStaticRingsU16(
+              encodeNormU16(f.packedXY),
+              f.ringLengths,
+              f.ringCount
+            )
+          : uploadStaticRings(f.packedXY, f.ringLengths, f.ringCount);
         if (handle) {
           handles.set(f, handle);
         }
@@ -119,26 +129,32 @@ export function drawVectorLayers(
     sf <= 0.6 ? 0.5 : Math.max(minPixelStep, Math.pow(sf, 2.2));
   const effectivePixelStep = getPixelStep(isInteracting, basePixelStep, 6.0);
   const pxPerDeg = scale / 360;
+  const rt = getWasmRuntime();
+  const scratchBase = rt !== null ? rt.getScratchBase() : 0;
 
   const traceFeature = (
     f: PreparedFeature,
     drawOffsetX: number,
     closePath: boolean
   ) => {
-    const handle = handles.get(f);
-    if (
-      handle &&
-      drawStaticDirect(
-        ctx,
-        handle,
-        scale,
-        drawOffsetX,
-        offsetY,
-        effectivePixelStep,
-        closePath
-      )
-    ) {
-      return;
+    if (rt !== null) {
+      const handle = handles.get(f);
+      if (
+        handle &&
+        drawStaticWithRuntime(
+          ctx,
+          rt,
+          scratchBase,
+          handle,
+          scale,
+          drawOffsetX,
+          offsetY,
+          effectivePixelStep,
+          closePath
+        )
+      ) {
+        return;
+      }
     }
     if (scratch.xy.length < f.packedXY.length) {
       scratch.xy = new Float32Array(f.packedXY.length);

@@ -67,6 +67,8 @@ Renders Geobuf fill and stroke layers onto `<CanvasLayer>` with WASM decimation 
 | `lowPower`             | `boolean`             | `false`     | Power-saving mode                   |
 | `zIndex`               | `number`              | `100`       | Stack order                         |
 | `skipOnInteractLayers` | `ReadonlySet<string>` | `undefined` | Layer names to skip during pan/zoom |
+| `resetOnUpload`        | `boolean`             | `false`     | Reset WASM arena before upload      |
+| `precision`            | `'f32' \| 'u16'`      | `'f32'`     | Arena coordinate precision          |
 
 ### `<PointLayer>`
 
@@ -78,6 +80,7 @@ Canvas point layer with WASM batch projection and nearest-point click/hover hit-
 | `zIndex`       | `number`                 | `300`       | Stack order                              |
 | `hitRadiusPx`  | `number`                 | `18`        | Hit-test radius (px)                     |
 | `marginPx`     | `number`                 | `30`        | Off-screen culling margin (px)           |
+| `precision`    | `'f32' \| 'i16'`         | `'f32'`     | Coordinate buffer precision              |
 | `onPointClick` | `(point, index) => void` | `undefined` | Point click callback                     |
 
 ### `<TrajectoryLayer>`
@@ -158,7 +161,9 @@ const camera = new Camera({
 ### Vector Formats, Controllers & Hit Testing
 
 - Format parser: `parseGeobuf(buffer, defaultLayerName?)` (Mapbox Geobuf `.geobuf` / `.pbf`).
+- Location dictionary decoder: `decodeLocationDictBatch(rawBytes, locCount, outLats, outLons, outMxs?, outMys?)`.
 - 16-bit APIs (`u16` / `i16`): `encodeNormU16`, `uploadStaticRingsU16`, `drawStaticU16Direct`, `encodePointsToI16`, `batchProjectPointsI16`, `hitTestPointsI16`.
+- Static Point Arena (zero-copy): `uploadStaticPoints`, `uploadStaticPointsI16`, `batchProjectStaticPoints`, `hitTestStaticPoints`.
 - Curves: `computeArc(src, dst, isShort)` — Quadratic Bézier arc with ±180° longitude normalization.
 - Controllers: `attachInteractions(el, camera, options)`, `attachGamepad(camera, options)`, `BlanketCanvasLayer`.
 - Hit testing: `findNearestPoint(clickX, clickY, points, projectFn, radiusPx = 14)`, `hitTestPoints(clickX, clickY, points, camera, radiusPx = 14)`.

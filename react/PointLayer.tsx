@@ -1,6 +1,11 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { type Camera, type ViewportState } from '../core/camera';
-import { hitTestPoints } from '../core/hitTest';
+import {
+  hitTestPoints,
+  hitTestPointsI16,
+  hitTestStaticPoints,
+} from '../core/hitTest';
+import { getWasmRuntime } from '../wasm/bridge';
 import {
   type PointItem,
   attachPointHover,
@@ -16,6 +21,8 @@ export interface PointLayerProps {
   zIndex?: number;
   hitRadiusPx?: number;
   marginPx?: number;
+  /** Coordinate buffer precision: 'f32' (default) or 'i16' (50% RAM reduction). */
+  precision?: 'f32' | 'i16';
   onPointClick?: (point: PointItem, index: number) => void;
 }
 
@@ -24,7 +31,14 @@ export interface PointLayerProps {
  * with WASM batch projection and nearest-point hit-testing.
  */
 export const PointLayer: React.FC<PointLayerProps> = memo(
-  ({ points, zIndex = 300, hitRadiusPx = 18, marginPx = 30, onPointClick }) => {
+  ({
+    points,
+    zIndex = 300,
+    hitRadiusPx = 18,
+    marginPx = 30,
+    precision = 'f32',
+    onPointClick,
+  }) => {
     const { camera, getContainer, subscribeClick } = useMap();
     const outXYRef = useRef<Float32Array>(new Float32Array(0));
     const outIdxRef = useRef<Int32Array>(new Int32Array(0));
@@ -37,12 +51,30 @@ export const PointLayer: React.FC<PointLayerProps> = memo(
       };
     }, []);
 
-    const spatial = useMemo(() => packPoints(points), [points]);
+    const spatial = useMemo(
+      () => packPoints(points, precision),
+      [points, precision]
+    );
 
     useEffect(() => {
       if (!onPointClick || points.length === 0) return;
       return subscribeClick((x, y) => {
-        const idx = hitTestPoints(x, y, spatial, camera, hitRadiusPx);
+        const rt = getWasmRuntime();
+        const sh = spatial.staticHandle;
+        const idx =
+          rt !== null && sh && sh.epoch === rt.arenaEpoch
+            ? hitTestStaticPoints(x, y, sh, camera, hitRadiusPx)
+            : spatial.latsI16 && spatial.lonsI16
+              ? hitTestPointsI16(
+                  x,
+                  y,
+                  spatial.latsI16,
+                  spatial.lonsI16,
+                  spatial.count,
+                  camera,
+                  hitRadiusPx
+                )
+              : hitTestPoints(x, y, spatial, camera, hitRadiusPx);
         if (idx >= 0) {
           onPointClick(points[idx], idx);
         }

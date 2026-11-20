@@ -1,8 +1,4 @@
-import {
-  decimatePackedRings,
-  decimateStaticRings,
-  StaticGeometryHandle,
-} from './batch';
+import { decimatePackedRings, StaticGeometryHandle } from './batch';
 import { getWasmRuntime } from '../wasm/bridge';
 
 export type ZoomControlPosition =
@@ -118,44 +114,6 @@ export function drawDecimatedRings(
   traceCanvasRings(ctx, scratchXY, scratchLens, ringCount, 0, 0, closePath);
 }
 
-/**
- * Decimates rings already resident in the WASM static arena and traces them onto a 2D canvas.
- * Returns true if traced via static handle, false if handle is missing/expired.
- */
-export function drawStaticRings(
-  ctx: CanvasRenderingContext2D,
-  handle: StaticGeometryHandle,
-  scale: number,
-  offsetX: number,
-  offsetY: number,
-  pixelStep: number,
-  closePath: boolean,
-  scratchXY: Float32Array,
-  scratchLens: Int32Array
-): boolean {
-  const outFloats = decimateStaticRings(
-    handle,
-    scale,
-    offsetX,
-    offsetY,
-    pixelStep,
-    scratchXY,
-    scratchLens
-  );
-  if (outFloats === 0) return false;
-
-  traceCanvasRings(
-    ctx,
-    scratchXY,
-    scratchLens,
-    handle.ringCount,
-    0,
-    0,
-    closePath
-  );
-  return true;
-}
-
 type DecimateKernelFn = (
   ringCount: number,
   inXYOffset: number,
@@ -191,6 +149,55 @@ function drawStaticDirectWith(
   const outLenOffset = outXYOffset + handle.totalInFloats * 4;
   const totalBytes = outLenOffset + handle.ringCount * 4;
   if (!rt.ensureCapacity(totalBytes)) return false;
+
+  const outFloats = kernel(
+    handle.ringCount,
+    handle.xyOffset,
+    handle.lenOffset,
+    outXYOffset,
+    outLenOffset,
+    scale,
+    offsetX,
+    offsetY,
+    pixelStep
+  );
+  if (outFloats === 0) return false;
+
+  traceCanvasRings(
+    ctx,
+    rt.f32,
+    rt.i32,
+    handle.ringCount,
+    outXYOffset >> 2,
+    outLenOffset >> 2,
+    closePath
+  );
+  return true;
+}
+
+/**
+ * Fast internal variant of `drawStaticDirect` / `drawStaticU16Direct` that reuses
+ * an already-resolved WasmRuntime and pre-checked scratch capacity for a frame.
+ */
+export function drawStaticWithRuntime(
+  ctx: CanvasRenderingContext2D,
+  rt: NonNullable<ReturnType<typeof getWasmRuntime>>,
+  outXYOffset: number,
+  handle: StaticGeometryHandle,
+  scale: number,
+  offsetX: number,
+  offsetY: number,
+  pixelStep: number,
+  closePath: boolean
+): boolean {
+  if (handle.ringCount <= 0 || handle.epoch !== rt.arenaEpoch) return false;
+  const kernel = handle.isU16
+    ? rt.exports.decimateRingsBatchU16
+    : rt.exports.decimateRingsBatch;
+  if (!kernel) return false;
+
+  const outLenOffset = outXYOffset + handle.totalInFloats * 4;
+  if (!rt.ensureCapacity(outLenOffset + handle.ringCount * 4)) return false;
 
   const outFloats = kernel(
     handle.ringCount,

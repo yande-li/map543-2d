@@ -14,16 +14,19 @@ import {
   attachGamepad,
   findNearestPoint,
   hitTestPoints,
+  hitTestStaticPoints,
   encodePointsToI16,
   hitTestPointsI16,
   batchProjectPoints,
   batchProjectPointsI16,
+  uploadStaticPoints,
+  batchProjectStaticPoints,
   decimatePackedRings,
   uploadStaticRings,
   encodeNormU16,
   uploadStaticRingsU16,
-  decimateStaticRings,
-  drawStaticRings,
+  decodeLocationDictBatch,
+  drawDecimatedRings,
   drawStaticDirect,
   drawStaticU16Direct,
   cleanSeamRing,
@@ -419,20 +422,8 @@ describe('WebAssembly batch kernels', () => {
     expect(handle).not.toBeNull();
     expect(getWasmMemoryStats().arenaUsedBytes).toBeGreaterThan(0);
 
-    const staticOutXY = new Float32Array(10);
-    const staticOutLens = new Int32Array(1);
     const directOutXY = new Float32Array(10);
     const directOutLens = new Int32Array(1);
-
-    const staticCount = decimateStaticRings(
-      handle!,
-      1024,
-      0,
-      0,
-      2.0,
-      staticOutXY,
-      staticOutLens
-    );
     const directCount = decimatePackedRings(
       packedXY,
       ringLengths,
@@ -444,19 +435,21 @@ describe('WebAssembly batch kernels', () => {
       directOutXY,
       directOutLens
     );
+    expect(directCount).toBeGreaterThan(0);
 
-    expect(staticCount).toBe(directCount);
-    expect(staticOutLens[0]).toBe(directOutLens[0]);
-    expect(staticOutXY.subarray(0, staticCount)).toEqual(
-      directOutXY.subarray(0, directCount)
-    );
+    const ops: Array<[string, ...number[]]> = [];
+    const ctx = {
+      moveTo: (x: number, y: number) => ops.push(['M', x, y]),
+      lineTo: (x: number, y: number) => ops.push(['L', x, y]),
+      closePath: () => ops.push(['Z']),
+    } as unknown as CanvasRenderingContext2D;
+    expect(drawStaticDirect(ctx, handle!, 1024, 0, 0, 2.0, true)).toBe(true);
+    expect(ops.length).toBeGreaterThan(0);
 
     // Epoch invalidation on resetWasmArena
     resetWasmArena();
     expect(getWasmMemoryStats().arenaUsedBytes).toBe(0);
-    expect(
-      decimateStaticRings(handle!, 1024, 0, 0, 2.0, staticOutXY, staticOutLens)
-    ).toBe(0);
+    expect(drawStaticDirect(ctx, handle!, 1024, 0, 0, 2.0, true)).toBe(false);
 
     // Full WASM disposal and re-initialization
     disposeWasm();
@@ -499,7 +492,7 @@ describe('WebAssembly batch kernels', () => {
     expect(camera.getState().zoom).toBeCloseTo(4, 3);
   });
 
-  it('traces static rings directly from WASM linear memory matching drawStaticRings', async () => {
+  it('traces static rings directly from WASM linear memory matching drawDecimatedRings', async () => {
     expect(await initWasm(wasmBytes)).toBe(true);
     resetWasmArena();
 
@@ -525,21 +518,52 @@ describe('WebAssembly batch kernels', () => {
     const scratchXY = new Float32Array(10);
     const scratchLens = new Int32Array(1);
 
-    expect(
-      drawStaticRings(
-        a.ctx,
-        handle!,
-        1024,
-        0,
-        0,
-        2.0,
-        true,
-        scratchXY,
-        scratchLens
-      )
-    ).toBe(true);
+    drawDecimatedRings(
+      a.ctx,
+      packedXY,
+      ringLengths,
+      1,
+      1024,
+      0,
+      0,
+      2.0,
+      true,
+      scratchXY,
+      scratchLens
+    );
     expect(drawStaticDirect(b.ctx, handle!, 1024, 0, 0, 2.0, true)).toBe(true);
     expect(b.ops).toEqual(a.ops);
+  });
+
+  it('decodes packed 6-byte location dictionary entries via decodeLocationDictBatch', async () => {
+    expect(await initWasm(wasmBytes)).toBe(true);
+    const raw = new Uint8Array(12);
+    const dv = new DataView(raw.buffer);
+    // Entry 0: lat ~ 25.033 (round(25.033 * 32767 / 90) = 9114), lon ~ 121.565 (round(121.565 * 32767 / 180) = 22129)
+    dv.setInt16(0, 9114, true);
+    dv.setInt16(2, 22129, true);
+    // Entry 1: [0, 0]
+    dv.setInt16(6, 0, true);
+    dv.setInt16(8, 0, true);
+
+    const outLats = new Float32Array(2);
+    const outLons = new Float32Array(2);
+    const outMxs = new Float32Array(2);
+    const outMys = new Float32Array(2);
+    const count = decodeLocationDictBatch(
+      raw,
+      2,
+      outLats,
+      outLons,
+      outMxs,
+      outMys
+    );
+    expect(count).toBe(2);
+    expect(outLats[0]).toBeCloseTo(25.033, 2);
+    expect(outLons[0]).toBeCloseTo(121.565, 2);
+    expect(outLats[1]).toBe(0);
+    expect(outLons[1]).toBe(0);
+    expect(outMys[1]).toBe(0);
   });
 
   it('supports equirectangular projection round-trips and 2:1 image bounds fitting', () => {
@@ -851,5 +875,26 @@ describe('WebAssembly batch kernels', () => {
       hitTestPointsI16(400, 300, encoded.latsI16, encoded.lonsI16, 10, cam, 16)
     ).toBe(-1);
     expect(uploadStaticRingsU16(new Uint16Array(0), ringLens, 1)).toBeNull();
+  });
+
+  it('supports Static Point Arena zero-copy projection and hit-test', async () => {
+    expect(await initWasm(wasmBytes)).toBe(true);
+    resetWasmArena();
+
+    const cam = new Camera({
+      center: [25, 121],
+      zoom: 4,
+      width: 800,
+      height: 600,
+    });
+    const lats = new Float32Array([25, 26]);
+    const lons = new Float32Array([121, 122]);
+    const handle = uploadStaticPoints(lats, lons, 2);
+    expect(handle).not.toBeNull();
+
+    const outXY = new Float32Array(4);
+    const outIdx = new Int32Array(2);
+    expect(batchProjectStaticPoints(handle!, cam, 20, outXY, outIdx)).toBe(2);
+    expect(hitTestStaticPoints(400, 300, handle!, cam, 16)).toBe(0);
   });
 });

@@ -21,6 +21,8 @@ export interface VectorLayerProps {
   skipOnInteractLayers?: ReadonlySet<string>;
   /** Reset the shared WASM static arena before uploading new layers (default: false). */
   resetOnUpload?: boolean;
+  /** WASM arena coordinate precision: 'f32' (default) or 'u16' (50% arena RAM reduction). */
+  precision?: 'f32' | 'u16';
 }
 
 /**
@@ -36,6 +38,7 @@ export const VectorLayer: React.FC<VectorLayerProps> = memo(
     zIndex = 100,
     skipOnInteractLayers,
     resetOnUpload = false,
+    precision = 'f32',
   }) => {
     const { camera } = useMap();
     const scratchRef = useRef<VectorScratchBuffers>({
@@ -61,8 +64,9 @@ export const VectorLayer: React.FC<VectorLayerProps> = memo(
       if (!wasmReady) return;
       handlesRef.current = uploadVectorLayers(fillLayers, strokeLayers, {
         reset: resetOnUpload,
+        precision,
       });
-    }, [wasmReady, fillLayers, strokeLayers, resetOnUpload]);
+    }, [wasmReady, fillLayers, strokeLayers, resetOnUpload, precision]);
 
     const maxDpr = useMemo(() => {
       if (lowPower) return 1;

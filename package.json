@@ -16,11 +16,12 @@
       "types": "./dist/core.d.ts",
       "import": "./dist/core.js"
     },
-    "./kernels.wasm": "./dist/wasm/kernels.wasm"
+    "./kernels.wasm": "./dist/kernels.wasm"
   },
   "scripts": {
     "build:wasm": "node scripts/build-wasm.mjs && wasm-validate wasm/kernels.wasm",
     "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && npm run build:wasm && tsc -p tsconfig.build.json --emitDeclarationOnly && node scripts/build-bundle.mjs",
+    "size": "node scripts/check-size.mjs",
     "prepare": "npm run build",
     "typecheck": "tsc -p tsconfig.build.json --noEmit",
     "lint": "eslint .",

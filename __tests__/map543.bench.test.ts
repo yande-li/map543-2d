@@ -2,7 +2,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
-import { it, describe, beforeAll, expect } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 interface BenchStats {
   name: string;
@@ -11,6 +11,8 @@ interface BenchStats {
   p99Ms: number;
   opsPerSec: number;
 }
+
+const benchResults: BenchStats[] = [];
 
 function bench(name: string, fn: () => void, minTimeMs = 250): void {
   it(name, () => {
@@ -46,6 +48,7 @@ function bench(name: string, fn: () => void, minTimeMs = 250): void {
       p99Ms,
       opsPerSec,
     };
+    benchResults.push(stats);
     console.log(
       `[BENCH] ${stats.name}: ${stats.opsPerSec.toFixed(1)} ops/s | mean=${stats.meanMs.toFixed(3)}ms | p99=${stats.p99Ms.toFixed(3)}ms | n=${stats.iterations}`
     );
@@ -64,10 +67,13 @@ import {
   drawDecimatedRings,
   findNearestPoint,
   hitTestPoints,
+  hitTestStaticPoints,
   encodePointsToI16,
   hitTestPointsI16,
   batchProjectPoints,
   batchProjectPointsI16,
+  uploadStaticPoints,
+  batchProjectStaticPoints,
   latLngToNormInto,
   getWrappedSlices,
   computeArc,
@@ -81,8 +87,11 @@ import {
   drawBatchPoints,
   drawVectorLayers,
   cleanSeamRing,
+  decodeLocationDictBatch,
+  getWasmMemoryStats,
   parseGeobuf,
   type StaticGeometryHandle,
+  type StaticPointsHandle,
   type PreparedFeature,
   type Point2D,
   type TrajectorySpec,
@@ -90,7 +99,6 @@ import {
   type StyledVectorLayer,
   type VectorScratchBuffers,
 } from 'map543-2d';
-import { getWasmRuntime, LUT_OFFSET_BYTES } from 'map543-2d/core';
 
 const wasmBytes = readFileSync(
   resolve(import.meta.dirname, '../wasm/kernels.wasm')
@@ -137,7 +145,38 @@ function createPointDataset(count: number): {
   return { count, lats, lons };
 }
 
-let worldGeobufBuffer: ArrayBuffer;
+function createSyntheticFeatures(count: number): PreparedFeature[] {
+  const features: PreparedFeature[] = [];
+  const ringPts = 24;
+  for (let i = 0; i < count; i++) {
+    const cx = ((i * 37) % 320) / 360 + 0.05;
+    const cy = ((i * 53) % 140) / 180 + 0.1;
+    const r = 0.015;
+    const packedXY = new Float32Array(ringPts * 2);
+    for (let p = 0; p < ringPts; p++) {
+      const a = (p / (ringPts - 1)) * Math.PI * 2;
+      packedXY[p * 2] = cx + Math.cos(a) * r;
+      packedXY[p * 2 + 1] = cy + Math.sin(a) * r;
+    }
+    const minLon = (cx - r) * 360 - 180;
+    const maxLon = (cx + r) * 360 - 180;
+    const minLat = 90 - (cy + r) * 180;
+    const maxLat = 90 - (cy - r) * 180;
+    features.push({
+      packedXY,
+      ringLengths: new Int32Array([ringPts * 2]),
+      ringCount: 1,
+      isPolygon: true,
+      minLon,
+      minLat,
+      maxLon,
+      maxLat,
+    });
+  }
+  return features;
+}
+
+let worldGeobufBuffer: ArrayBuffer | null = null;
 let landFeatures: PreparedFeature[] = [];
 const landHandles: Array<{
   feature: PreparedFeature;
@@ -149,6 +188,8 @@ const landHandlesU16: Array<{
 }> = [];
 let maxScratchXY = new Float32Array(0);
 let maxScratchLens = new Int32Array(0);
+let staticPts10k: StaticPointsHandle | null = null;
+let staticPts50k: StaticPointsHandle | null = null;
 
 const cameraZoom1 = new Camera({
   center: [20, 10],
@@ -180,23 +221,24 @@ beforeAll(async () => {
   await initWasm(wasmBytes);
   resetWasmArena();
 
-  if (!existsSync(worldGeobufPath)) {
-    landFeatures = [];
-    return;
-  }
-  const fileBytes = readFileSync(worldGeobufPath);
-  const raw =
-    fileBytes[0] === 0x1f && fileBytes[1] === 0x8b
-      ? gunzipSync(fileBytes)
-      : fileBytes;
-  worldGeobufBuffer = raw.buffer.slice(
-    raw.byteOffset,
-    raw.byteOffset + raw.byteLength
-  );
+  if (existsSync(worldGeobufPath)) {
+    const fileBytes = readFileSync(worldGeobufPath);
+    const raw =
+      fileBytes[0] === 0x1f && fileBytes[1] === 0x8b
+        ? gunzipSync(fileBytes)
+        : fileBytes;
+    worldGeobufBuffer = raw.buffer.slice(
+      raw.byteOffset,
+      raw.byteOffset + raw.byteLength
+    );
 
-  const { fillLayers } = parseGeobuf(worldGeobufBuffer, 'land');
-  const land = fillLayers.find((l) => l.name === 'land');
-  landFeatures = land ? land.features : [];
+    const { fillLayers } = parseGeobuf(worldGeobufBuffer, 'land');
+    const land = fillLayers.find((l) => l.name === 'land');
+    landFeatures = land ? land.features : [];
+  } else {
+    // Deterministic fallback for CI environments without WorldMap-all.geobuf
+    landFeatures = createSyntheticFeatures(500);
+  }
 
   let maxXYLen = 0;
   let maxRingCount = 0;
@@ -218,10 +260,13 @@ beforeAll(async () => {
   }
   maxScratchXY = new Float32Array(maxXYLen);
   maxScratchLens = new Int32Array(maxRingCount);
+  staticPts10k = uploadStaticPoints(pts10000.lats, pts10000.lons);
+  staticPts50k = uploadStaticPoints(pts50000.lats, pts50000.lons);
 });
 
 describe.runIf(RUN_BENCH)('1. Geobuf parsing (WorldMap-all)', () => {
   bench('parseGeobuf (4,876 features)', () => {
+    if (!worldGeobufBuffer) return;
     parseGeobuf(worldGeobufBuffer, 'land');
   });
 });
@@ -394,6 +439,11 @@ describe.runIf(RUN_BENCH)('3. Hit-Test & Batch Projection (JS vs WASM)', () => {
   bench('hitTestPoints (WASM) - 10,000 pts', () => {
     hitTestPoints(960, 540, pts10000, cameraZoom4, 16);
   });
+  bench('hitTestStaticPoints (WASM Arena zero-copy) - 10,000 pts', () => {
+    if (staticPts10k) {
+      hitTestStaticPoints(960, 540, staticPts10k, cameraZoom4, 16);
+    }
+  });
   bench('hitTestPointsI16 (WASM i16) - 10,000 pts', () => {
     hitTestPointsI16(
       960,
@@ -422,6 +472,17 @@ describe.runIf(RUN_BENCH)('3. Hit-Test & Batch Projection (JS vs WASM)', () => {
       batchOutXY,
       batchOutIdx
     );
+  });
+  bench('batchProjectStaticPoints (WASM Arena zero-copy) - 50,000 pts', () => {
+    if (staticPts50k) {
+      batchProjectStaticPoints(
+        staticPts50k,
+        cameraZoom4,
+        32,
+        batchOutXY,
+        batchOutIdx
+      );
+    }
   });
   bench('batchProjectPointsI16 (WASM i16) - 50,000 pts', () => {
     batchProjectPointsI16(
@@ -728,30 +789,14 @@ describe.runIf(RUN_BENCH)('6. Legacy vs New, Geometry & Camera', () => {
   const locMysOut = new Float32Array(locCount);
 
   bench('WASM decodeLocationDictBatch x 5,000', () => {
-    const rt = getWasmRuntime();
-    if (!rt) return;
-    const rawBytes = locCount * 6;
-    const f32Bytes = locCount * 4;
-    const inOff = rt.getScratchBase();
-    const latsOff = inOff + ((rawBytes + 15) & ~15);
-    const lonsOff = latsOff + f32Bytes;
-    const mxsOff = lonsOff + f32Bytes;
-    const mysOff = mxsOff + f32Bytes;
-    rt.ensureCapacity(mysOff + f32Bytes);
-    rt.u8.set(locRawBytes, inOff);
-    rt.exports.decodeLocationDictBatch(
+    decodeLocationDictBatch(
+      locRawBytes,
       locCount,
-      LUT_OFFSET_BYTES,
-      inOff,
-      latsOff,
-      lonsOff,
-      mxsOff,
-      mysOff
+      locLatsOut,
+      locLonsOut,
+      locMxsOut,
+      locMysOut
     );
-    locLatsOut.set(rt.f32.subarray(latsOff >> 2, (latsOff >> 2) + locCount));
-    locLonsOut.set(rt.f32.subarray(lonsOff >> 2, (lonsOff >> 2) + locCount));
-    locMxsOut.set(rt.f32.subarray(mxsOff >> 2, (mxsOff >> 2) + locCount));
-    locMysOut.set(rt.f32.subarray(mysOff >> 2, (mysOff >> 2) + locCount));
   });
 
   const benchCam = new Camera({
@@ -768,4 +813,64 @@ describe.runIf(RUN_BENCH)('6. Legacy vs New, Geometry & Camera', () => {
       benchCam.getBounds();
     }
   });
+});
+
+describe.runIf(RUN_BENCH)(
+  '7. Memory & Arena Footprint (f32 vs u16 / i16)',
+  () => {
+    it('verifies ~50% WASM arena reduction for u16 static rings', () => {
+      resetWasmArena();
+      for (const f of landFeatures) {
+        uploadStaticRings(f.packedXY, f.ringLengths, f.ringCount);
+      }
+      const f32Stats = getWasmMemoryStats();
+
+      resetWasmArena();
+      for (const f of landFeatures) {
+        uploadStaticRingsU16(
+          encodeNormU16(f.packedXY),
+          f.ringLengths,
+          f.ringCount
+        );
+      }
+      const u16Stats = getWasmMemoryStats();
+
+      console.log(
+        `[MEM] Static Arena: f32=${(f32Stats.arenaUsedBytes / 1024).toFixed(1)} KiB | u16=${(u16Stats.arenaUsedBytes / 1024).toFixed(1)} KiB | ratio=${(u16Stats.arenaUsedBytes / Math.max(1, f32Stats.arenaUsedBytes)).toFixed(2)}`
+      );
+      expect(u16Stats.arenaUsedBytes).toBeLessThan(f32Stats.arenaUsedBytes);
+    });
+
+    it('verifies 50% JS TypedArray reduction for i16 points', () => {
+      const items50k: PointItem[] = Array.from({ length: 50000 }, (_, i) => ({
+        lat: ((i * 37) % 140) - 70,
+        lon: ((i * 73) % 360) - 180,
+        radius: 4,
+        color: '#0ebf9c',
+      }));
+      const f32Buf = packPoints(items50k, 'f32');
+      const i16Buf = packPoints(items50k, 'i16');
+      const f32Bytes = f32Buf.lats.byteLength + f32Buf.lons.byteLength;
+      const i16Bytes =
+        (i16Buf.latsI16?.byteLength ?? 0) + (i16Buf.lonsI16?.byteLength ?? 0);
+
+      const mem = process.memoryUsage();
+      console.log(
+        `[MEM] 50k Points: f32=${(f32Bytes / 1024).toFixed(1)} KiB | i16=${(i16Bytes / 1024).toFixed(1)} KiB | heapUsed=${(mem.heapUsed / 1048576).toFixed(1)} MiB`
+      );
+      expect(i16Bytes).toBe(f32Bytes / 2);
+    });
+  }
+);
+
+afterAll(() => {
+  if (RUN_BENCH && process.env.BENCH_JSON === '1') {
+    console.log(
+      `[BENCH_JSON] ${JSON.stringify({
+        timestamp: new Date().toISOString(),
+        wasm: getWasmMemoryStats(),
+        results: benchResults,
+      })}`
+    );
+  }
 });

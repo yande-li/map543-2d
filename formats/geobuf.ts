@@ -453,10 +453,7 @@ function prepareGeometry(
   const extraFloats = isPolygon ? ringPtCounts.length * 2 : 0;
   const packedXY = new Float32Array(totalPoints * 2 + extraFloats);
   const ringLengths = new Int32Array(ringPtCounts.length);
-  const bounds: [number, number, number, number] = [1e9, 1e9, -1e9, -1e9];
 
-  let accLon = 0;
-  let accLat = 0;
   let coordCursor = 0;
   let outCursor = 0;
 
@@ -464,6 +461,32 @@ function prepareGeometry(
   if (rt === null) {
     throw new Error('WASM runtime is not initialized');
   }
+
+  let maxRingPts = 0;
+  for (let r = 0; r < ringPtCounts.length; r++) {
+    if (ringPtCounts[r] > maxRingPts) maxRingPts = ringPtCounts[r];
+  }
+  if (maxRingPts === 0) return;
+
+  const base = rt.getScratchBase();
+  const accOff = (base + 7) & ~7;
+  const boundsOff = accOff + 16;
+  const inOff = boundsOff + 16;
+  const outOff = inOff + maxRingPts * dimensions * 8;
+  if (!rt.ensureCapacity(outOff + maxRingPts * 8)) {
+    throw new Error(
+      'WASM linear memory capacity exceeded during Geobuf decode'
+    );
+  }
+
+  rt.f64[accOff >> 3] = 0;
+  rt.f64[(accOff >> 3) + 1] = 0;
+  rt.f32[boundsOff >> 2] = 1e9;
+  rt.f32[(boundsOff >> 2) + 1] = 1e9;
+  rt.f32[(boundsOff >> 2) + 2] = -1e9;
+  rt.f32[(boundsOff >> 2) + 3] = -1e9;
+  const inF64Base = inOff >> 3;
+  const outF32Base = outOff >> 2;
 
   for (let r = 0; r < ringPtCounts.length; r++) {
     const ptCount = ringPtCounts[r];
@@ -476,25 +499,9 @@ function prepareGeometry(
     if (availPts <= 0) continue;
 
     const inFloats = availPts * dimensions;
-    const inBytes = inFloats * 8;
-    const outBytes = availPts * 8;
-    const base = rt.getScratchBase();
-    const accOff = (base + 7) & ~7;
-    const boundsOff = accOff + 16;
-    const inOff = boundsOff + 16;
-    const outOff = inOff + inBytes;
-    if (!rt.ensureCapacity(outOff + outBytes)) {
-      throw new Error(
-        'WASM linear memory capacity exceeded during Geobuf decode'
-      );
-    }
-
-    rt.f64[accOff >> 3] = accLon;
-    rt.f64[(accOff >> 3) + 1] = accLat;
-    rt.f32.set(bounds, boundsOff >> 2);
     rt.f64.set(
       geom.coords.subarray(coordCursor, coordCursor + inFloats),
-      inOff >> 3
+      inF64Base
     );
     const written = rt.exports.decodeGeobufRingMercator(
       availPts,
@@ -506,16 +513,7 @@ function prepareGeometry(
       invScale,
       accOff
     );
-    packedXY.set(
-      rt.f32.subarray(outOff >> 2, (outOff >> 2) + written),
-      outCursor
-    );
-    accLon = rt.f64[accOff >> 3];
-    accLat = rt.f64[(accOff >> 3) + 1];
-    bounds[0] = rt.f32[boundsOff >> 2];
-    bounds[1] = rt.f32[(boundsOff >> 2) + 1];
-    bounds[2] = rt.f32[(boundsOff >> 2) + 2];
-    bounds[3] = rt.f32[(boundsOff >> 2) + 3];
+    packedXY.set(rt.f32.subarray(outF32Base, outF32Base + written), outCursor);
     coordCursor += inFloats;
     outCursor += written;
     if (isPolygon) {
@@ -533,10 +531,10 @@ function prepareGeometry(
     ringLengths,
     ringCount: ringLengths.length,
     isPolygon,
-    minLon: bounds[0],
-    minLat: bounds[1],
-    maxLon: bounds[2],
-    maxLat: bounds[3],
+    minLon: rt.f32[boundsOff >> 2],
+    minLat: rt.f32[(boundsOff >> 2) + 1],
+    maxLon: rt.f32[(boundsOff >> 2) + 2],
+    maxLat: rt.f32[(boundsOff >> 2) + 3],
   });
 }
 

@@ -1,4 +1,5 @@
 import { Camera } from './camera';
+import { type StaticPointsHandle } from './batch';
 import { Point2D } from './projection';
 import { LUT_OFFSET_BYTES, getWasmRuntime } from '../wasm/bridge';
 
@@ -187,5 +188,40 @@ export function hitTestPointsI16(
     1,
     (rt) => rt.i16,
     (rt) => rt.exports.findNearestPointBatchI16
+  );
+}
+
+/**
+ * Zero-copy nearest-point hit-test against points resident in the WASM static arena.
+ */
+export function hitTestStaticPoints(
+  clickX: number,
+  clickY: number,
+  handle: StaticPointsHandle,
+  camera: Camera,
+  radiusPx = 14
+): number {
+  if (handle.count <= 0) return -1;
+  const rt = getWasmRuntime();
+  if (rt === null || handle.epoch !== rt.arenaEpoch) return -1;
+  const kernel = handle.isI16
+    ? rt.exports.findNearestPointBatchI16
+    : rt.exports.findNearestPointBatch;
+  if (!kernel) return -1;
+
+  const p = camera.getProjectionParams();
+  return kernel(
+    clickX,
+    clickY,
+    radiusPx * radiusPx,
+    handle.count,
+    LUT_OFFSET_BYTES,
+    handle.latsOffset,
+    handle.lonsOffset,
+    p.centerNormX,
+    p.centerNormY,
+    p.worldSize,
+    p.halfW,
+    p.halfH
   );
 }
