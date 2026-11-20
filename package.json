@@ -1,7 +1,7 @@
 {
   "name": "map543-2d",
   "version": "0.1.0",
-  "description": "Lightweight 2D viewport and map rendering engine powered by 32-bit TypedArrays and WebAssembly.",
+  "description": "Single-precision 2D map viewport and rendering library.",
   "license": "BSD-3-Clause",
   "type": "module",
   "sideEffects": false,

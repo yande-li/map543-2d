@@ -2,7 +2,7 @@
 
 [English](./README.md) | 繁體中文
 
-使用 32-bit TypedArrays（`Float32Array` / `Int32Array`）與 WebAssembly（`f32` / `i32`）的 2D viewport 與地圖繪圖引擎。
+採用單精度（32-bit）TypedArrays（`Float32Array` / `Int32Array`）與 WebAssembly（`f32` / `i32`）的 2D 地圖 viewport 與繪圖函式庫。
 
 **支援格式**：FlatGeobuf（`.fgb`）、Mapbox Geobuf（`.geobuf`、`.pbf`）及瀏覽器支援的圖片格式（PNG、WebP、AVIF、SVG、JPEG 等）
 

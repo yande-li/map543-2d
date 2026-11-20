@@ -2,7 +2,7 @@
 
 English | [繁體中文](./README.zh-TW.md)
 
-2D viewport and map rendering engine using 32-bit TypedArrays (`Float32Array` / `Int32Array`) and WebAssembly (`f32` / `i32`).
+Single-precision 2D map viewport and rendering library using 32-bit TypedArrays (`Float32Array` / `Int32Array`) and WebAssembly (`f32` / `i32`).
 
 **Supported formats**: FlatGeobuf (`.fgb`), Mapbox Geobuf (`.geobuf`, `.pbf`), and browser-supported image formats (PNG, WebP, AVIF, SVG, JPEG, etc.)
 
