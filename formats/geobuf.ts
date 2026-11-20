@@ -1,6 +1,6 @@
 import type { PreparedFeature, PreparedLayer } from './types';
 import { cleanSeamFeature } from './seam';
-import { LUT_OFFSET_BYTES, getWasmRuntime, initWasm } from '../wasm/bridge';
+import { LUT_OFFSET_BYTES, ensureWasm, getWasmRuntime } from '../wasm/bridge';
 
 const textDecoder = new TextDecoder('utf-8');
 
@@ -700,12 +700,7 @@ export async function parseGeobufAsync(
   allowedLayers?: ReadonlySet<string>,
   seamCleanLayers: ReadonlySet<string> = SEAM_LAYERS
 ): Promise<{ fillLayers: PreparedLayer[]; strokeLayers: PreparedLayer[] }> {
-  if (getWasmRuntime() === null) {
-    const ok = await initWasm();
-    if (!ok) {
-      throw new Error('Failed to initialize WASM runtime for Geobuf decode');
-    }
-  }
+  await ensureWasm('Geobuf decode');
   return parseGeobuf(
     rawBuffer,
     defaultLayerName,

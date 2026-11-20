@@ -38,7 +38,7 @@ Full prop types and JSDoc are included in TypeScript declarations (`.d.ts`).
 
 - **Camera & Projections**: `Camera`, `MERCATOR_PROJECTION`, `createEquirectangular`, `latLngToNorm` / `normToLatLng`, `getViewportBounds`, `getWrappedSlices`.
 - **Formats & Curves**: `parseGeobufAsync` (auto-initializes WASM), `parseGeobuf`, `computeArc`, `computeArcsBatch`, `prepareArcs`, `drawTrajectories`.
-- **WASM & Reduced-Precision (`u16` / `i16`)**: `initWasm`, `isWasmReady`, `decodeLocationDictBatch`, `uploadStaticRings` / `uploadStaticRingsU16`, `uploadStaticPoints` / `uploadStaticPointsI16`, `batchProjectStaticPoints`, `hitTestStaticPoints`, `encodeNormU16`, `encodePointsToI16`.
+- **WASM & Reduced-Precision (`u16` / `i16`)**: `ensureWasm`, `initWasm`, `isWasmReady`, `decodeLocationDictBatchAsync` / `decodeLocationDictBatch`, `uploadStaticRings` / `uploadStaticRingsU16`, `uploadStaticPoints` / `uploadStaticPointsI16`, `batchProjectStaticPoints`, `hitTestStaticPoints`, `encodeNormU16`, `encodePointsToI16`.
 - **Controllers & Custom Layers**: `attachInteractions`, `attachGamepad`, `BlanketCanvasLayer`, `MapLayerRenderer`.
 
 ## Scripts

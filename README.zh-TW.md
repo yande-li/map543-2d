@@ -38,7 +38,7 @@ export function App({ points }) {
 
 - **Camera & Projections**：`Camera`、`MERCATOR_PROJECTION`、`createEquirectangular`、`latLngToNorm` / `normToLatLng`、`getViewportBounds`、`getWrappedSlices`。
 - **Formats & Curves**：`parseGeobufAsync`（自動初始化 WASM）、`parseGeobuf`、`computeArc`、`computeArcsBatch`、`prepareArcs`、`drawTrajectories`。
-- **WASM & 降精度（`u16` / `i16`）**：`initWasm`、`isWasmReady`、`decodeLocationDictBatch`、`uploadStaticRings` / `uploadStaticRingsU16`、`uploadStaticPoints` / `uploadStaticPointsI16`、`batchProjectStaticPoints`、`hitTestStaticPoints`、`encodeNormU16`、`encodePointsToI16`。
+- **WASM & 降精度（`u16` / `i16`）**：`ensureWasm`、`initWasm`、`isWasmReady`、`decodeLocationDictBatchAsync` / `decodeLocationDictBatch`、`uploadStaticRings` / `uploadStaticRingsU16`、`uploadStaticPoints` / `uploadStaticPointsI16`、`batchProjectStaticPoints`、`hitTestStaticPoints`、`encodeNormU16`、`encodePointsToI16`。
 - **Controllers & Custom Renderers**：`attachInteractions`、`attachGamepad`、`BlanketCanvasLayer`、`MapLayerRenderer`。
 
 ## Scripts

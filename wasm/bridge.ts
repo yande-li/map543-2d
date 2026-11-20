@@ -355,6 +355,21 @@ export function getWasmRuntime(): WasmRuntime | null {
 }
 
 /**
+ * Returns the initialized WasmRuntime, automatically invoking `initWasm()` if needed.
+ * Throws if WebAssembly initialization fails.
+ */
+export async function ensureWasm(context?: string): Promise<WasmRuntime> {
+  if (runtime !== null) return runtime;
+  const ok = await initWasm();
+  if (!ok || runtime === null) {
+    throw new Error(
+      `Failed to initialize WASM runtime${context ? ` for ${context}` : ''}`
+    );
+  }
+  return runtime;
+}
+
+/**
  * Resets the static geometry bump arena without destroying the WASM instance.
  */
 export function resetWasmArena(): void {

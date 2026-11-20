@@ -113,6 +113,7 @@ export {
   encodeNormU16,
   uploadStaticRingsU16,
   decodeLocationDictBatch,
+  decodeLocationDictBatchAsync,
   type StaticGeometryHandle,
   cleanSeamRing,
 } from './core/batch';
@@ -131,6 +132,7 @@ export {
   initWasm,
   isWasmReady,
   getWasmRuntime,
+  ensureWasm,
   LUT_OFFSET_BYTES,
   resetWasmArena,
   disposeWasm,

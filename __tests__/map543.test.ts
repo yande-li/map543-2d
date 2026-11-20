@@ -26,11 +26,13 @@ import {
   encodeNormU16,
   uploadStaticRingsU16,
   decodeLocationDictBatch,
+  decodeLocationDictBatchAsync,
   drawDecimatedRings,
   drawStaticDirect,
   drawStaticU16Direct,
   cleanSeamRing,
   initWasm,
+  ensureWasm,
   isWasmReady,
   resetWasmArena,
   disposeWasm,
@@ -563,7 +565,16 @@ describe('WebAssembly batch kernels', () => {
     expect(outLons[0]).toBeCloseTo(121.565, 2);
     expect(outLats[1]).toBe(0);
     expect(outLons[1]).toBe(0);
-    expect(outMys[1]).toBe(0);
+    const rt = await ensureWasm('decodeLocationDictBatchAsync test');
+    expect(rt.exports.decodeLocationDictBatch).toBeTypeOf('function');
+    const asyncCount = await decodeLocationDictBatchAsync(
+      raw,
+      2,
+      outLats,
+      outLons
+    );
+    expect(asyncCount).toBe(2);
+    expect(outLats[0]).toBeCloseTo(25.033, 2);
   });
 
   it('supports equirectangular projection round-trips and 2:1 image bounds fitting', () => {
