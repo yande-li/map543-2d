@@ -1,6 +1,6 @@
 import type { PreparedFeature, PreparedLayer } from './types';
 import { cleanSeamFeature } from './seam';
-import { LUT_OFFSET_BYTES, getWasmRuntime } from '../wasm/bridge';
+import { LUT_OFFSET_BYTES, getWasmRuntime, initWasm } from '../wasm/bridge';
 
 const textDecoder = new TextDecoder('utf-8');
 
@@ -688,4 +688,28 @@ export function parseGeobuf(
   }
 
   return { fillLayers, strokeLayers };
+}
+
+/**
+ * Async convenience wrapper around `parseGeobuf` that automatically initializes
+ * the WebAssembly runtime if not yet ready, so callers don't need to invoke `initWasm()` manually.
+ */
+export async function parseGeobufAsync(
+  rawBuffer: ArrayBuffer,
+  defaultLayerName = 'land',
+  allowedLayers?: ReadonlySet<string>,
+  seamCleanLayers: ReadonlySet<string> = SEAM_LAYERS
+): Promise<{ fillLayers: PreparedLayer[]; strokeLayers: PreparedLayer[] }> {
+  if (getWasmRuntime() === null) {
+    const ok = await initWasm();
+    if (!ok) {
+      throw new Error('Failed to initialize WASM runtime for Geobuf decode');
+    }
+  }
+  return parseGeobuf(
+    rawBuffer,
+    defaultLayerName,
+    allowedLayers,
+    seamCleanLayers
+  );
 }

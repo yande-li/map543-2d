@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { initWasm } from '../wasm/bridge';
-import { parseGeobuf } from './geobuf';
+import { parseGeobuf, parseGeobufAsync } from './geobuf';
 
 beforeAll(async () => {
   const wasmBytes = readFileSync(
@@ -198,5 +198,12 @@ describe('parseGeobuf', () => {
     // Invalid dimensions = 1
     const badDims = Uint8Array.from([0x10, 0x01]).buffer;
     expect(() => parseGeobuf(badDims)).toThrow();
+  });
+
+  it('parseGeobufAsync works without manual initWasm call when WASM is ready', async () => {
+    const buf = buildTestGeobufPolygon({ layerName: 'auto' });
+    const { fillLayers } = await parseGeobufAsync(buf);
+    expect(fillLayers).toHaveLength(1);
+    expect(fillLayers[0].name).toBe('auto');
   });
 });

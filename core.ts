@@ -82,7 +82,7 @@ export {
   type DrawVectorOptions,
 } from './core/vectorLayer';
 export { type PreparedFeature, type PreparedLayer } from './formats/types';
-export { parseGeobuf } from './formats/geobuf';
+export { parseGeobuf, parseGeobufAsync } from './formats/geobuf';
 
 export {
   Camera,

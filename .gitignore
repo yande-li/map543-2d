@@ -4,3 +4,4 @@ data/
 wasm/kernels.wasm
 *.tsbuildinfo
 .DS_Store
+*.tgz
