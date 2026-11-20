@@ -301,12 +301,11 @@ export function getWasmRuntime(): WasmRuntime | null {
 }
 
 /**
- * Initializes (or warms up) the singleton WebAssembly runtime.
- * Since WASM now auto-initializes synchronously on first use, calling this is optional.
+ * Synchronously warms up the singleton WebAssembly runtime and returns whether
+ * WebAssembly acceleration is available. Calling this is optional because all
+ * WASM-backed operations auto-initialize on first use.
  */
-export async function initWasm(
-  _source?: string | URL | BufferSource
-): Promise<boolean> {
+export function initWasm(): boolean {
   return getWasmRuntime() !== null;
 }
 

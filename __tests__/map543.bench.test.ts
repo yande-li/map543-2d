@@ -100,9 +100,6 @@ import {
   type VectorScratchBuffers,
 } from 'map543-2d';
 
-const wasmBytes = readFileSync(
-  resolve(import.meta.dirname, '../wasm/kernels.wasm')
-);
 const defaultGzPath = resolve(
   import.meta.dirname,
   '../../../../../backend/internal/assets/maps/WorldMap-all.geobuf.gz'
@@ -216,9 +213,9 @@ const batchOutIdx = new Int32Array(50000);
 
 const RUN_BENCH = process.env.RUN_BENCH === '1';
 
-beforeAll(async () => {
+beforeAll(() => {
   if (!RUN_BENCH) return;
-  await initWasm(wasmBytes);
+  initWasm();
   resetWasmArena();
 
   if (existsSync(worldGeobufPath)) {

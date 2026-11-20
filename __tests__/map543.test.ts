@@ -1,7 +1,5 @@
 /// <reference types="node" />
 import React from 'react';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { fireEvent, render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -44,10 +42,6 @@ import {
   getWrappedSlices,
   type LatLng,
 } from 'map543-2d';
-
-const wasmBytes = readFileSync(
-  resolve(import.meta.dirname, '../wasm/kernels.wasm')
-);
 
 describe('map543-2d projection', () => {
   it('round-trips normalized Mercator coordinates', () => {
@@ -217,7 +211,7 @@ describe('Popup & MapView', () => {
 
 describe('WebAssembly batch kernels', () => {
   it('initializes WASM and matches Pure-TS hitTestPoints', async () => {
-    expect(await initWasm(wasmBytes)).toBe(true);
+    expect(initWasm()).toBe(true);
     expect(getWasmMemoryStats().ready).toBe(true);
 
     const camera = new Camera({
@@ -256,7 +250,7 @@ describe('WebAssembly batch kernels', () => {
   });
 
   it('batchProjectPoints matches Camera.project within sub-pixel precision', async () => {
-    expect(await initWasm(wasmBytes)).toBe(true);
+    expect(initWasm()).toBe(true);
     const camera = new Camera({
       center: [0, 0],
       zoom: 2,
@@ -294,7 +288,7 @@ describe('WebAssembly batch kernels', () => {
   });
 
   it('decimatePackedRings compacts dense rings accurately in WASM', async () => {
-    expect(await initWasm(wasmBytes)).toBe(true);
+    expect(initWasm()).toBe(true);
     const totalVertices = 1200; // 2400 floats >= 2048 threshold
     const packedXY = new Float32Array(totalVertices * 2);
     for (let i = 0; i < totalVertices; i++) {
@@ -323,7 +317,7 @@ describe('WebAssembly batch kernels', () => {
   });
 
   it('cleanSeamRing splits antimeridian jumps and computes bbox in WASM', async () => {
-    expect(await initWasm(wasmBytes)).toBe(true);
+    expect(initWasm()).toBe(true);
     const vertexCount = 140; // 280 floats >= 256 threshold
     const inLonLat = new Float32Array(vertexCount * 2);
     for (let i = 0; i < vertexCount; i++) {
@@ -351,7 +345,7 @@ describe('WebAssembly batch kernels', () => {
   });
 
   it('rejects out-of-bounds or odd-aligned inputs in decimatePackedRings and cleanSeamRing', async () => {
-    expect(await initWasm(wasmBytes)).toBe(true);
+    expect(initWasm()).toBe(true);
 
     const packedXY = new Float32Array([0.1, 0.2, 0.3, 0.4]);
     const outXY = new Float32Array(4);
@@ -410,7 +404,7 @@ describe('WebAssembly batch kernels', () => {
   });
 
   it('uploads static rings to WASM arena, invalidates on resetWasmArena, and supports disposeWasm/re-init', async () => {
-    expect(await initWasm(wasmBytes)).toBe(true);
+    expect(initWasm()).toBe(true);
     resetWasmArena();
 
     const packedXY = new Float32Array([
@@ -453,7 +447,7 @@ describe('WebAssembly batch kernels', () => {
     // Full WASM disposal and re-initialization
     disposeWasm();
     expect(getWasmMemoryStats().ready).toBe(false);
-    expect(await initWasm(wasmBytes)).toBe(true);
+    expect(initWasm()).toBe(true);
     expect(getWasmMemoryStats().ready).toBe(true);
   });
 
@@ -491,7 +485,7 @@ describe('WebAssembly batch kernels', () => {
   });
 
   it('traces static rings directly from WASM linear memory matching drawDecimatedRings', async () => {
-    expect(await initWasm(wasmBytes)).toBe(true);
+    expect(initWasm()).toBe(true);
     resetWasmArena();
 
     const packedXY = new Float32Array([
@@ -534,7 +528,7 @@ describe('WebAssembly batch kernels', () => {
   });
 
   it('decodes packed 6-byte location dictionary entries via decodeLocationDictBatch', async () => {
-    expect(await initWasm(wasmBytes)).toBe(true);
+    expect(initWasm()).toBe(true);
     const raw = new Uint8Array(12);
     const dv = new DataView(raw.buffer);
     // Entry 0: lat ~ 25.033 (round(25.033 * 32767 / 90) = 9114), lon ~ 121.565 (round(121.565 * 32767 / 180) = 22129)
@@ -611,7 +605,7 @@ describe('WebAssembly batch kernels', () => {
   });
 
   it('computes batch quadratic Bezier arcs in WASM matching computeArc', async () => {
-    expect(await initWasm(wasmBytes)).toBe(true);
+    expect(initWasm()).toBe(true);
     const count = 12;
     const srcLats = new Float32Array(count).fill(25.033);
     const srcLons = new Float32Array(count).fill(121.5654);
@@ -782,11 +776,8 @@ describe('WebAssembly batch kernels', () => {
     expect(wrapped.slices.length).toBe(1);
   });
 
-  it('supports optional u16 static rings and i16 point projection/hit-test APIs', async () => {
-    const wasmBytes = readFileSync(
-      resolve(import.meta.dirname, '../wasm/kernels.wasm')
-    );
-    await initWasm(wasmBytes);
+  it('supports optional u16 static rings and i16 point projection/hit-test APIs', () => {
+    expect(initWasm()).toBe(true);
     resetWasmArena();
 
     // 1. Uint16 quantized rings: 50% arena footprint and accurate tracing
@@ -881,7 +872,7 @@ describe('WebAssembly batch kernels', () => {
   });
 
   it('supports Static Point Arena zero-copy projection and hit-test', async () => {
-    expect(await initWasm(wasmBytes)).toBe(true);
+    expect(initWasm()).toBe(true);
     resetWasmArena();
 
     const cam = new Camera({
