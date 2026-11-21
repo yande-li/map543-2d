@@ -57,6 +57,22 @@ export function computeArc(
 
 export const QUADRATIC_ARC_POINTS = BEZIER_STEPS + 1;
 
+function writeF32Arg(
+  dst: Float32Array,
+  src: ArrayLike<number>,
+  count: number,
+  byteOff: number
+): void {
+  const idx = byteOff >> 2;
+  if (src instanceof Float32Array) {
+    dst.set(src.length === count ? src : src.subarray(0, count), idx);
+    return;
+  }
+  for (let i = 0; i < count; i++) {
+    dst[idx + i] = src[i];
+  }
+}
+
 /**
  * Batch variant of `computeArc` that writes `count * 19` [lat, wrappedLon] pairs into `outLatLon`.
  */
@@ -89,12 +105,10 @@ export function computeArcsBatch(
     return 0;
   }
 
-  for (let i = 0; i < count; i++) {
-    rt.f32[(sLatOff >> 2) + i] = srcLats[i];
-    rt.f32[(sLonOff >> 2) + i] = srcLons[i];
-    rt.f32[(dLatOff >> 2) + i] = dstLats[i];
-    rt.f32[(dLonOff >> 2) + i] = dstLons[i];
-  }
+  writeF32Arg(rt.f32, srcLats, count, sLatOff);
+  writeF32Arg(rt.f32, srcLons, count, sLonOff);
+  writeF32Arg(rt.f32, dstLats, count, dLatOff);
+  writeF32Arg(rt.f32, dstLons, count, dLonOff);
 
   const written = rt.exports.computeArcsBatch(
     count,

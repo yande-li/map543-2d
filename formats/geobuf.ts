@@ -465,16 +465,20 @@ function prepareGeometry(
   }
 
   let maxRingPts = 0;
+  let totalValidPts = 0;
   for (let r = 0; r < ringPtCounts.length; r++) {
-    if (ringPtCounts[r] > maxRingPts) maxRingPts = ringPtCounts[r];
+    const c = ringPtCounts[r];
+    if (c > maxRingPts) maxRingPts = c;
+    if (c > 0) totalValidPts += c;
   }
   if (maxRingPts === 0) return;
 
+  const totalInputFloats = Math.min(geom.coordsLen, totalValidPts * dimensions);
   const base = rt.getScratchBase();
   const accOff = (base + 7) & ~7;
   const boundsOff = accOff + 16;
   const inOff = boundsOff + 16;
-  const outOff = inOff + maxRingPts * dimensions * 8;
+  const outOff = inOff + totalInputFloats * 8;
   if (!rt.ensureCapacity(outOff + maxRingPts * 8)) {
     throw new Error(
       'WASM linear memory capacity exceeded during Geobuf decode'
@@ -490,6 +494,14 @@ function prepareGeometry(
   const inF64Base = inOff >> 3;
   const outF32Base = outOff >> 2;
 
+  // Stage all coordinates for this feature into WASM linear memory once
+  rt.f64.set(
+    totalInputFloats === geom.coords.length
+      ? geom.coords
+      : geom.coords.subarray(0, totalInputFloats),
+    inF64Base
+  );
+
   for (let r = 0; r < ringPtCounts.length; r++) {
     const ptCount = ringPtCounts[r];
     if (ptCount <= 0) continue;
@@ -501,15 +513,11 @@ function prepareGeometry(
     if (availPts <= 0) continue;
 
     const inFloats = availPts * dimensions;
-    rt.f64.set(
-      geom.coords.subarray(coordCursor, coordCursor + inFloats),
-      inF64Base
-    );
     const written = rt.exports.decodeGeobufRingMercator(
       availPts,
       dimensions,
       LUT_OFFSET_BYTES,
-      inOff,
+      inOff + coordCursor * 8,
       outOff,
       boundsOff,
       invScale,

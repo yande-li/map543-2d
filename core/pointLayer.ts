@@ -2,10 +2,10 @@ import { type Camera } from './camera';
 import {
   type CoordPrecision,
   type StaticPointsHandle,
-  batchProjectPoints,
+  projectPointsToScratch,
   uploadStaticPoints,
 } from './batch';
-import { encodePoints16, hitTestPoints } from './hitTest';
+import { hitTestPoints } from './hitTest';
 import { getWasmRuntime } from '../wasm/bridge';
 
 export interface PointItem {
@@ -54,25 +54,37 @@ export function packPoints(
     bucketIds[i] = bid;
   };
 
+  if (precision === 16) {
+    const outLats = new Int16Array(count);
+    const outLons = new Int16Array(count);
+    for (let i = 0; i < count; i++) {
+      const lat = points[i].lat;
+      const lon = points[i].lon;
+      const cLat = Number.isFinite(lat) ? Math.max(-90, Math.min(90, lat)) : 0;
+      const cLon = Number.isFinite(lon)
+        ? Math.max(-180, Math.min(180, lon))
+        : 0;
+      outLats[i] = Math.round((cLat / 90) * 32767);
+      outLons[i] = Math.round((cLon / 180) * 32767);
+      assignBucket(i);
+    }
+    return {
+      count,
+      lats: outLats,
+      lons: outLons,
+      precision: 16,
+      palette,
+      bucketIds,
+      staticHandle: uploadStaticPoints(outLats, outLons, count),
+    };
+  }
+
   const tmpLats = new Float32Array(count);
   const tmpLons = new Float32Array(count);
   for (let i = 0; i < count; i++) {
     tmpLats[i] = points[i].lat;
     tmpLons[i] = points[i].lon;
     assignBucket(i);
-  }
-
-  if (precision === 16) {
-    const encoded = encodePoints16(tmpLats, tmpLons, count);
-    return {
-      count,
-      lats: encoded.lats,
-      lons: encoded.lons,
-      precision: 16,
-      palette,
-      bucketIds,
-      staticHandle: uploadStaticPoints(encoded.lats, encoded.lons, count),
-    };
   }
 
   return {
@@ -135,21 +147,23 @@ export function drawBatchPoints(
   camera: Camera,
   points: readonly PointItem[],
   spatial: PointBuffers,
-  outXY: Float32Array,
-  outIdx: Int32Array,
+  _outXY: Float32Array,
+  _outIdx: Int32Array,
   margin = 30
 ): void {
   if (spatial.count === 0) return;
 
   const staticHandle = getValidStaticHandle(spatial);
-  const visible = batchProjectPoints(
+  const projected = projectPointsToScratch(
     staticHandle ?? spatial,
     camera,
-    margin,
-    outXY,
-    outIdx
+    margin
   );
-  if (visible === 0) return;
+  if (!projected || projected.visible === 0) return;
+
+  const { rt, visible, outXYFloatBase, outIdxIntBase } = projected;
+  const f32 = rt.f32;
+  const i32 = rt.i32;
 
   const { palette, bucketIds } = spatial;
   if (palette && bucketIds) {
@@ -161,11 +175,12 @@ export function drawBatchPoints(
       reusableBucketCoords[b].length = 0;
     }
     for (let k = 0; k < visible; k++) {
-      const idx = outIdx[k];
+      const idx = i32[outIdxIntBase + k];
       const bid = bucketIds[idx];
+      const xyIdx = outXYFloatBase + k * 2;
       reusableBucketCoords[bid].push(
-        outXY[k * 2],
-        outXY[k * 2 + 1],
+        f32[xyIdx],
+        f32[xyIdx + 1],
         points[idx].radius
       );
     }
@@ -183,7 +198,7 @@ export function drawBatchPoints(
   }
 
   for (let k = 0; k < visible; k++) {
-    const p = points[outIdx[k]];
+    const p = points[i32[outIdxIntBase + k]];
     const alpha = p.alpha ?? 0.7;
     const qAlphaStep = (alpha * 20 + 0.5) | 0;
     const key = `${p.color}|${qAlphaStep}`;
@@ -192,7 +207,8 @@ export function drawBatchPoints(
       bucket = { color: p.color, alphaStep: qAlphaStep, coords: [] };
       reusableBuckets.set(key, bucket);
     }
-    bucket.coords.push(outXY[k * 2], outXY[k * 2 + 1], p.radius);
+    const xyIdx = outXYFloatBase + k * 2;
+    bucket.coords.push(f32[xyIdx], f32[xyIdx + 1], p.radius);
   }
 
   reusableBuckets.forEach((bucket, key) => {

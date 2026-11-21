@@ -200,6 +200,118 @@ function projectTypedArrays(
   return 0;
 }
 
+export interface WasmProjectedPointsResult {
+  rt: WasmRuntime;
+  visible: number;
+  outXYFloatBase: number;
+  outIdxIntBase: number;
+}
+
+/**
+ * Projects points into WASM scratch memory without copying back to JS TypedArrays.
+ * Callers must consume `rt.f32` / `rt.i32` before any subsequent WASM call that may grow memory.
+ */
+export function projectPointsToScratch(
+  pointsOrHandle: StaticPointsHandle | SpatialPoints,
+  camera: Camera,
+  margin: number
+): WasmProjectedPointsResult | null {
+  const rt = getWasmRuntime();
+  if (rt === null) return null;
+
+  const state = camera.getState();
+  const p = camera.getProjectionParams();
+
+  if ('latsOffset' in pointsOrHandle) {
+    if (pointsOrHandle.count <= 0 || pointsOrHandle.epoch !== rt.arenaEpoch) {
+      return null;
+    }
+    const kernel =
+      pointsOrHandle.precision === 16
+        ? rt.exports.batchProjectMercatorI16
+        : rt.exports.batchProjectMercator;
+    if (!kernel) return null;
+    const outXYOffset = rt.getScratchBase();
+    const outIdxOffset = outXYOffset + pointsOrHandle.count * 8;
+    if (!rt.ensureCapacity(outIdxOffset + pointsOrHandle.count * 4)) {
+      return null;
+    }
+    const visible = kernel(
+      pointsOrHandle.count,
+      LUT_OFFSET_BYTES,
+      pointsOrHandle.latsOffset,
+      pointsOrHandle.lonsOffset,
+      outXYOffset,
+      outIdxOffset,
+      p.centerNormX,
+      p.centerNormY,
+      p.worldSize,
+      p.halfW,
+      p.halfH,
+      -margin,
+      -margin,
+      state.width + margin,
+      state.height + margin
+    );
+    return {
+      rt,
+      visible,
+      outXYFloatBase: outXYOffset >> 2,
+      outIdxIntBase: outIdxOffset >> 2,
+    };
+  }
+
+  const { lats, lons, count } = pointsOrHandle;
+  if (count <= 0 || count > lats.length || count > lons.length) return null;
+
+  const isI16 = lats instanceof Int16Array && lons instanceof Int16Array;
+  const isF32 = lats instanceof Float32Array && lons instanceof Float32Array;
+  if (!isI16 && !isF32) return null;
+
+  const kernel = isI16
+    ? rt.exports.batchProjectMercatorI16
+    : rt.exports.batchProjectMercator;
+  if (!kernel) return null;
+
+  const elemShift: 1 | 2 = isI16 ? 1 : 2;
+  const inBytes = count << elemShift;
+  const latsOffset = rt.getScratchBase();
+  const lonsOffset = latsOffset + inBytes;
+  const outXYOffset = (lonsOffset + inBytes + 3) & ~3;
+  const outIdxOffset = outXYOffset + count * 8;
+  if (!rt.ensureCapacity(outIdxOffset + count * 4)) return null;
+
+  if (isI16) {
+    stageCoordPair(rt.i16, lats, lons, count, latsOffset, lonsOffset, 1);
+  } else {
+    stageCoordPair(rt.f32, lats, lons, count, latsOffset, lonsOffset, 2);
+  }
+
+  const visible = kernel(
+    count,
+    LUT_OFFSET_BYTES,
+    latsOffset,
+    lonsOffset,
+    outXYOffset,
+    outIdxOffset,
+    p.centerNormX,
+    p.centerNormY,
+    p.worldSize,
+    p.halfW,
+    p.halfH,
+    -margin,
+    -margin,
+    state.width + margin,
+    state.height + margin
+  );
+  return {
+    rt,
+    visible,
+    outXYFloatBase: outXYOffset >> 2,
+    outIdxIntBase: outIdxOffset >> 2,
+  };
+}
+
 /**
  * Batch-projects points (from a StaticPointsHandle, SpatialPoints object, or Float32/Int16 arrays)
  * into screen coordinates with viewport AABB culling.

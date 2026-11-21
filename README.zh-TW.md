@@ -5,11 +5,11 @@
 使用降精度等方法的 2D 地圖繪圖函式庫，以減少記憶體與資源消耗。
 
 - **支援格式**：Mapbox Geobuf（`.geobuf`、`.pbf`）及瀏覽器支援的圖片格式（PNG、WebP、AVIF、SVG、JPEG 等）
-- **地理座標系（GCS）**：**WGS 84**（`EPSG:4326`，`[lat, lon]` 十進位經緯度）
+- **地理座標系（GCS）**：**WGS 84**（`EPSG:4326`，`[lat, lon]`）
 - **投影座標系（PCS）**：
   - **Web Mercator**（`EPSG:3857`，預設，緯度範圍 `±85.051129°`）
   - **Equirectangular / 等距圓柱投影**（`projection="equirectangular"` 或 `createEquirectangular(bounds)`）
-  - **自訂 `Projection`**（實作 `latLngToNorm` / `normToLatLng`）
+- **最低環境要求（ES2022 + WebAssembly 2.0）**
 
 ## 使用範例
 

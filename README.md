@@ -5,11 +5,11 @@ English | [繁體中文](./README.zh-TW.md)
 2D map rendering library using reduced-precision techniques to reduce memory and resource usage.
 
 - **Supported formats**: Mapbox Geobuf (`.geobuf`, `.pbf`), and browser-supported image formats (PNG, WebP, AVIF, SVG, JPEG, etc.)
-- **Geographic Coordinate System (GCS)**: **WGS 84** (`EPSG:4326`, `[lat, lon]` decimal degrees)
+- **Geographic Coordinate System (GCS)**: **WGS 84** (`EPSG:4326`, `[lat, lon]`)
 - **Projected Coordinate Systems (PCS)**:
   - **Web Mercator** (`EPSG:3857`, default, `±85.051129°`)
   - **Equirectangular / Plate Carrée** (`projection="equirectangular"` or `createEquirectangular(bounds)`)
-  - **Custom `Projection`** (`latLngToNorm` / `normToLatLng`)
+- **Minimum Requirements (ES2022 + WebAssembly 2.0)**
 
 ## Usage
 
