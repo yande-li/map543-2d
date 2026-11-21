@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.0] - 2026-11-21
+
+### Features
+
+- Consolidated `32 | 16` reduced-precision and static buffer APIs (`VectorLayer`, `PointLayer`, `core`).
+- Synchronous WASM auto-initialization on first use.
+- Added `MapView` `onClick`, `CanvasLayer` / `VectorLayer` `interactionMaxDpr`, and optional `zoom` in `Camera`.
+- Added `ImageLayer` (`loadImage`, `drawImage`) and `CanvasRenderer`.
+
+### Changed
+
+- Simplified internal rendering and layer APIs (`CanvasRenderer`, `drawRings`, `styles`, `className`).
+
+### Performance
+
+- Reduced per-frame transfer and rendering cost via static WASM buffers and `interactionMaxDpr`.
+
 ## [0.2.0] - 2026-11-20
 
 ### Changed
