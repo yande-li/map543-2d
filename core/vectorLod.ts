@@ -188,16 +188,15 @@ export function drawRings(
   arg10?: Float32Array,
   arg11?: Int32Array
 ): boolean {
-  if ('xyOffset' in arg2) {
-    if (arg2.ringCount <= 0) return false;
+  if (typeof arg3 === 'number') {
     const rt = getWasmRuntime();
     if (rt === null) return false;
     return drawStaticWithRuntime(
       ctx,
       rt,
       rt.getScratchBase(),
-      arg2,
-      arg3 as number,
+      arg2 as StaticGeometryHandle,
+      arg3,
       arg4,
       arg5,
       arg6,
@@ -206,8 +205,8 @@ export function drawRings(
   }
   return drawDecimatedRings(
     ctx,
-    arg2,
-    arg3 as Int32Array,
+    arg2 as Float32Array,
+    arg3,
     arg4,
     arg5,
     arg6,
