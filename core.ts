@@ -34,35 +34,16 @@ export {
 export {
   computeArc,
   computeArcsBatch,
-  QUADRATIC_ARC_POINTS,
-  manhattanDeg,
-  getArcTiming,
-  type TrajectoryTimingFn,
   latLngsToSvgPath,
   xyToSvgPath,
   projectMercator,
   traceArc,
 } from './core/curves';
+export { type MarkerVariant, type MarkerPulse } from './core/marker';
 export {
-  ensureMarkerStyles,
-  normalizePulseMode,
-  resolveMarkerGeometry,
-  type MarkerStyleOptions,
-  type MarkerVariant,
-  type MarkerPulse,
-  type MarkerPulseMode,
-  type MarkerGeometry,
-} from './core/marker';
-export {
-  scheduleAnimation,
-  animateStroke,
   prepareArcs,
-  attachSvgSync,
   type TrajectoryCurveMode,
-  type TrajectorySpec,
-  type TrajectoryTimingFn as CoreTrajectoryTimingFn,
-  type PreparedArc,
-  type PreparedArcs,
+  type TrajectoryItem,
 } from './core/trajectory';
 export { createGlowDotSprite, drawTrajectories } from './core/canvasTrajectory';
 export {
@@ -95,42 +76,27 @@ export {
 export {
   findNearestPoint,
   hitTestPoints,
-  encodePointsToI16,
-  hitTestPointsI16,
-  hitTestStaticPoints,
+  encodePoints16,
   type SpatialPoints,
 } from './core/hitTest';
 
 export {
+  type CoordPrecision,
   batchProjectPoints,
-  batchProjectPointsI16,
   uploadStaticPoints,
-  uploadStaticPointsI16,
-  batchProjectStaticPoints,
   type StaticPointsHandle,
   decimatePackedRings,
   uploadStaticRings,
-  encodeNormU16,
-  uploadStaticRingsU16,
+  encodeRings16,
   decodeLocationDictBatch,
   type StaticGeometryHandle,
   cleanSeamRing,
 } from './core/batch';
-export {
-  type ZoomControlPosition,
-  type VectorLodOptions,
-  getPixelStep,
-  shouldSkipLayer,
-  shouldCullFeature,
-  drawDecimatedRings,
-  drawStaticDirect,
-  drawStaticU16Direct,
-} from './core/vectorLod';
+export { type ZoomControlPosition, drawRings } from './core/vectorLod';
 
 export {
   initWasm,
   getWasmRuntime,
-  LUT_OFFSET_BYTES,
   resetWasmArena,
   disposeWasm,
   getWasmMemoryStats,
@@ -143,10 +109,10 @@ export {
 } from './core/interactions';
 export { attachGamepad, type GamepadOptions } from './core/gamepad';
 export {
-  BlanketCanvasLayer,
-  type BlanketLayerOptions,
-  type BlanketDrawCallback,
-} from './core/blanketLayer';
+  CanvasRenderer,
+  type CanvasRendererOptions,
+  type CanvasDrawCallback,
+} from './core/canvasRenderer';
 export {
   loadImage,
   drawImage,

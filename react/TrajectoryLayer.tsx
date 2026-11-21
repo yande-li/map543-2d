@@ -2,7 +2,7 @@ import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   type PreparedArc,
   type TrajectoryCurveMode,
-  type TrajectorySpec,
+  type TrajectoryItem,
   animateStroke,
   attachSvgSync,
   prepareArcs,
@@ -10,10 +10,10 @@ import {
 } from '../core/trajectory';
 import { useMap } from './MapContext';
 
-export type { TrajectoryCurveMode, TrajectorySpec as TrajectoryItem };
+export type { TrajectoryCurveMode, TrajectoryItem };
 
 export interface TrajectoryLayerProps {
-  items: TrajectorySpec[];
+  items: TrajectoryItem[];
   animationKey?: number;
   strokeWidth?: number;
   showBasePath?: boolean;
@@ -96,7 +96,7 @@ const TrajectoryStroke: React.FC<TrajectoryStrokeProps> = memo(
 TrajectoryStroke.displayName = 'TrajectoryStroke';
 
 /**
- * Thin React wrapper around core/trajectory batching and camera sync.
+ * React wrapper around core/trajectory batching and camera sync.
  */
 export const TrajectoryLayer: React.FC<TrajectoryLayerProps> = memo(
   ({

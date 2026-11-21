@@ -22,8 +22,8 @@ export interface MapViewProps {
   keyboard?: boolean;
   /** Enable Gamepad API pan/zoom controls when a controller is connected (default: false). */
   gamepad?: boolean;
-  /** Unlock flyTo 20 FPS cap for smooth 60/120Hz camera animations (default: false). */
-  unlockFps?: boolean;
+  /** Unlock flyTo 20 FPS cap for full-framerate camera animations (default: false). */
+  smooth?: boolean;
   /** Accessible label for the interactive map region (default: 'Interactive map'). */
   ariaLabel?: string;
   showZoomControls?: boolean;
@@ -39,6 +39,8 @@ export interface MapViewProps {
   projection?: ProjectionType | Projection;
   className?: string;
   style?: React.CSSProperties;
+  /** Callback fired when clicking on the map viewport. */
+  onClick?: MapClickListener;
   onMove?: () => void;
   /** Debounced callback fired after camera movement settles. */
   onMoveEnd?: () => void;
@@ -109,7 +111,7 @@ function buildCameraConstraints(opts: {
   referenceWidth: number | undefined;
   preserveViewportSpan: boolean;
   projection: ProjectionType | Projection | undefined;
-  unlockFps: boolean;
+  smooth: boolean;
 }): CameraConstraints {
   return {
     minZoom: opts.minZoom,
@@ -120,7 +122,7 @@ function buildCameraConstraints(opts: {
       : {}),
     preserveViewportSpan: opts.preserveViewportSpan,
     ...(opts.projection !== undefined ? { projection: opts.projection } : {}),
-    unlockFps: opts.unlockFps,
+    smooth: opts.smooth,
   };
 }
 
@@ -166,7 +168,7 @@ export const MapView: React.FC<MapViewProps> = ({
   interactive = true,
   keyboard = true,
   gamepad = false,
-  unlockFps = false,
+  smooth = false,
   ariaLabel = 'Interactive map',
   showZoomControls = false,
   zoomControlPosition = 'bottom-right',
@@ -178,6 +180,7 @@ export const MapView: React.FC<MapViewProps> = ({
   projection,
   className = '',
   style,
+  onClick,
   onMove,
   onMoveEnd,
   moveEndDelayMs = 120,
@@ -186,8 +189,10 @@ export const MapView: React.FC<MapViewProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const clickListenersRef = useRef(new Set<MapClickListener>());
+  const onClickRef = useRef(onClick);
   const onMoveRef = useRef(onMove);
   const onMoveEndRef = useRef(onMoveEnd);
+  onClickRef.current = onClick;
   onMoveRef.current = onMove;
   onMoveEndRef.current = onMoveEnd;
   const lastSyncedViewRef = useRef<{
@@ -208,14 +213,13 @@ export const MapView: React.FC<MapViewProps> = ({
           referenceWidth,
           preserveViewportSpan,
           projection,
-          unlockFps,
+          smooth,
         }),
       })
   );
 
   const isFirstConstraintsMountRef = useRef(true);
 
-  // Sync constraints without recreating camera
   useEffect(() => {
     if (isFirstConstraintsMountRef.current) {
       isFirstConstraintsMountRef.current = false;
@@ -229,7 +233,7 @@ export const MapView: React.FC<MapViewProps> = ({
         referenceWidth,
         preserveViewportSpan,
         projection,
-        unlockFps,
+        smooth,
       })
     );
   }, [
@@ -240,7 +244,7 @@ export const MapView: React.FC<MapViewProps> = ({
     referenceWidth,
     preserveViewportSpan,
     projection,
-    unlockFps,
+    smooth,
   ]);
 
   const [zoomLimits, setZoomLimits] = useState({
@@ -248,7 +252,6 @@ export const MapView: React.FC<MapViewProps> = ({
     canZoomOut: true,
   });
 
-  // Optional controlled center/zoom prop synchronization
   useEffect(() => {
     if (!syncViewOnPropsChange) return;
     if (!Number.isFinite(center[0]) || !Number.isFinite(center[1])) return;
@@ -264,7 +267,6 @@ export const MapView: React.FC<MapViewProps> = ({
     camera.setView(center, camera.getResponsiveZoom(zoom));
   }, [camera, syncViewOnPropsChange, center, zoom]);
 
-  // Subscribe onMove callback & zoom button disabled state (skip zoom-limit work when controls are disabled)
   useEffect(() => {
     const syncZoomLimits = () => {
       if (!showZoomControls || !interactive) return;
@@ -289,7 +291,6 @@ export const MapView: React.FC<MapViewProps> = ({
     });
   }, [camera, showZoomControls, interactive]);
 
-  // Attach framework-agnostic DOM viewport interactions (ResizeObserver, wheel, drag, pinch, dblclick, click, onMoveEnd)
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -301,6 +302,7 @@ export const MapView: React.FC<MapViewProps> = ({
       moveEndDelayMs,
       onMoveEnd: () => onMoveEndRef.current?.(),
       onClick: (px, py, latLng) => {
+        onClickRef.current?.(px, py, latLng);
         for (const listener of clickListenersRef.current) {
           listener(px, py, latLng);
         }

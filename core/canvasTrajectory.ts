@@ -88,35 +88,36 @@ function drawTrajectorySourceDots(
   maxX: number,
   maxY: number
 ): void {
+  const half = sprite ? sprite.width / 2 : 2;
   if (sprite) {
-    const half = sprite.width / 2;
     ctx.globalAlpha = 0.9;
-    for (let i = 0; i < count; i++) {
-      const srcX = srcXY[i * 2];
-      const srcY = srcXY[i * 2 + 1];
-      if (srcX < minX || srcX > maxX || srcY < minY || srcY > maxY) continue;
-      ctx.drawImage(sprite, srcX - half, srcY - half);
-    }
-    return;
+  } else {
+    ctx.beginPath();
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.7;
   }
-
-  ctx.beginPath();
-  ctx.fillStyle = color;
-  ctx.globalAlpha = 0.7;
   for (let i = 0; i < count; i++) {
     const srcX = srcXY[i * 2];
     const srcY = srcXY[i * 2 + 1];
     if (srcX < minX || srcX > maxX || srcY < minY || srcY > maxY) continue;
-    ctx.rect(srcX - 2, srcY - 2, 4, 4);
+    if (sprite) {
+      ctx.drawImage(sprite, srcX - half, srcY - half);
+    } else {
+      ctx.rect(srcX - half, srcY - half, 4, 4);
+    }
   }
-  ctx.fill();
+  if (!sprite) ctx.fill();
 }
 
+type TrajectoryStyleArgs = [
+  color?: string,
+  sprite?: HTMLCanvasElement | null,
+  margin?: number,
+  straightThreshold?: number,
+];
+
 /**
- * Draws a batch of screen-space quadratic Bezier trajectories (with frustum culling,
- * dual-stroke glow without shadowBlur, and optional pre-rendered source dot sprites).
- *
- * Multi-to-one overload (shared destination point).
+ * Draws a batch of screen-space quadratic Bezier trajectories (shared destination point).
  */
 export function drawTrajectories(
   ctx: CanvasRenderingContext2D,
@@ -126,10 +127,7 @@ export function drawTrajectories(
   dstY: number,
   viewportW: number,
   viewportH: number,
-  color?: string,
-  sprite?: HTMLCanvasElement | null,
-  margin?: number,
-  straightThreshold?: number
+  ...style: TrajectoryStyleArgs
 ): void;
 /**
  * Multi-to-multi overload (per-trajectory destination coordinates in `dstXY`).
@@ -141,10 +139,7 @@ export function drawTrajectories(
   dstXY: Float32Array,
   viewportW: number,
   viewportH: number,
-  color?: string,
-  sprite?: HTMLCanvasElement | null,
-  margin?: number,
-  straightThreshold?: number
+  ...style: TrajectoryStyleArgs
 ): void;
 export function drawTrajectories(
   ctx: CanvasRenderingContext2D,

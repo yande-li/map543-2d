@@ -1,10 +1,7 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { type Camera, type ViewportState } from '../core/camera';
-import {
-  hitTestPoints,
-  hitTestPointsI16,
-  hitTestStaticPoints,
-} from '../core/hitTest';
+import { type CoordPrecision } from '../core/batch';
+import { hitTestPoints } from '../core/hitTest';
 import { getWasmRuntime } from '../wasm/bridge';
 import {
   type PointItem,
@@ -20,14 +17,14 @@ export interface PointLayerProps {
   zIndex?: number;
   hitRadiusPx?: number;
   marginPx?: number;
-  /** Coordinate buffer precision: 'f32' (default) or 'i16' (50% RAM reduction). */
-  precision?: 'f32' | 'i16';
+  /** Coordinate buffer precision in bits: 32 (default) or 16. */
+  precision?: CoordPrecision;
   onPointClick?: (point: PointItem, index: number) => void;
 }
 
 /**
- * Thin React wrapper around core/pointLayer for high-density Canvas point rendering
- * with WASM batch projection and nearest-point hit-testing.
+ * React wrapper around core/pointLayer for Canvas point rendering with WASM batch
+ * projection and nearest-point hit-testing.
  */
 export const PointLayer: React.FC<PointLayerProps> = memo(
   ({
@@ -35,7 +32,7 @@ export const PointLayer: React.FC<PointLayerProps> = memo(
     zIndex = 300,
     hitRadiusPx = 18,
     marginPx = 30,
-    precision = 'f32',
+    precision = 32,
     onPointClick,
   }) => {
     const { camera, getContainer, subscribeClick } = useMap();
@@ -59,20 +56,9 @@ export const PointLayer: React.FC<PointLayerProps> = memo(
       return subscribeClick((x, y) => {
         const rt = getWasmRuntime();
         const sh = spatial.staticHandle;
-        const idx =
-          rt !== null && sh && sh.epoch === rt.arenaEpoch
-            ? hitTestStaticPoints(x, y, sh, camera, hitRadiusPx)
-            : spatial.latsI16 && spatial.lonsI16
-              ? hitTestPointsI16(
-                  x,
-                  y,
-                  spatial.latsI16,
-                  spatial.lonsI16,
-                  spatial.count,
-                  camera,
-                  hitRadiusPx
-                )
-              : hitTestPoints(x, y, spatial, camera, hitRadiusPx);
+        const target =
+          rt !== null && sh && sh.epoch === rt.arenaEpoch ? sh : spatial;
+        const idx = hitTestPoints(x, y, target, camera, hitRadiusPx);
         if (idx >= 0) {
           onPointClick(points[idx], idx);
         }

@@ -4,17 +4,6 @@ import { getWasmRuntime } from '../wasm/bridge';
 export type ZoomControlPosition =
   'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 
-export interface VectorLodOptions {
-  /** Base screen-space decimation step in CSS pixels (default: 0.75). */
-  basePixelStep?: number;
-  /** Screen-space decimation step during active interaction in CSS pixels (default: 6). */
-  interactionPixelStep?: number;
-  /** Minimum feature width/height in CSS pixels to render during interaction (default: 6). */
-  minInteractionFeaturePx?: number;
-  /** Layer names to skip entirely while interacting. */
-  skipLayersOnInteract?: ReadonlySet<string>;
-}
-
 /**
  * Computes the effective decimation step in CSS pixels for the current frame.
  */
@@ -82,9 +71,6 @@ function traceCanvasRings(
   }
 }
 
-/**
- * Decimates packed WGS84 rings into screen-space coordinates and traces them onto a 2D canvas.
- */
 export function drawDecimatedRings(
   ctx: CanvasRenderingContext2D,
   packedXY: Float32Array,
@@ -97,7 +83,7 @@ export function drawDecimatedRings(
   closePath: boolean,
   scratchXY: Float32Array,
   scratchLens: Int32Array
-): void {
+): boolean {
   const outFloats = decimatePackedRings(
     packedXY,
     ringLengths,
@@ -109,75 +95,14 @@ export function drawDecimatedRings(
     scratchXY,
     scratchLens
   );
-  if (outFloats === 0) return;
-
-  traceCanvasRings(ctx, scratchXY, scratchLens, ringCount, 0, 0, closePath);
-}
-
-type DecimateKernelFn = (
-  ringCount: number,
-  inXYOffset: number,
-  ringLengthsOffset: number,
-  outXYOffset: number,
-  outRingLengthsOffset: number,
-  scale: number,
-  offsetX: number,
-  offsetY: number,
-  pixelStep: number
-) => number;
-
-function drawStaticDirectWith(
-  ctx: CanvasRenderingContext2D,
-  handle: StaticGeometryHandle,
-  scale: number,
-  offsetX: number,
-  offsetY: number,
-  pixelStep: number,
-  closePath: boolean,
-  selectKernel: (
-    rt: NonNullable<ReturnType<typeof getWasmRuntime>>
-  ) => DecimateKernelFn | undefined
-): boolean {
-  if (handle.ringCount <= 0) return false;
-  const rt = getWasmRuntime();
-  if (rt === null || handle.epoch !== rt.arenaEpoch) return false;
-
-  const kernel = selectKernel(rt);
-  if (!kernel) return false;
-
-  const outXYOffset = rt.getScratchBase();
-  const outLenOffset = outXYOffset + handle.totalInFloats * 4;
-  const totalBytes = outLenOffset + handle.ringCount * 4;
-  if (!rt.ensureCapacity(totalBytes)) return false;
-
-  const outFloats = kernel(
-    handle.ringCount,
-    handle.xyOffset,
-    handle.lenOffset,
-    outXYOffset,
-    outLenOffset,
-    scale,
-    offsetX,
-    offsetY,
-    pixelStep
-  );
   if (outFloats === 0) return false;
 
-  traceCanvasRings(
-    ctx,
-    rt.f32,
-    rt.i32,
-    handle.ringCount,
-    outXYOffset >> 2,
-    outLenOffset >> 2,
-    closePath
-  );
+  traceCanvasRings(ctx, scratchXY, scratchLens, ringCount, 0, 0, closePath);
   return true;
 }
 
 /**
- * Fast internal variant of `drawStaticDirect` / `drawStaticU16Direct` that reuses
- * an already-resolved WasmRuntime and pre-checked scratch capacity for a frame.
+ * Decimates and traces static arena rings using an existing WasmRuntime instance.
  */
 export function drawStaticWithRuntime(
   ctx: CanvasRenderingContext2D,
@@ -191,9 +116,10 @@ export function drawStaticWithRuntime(
   closePath: boolean
 ): boolean {
   if (handle.ringCount <= 0 || handle.epoch !== rt.arenaEpoch) return false;
-  const kernel = handle.isU16
-    ? rt.exports.decimateRingsBatchU16
-    : rt.exports.decimateRingsBatch;
+  const kernel =
+    handle.precision === 16
+      ? rt.exports.decimateRingsBatchU16
+      : rt.exports.decimateRingsBatch;
   if (!kernel) return false;
 
   const outLenOffset = outXYOffset + handle.totalInFloats * 4;
@@ -225,10 +151,9 @@ export function drawStaticWithRuntime(
 }
 
 /**
- * Zero-copy-out variant: decimates static arena rings and reads output directly from
- * WASM linear memory views (rt.f32 / rt.i32) with zero JS scratch allocation or TypedArray.set copies.
+ * Decimates and traces rings (from a StaticGeometryHandle or packed Float32Array) onto a 2D canvas.
  */
-export function drawStaticDirect(
+export function drawRings(
   ctx: CanvasRenderingContext2D,
   handle: StaticGeometryHandle,
   scale: number,
@@ -236,39 +161,60 @@ export function drawStaticDirect(
   offsetY: number,
   pixelStep: number,
   closePath: boolean
-): boolean {
-  return drawStaticDirectWith(
-    ctx,
-    handle,
-    scale,
-    offsetX,
-    offsetY,
-    pixelStep,
-    closePath,
-    (rt) => rt.exports.decimateRingsBatch
-  );
-}
-
-/**
- * Optional Uint16 variant of `drawStaticDirect` for 50% static arena RAM reduction.
- */
-export function drawStaticU16Direct(
+): boolean;
+export function drawRings(
   ctx: CanvasRenderingContext2D,
-  handle: StaticGeometryHandle,
+  packedXY: Float32Array,
+  ringLengths: Int32Array,
+  ringCount: number,
   scale: number,
   offsetX: number,
   offsetY: number,
   pixelStep: number,
-  closePath: boolean
+  closePath: boolean,
+  scratchXY: Float32Array,
+  scratchLens: Int32Array
+): boolean;
+export function drawRings(
+  ctx: CanvasRenderingContext2D,
+  arg2: StaticGeometryHandle | Float32Array,
+  arg3: number | Int32Array,
+  arg4: number,
+  arg5: number,
+  arg6: number,
+  arg7: boolean | number,
+  arg8?: number,
+  arg9?: boolean,
+  arg10?: Float32Array,
+  arg11?: Int32Array
 ): boolean {
-  return drawStaticDirectWith(
+  if ('xyOffset' in arg2) {
+    if (arg2.ringCount <= 0) return false;
+    const rt = getWasmRuntime();
+    if (rt === null) return false;
+    return drawStaticWithRuntime(
+      ctx,
+      rt,
+      rt.getScratchBase(),
+      arg2,
+      arg3 as number,
+      arg4,
+      arg5,
+      arg6,
+      arg7 as boolean
+    );
+  }
+  return drawDecimatedRings(
     ctx,
-    handle,
-    scale,
-    offsetX,
-    offsetY,
-    pixelStep,
-    closePath,
-    (rt) => rt.exports.decimateRingsBatchU16
+    arg2,
+    arg3 as Int32Array,
+    arg4,
+    arg5,
+    arg6,
+    arg7 as number,
+    arg8!,
+    arg9!,
+    arg10!,
+    arg11!
   );
 }

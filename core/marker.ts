@@ -1,10 +1,10 @@
 export type MarkerVariant = 'pin' | 'dot' | 'ring';
 export type MarkerPulse = boolean | 'radar' | 'expand' | 'ripple';
-export type MarkerPulseMode = 'radar' | 'expand' | 'ripple' | null;
+type MarkerPulseMode = 'radar' | 'expand' | 'ripple' | null;
 
 const MARKER_STYLE_ID = 'map543-marker-styles';
 
-export interface MarkerStyleOptions {
+interface MarkerStyleOptions {
   target?: Document | ShadowRoot;
   nonce?: string;
 }
@@ -109,7 +109,7 @@ export function normalizePulseMode(pulse: MarkerPulse): MarkerPulseMode {
   return pulse;
 }
 
-export interface MarkerGeometry {
+interface MarkerGeometry {
   size: number;
   boxSize: number;
   anchor: [number, number];

@@ -27,7 +27,7 @@ export interface ViewportState {
   referenceWidth?: number;
   preserveViewportSpan?: boolean;
   projection?: ProjectionType | Projection;
-  unlockFps?: boolean;
+  smooth?: boolean;
 }
 
 export interface CameraConstraints {
@@ -37,7 +37,7 @@ export interface CameraConstraints {
   referenceWidth?: number;
   preserveViewportSpan?: boolean;
   projection?: ProjectionType | Projection;
-  unlockFps?: boolean;
+  smooth?: boolean;
 }
 
 export type ViewportListener = (state: ViewportState) => void;
@@ -93,9 +93,7 @@ export class Camera {
       ...(initial.projection !== undefined
         ? { projection: initial.projection }
         : {}),
-      ...(initial.unlockFps !== undefined
-        ? { unlockFps: initial.unlockFps }
-        : {}),
+      ...(initial.smooth !== undefined ? { smooth: initial.smooth } : {}),
     };
     this.cachedNormBounds = getNormBounds(
       this.state.maxBounds,
@@ -271,8 +269,8 @@ export class Camera {
       ...(nextPreserveSpan !== undefined
         ? { preserveViewportSpan: nextPreserveSpan }
         : {}),
-      ...(constraints.unlockFps !== undefined
-        ? { unlockFps: constraints.unlockFps }
+      ...(constraints.smooth !== undefined
+        ? { smooth: constraints.smooth }
         : {}),
     };
     if ('maxBounds' in constraints && !constraints.maxBounds) {
@@ -302,8 +300,8 @@ export class Camera {
     ) {
       delete this.state.preserveViewportSpan;
     }
-    if ('unlockFps' in constraints && constraints.unlockFps === undefined) {
-      delete this.state.unlockFps;
+    if ('smooth' in constraints && constraints.smooth === undefined) {
+      delete this.state.smooth;
     }
 
     const clampedZoom = this.clampZoom(this.state.zoom);
@@ -396,7 +394,7 @@ export class Camera {
       const elapsed = now - startTime;
       const t = Math.min(1, elapsed / durationMs);
       if (
-        !this.state.unlockFps &&
+        !this.state.smooth &&
         t < 1 &&
         lastEmitTime !== 0 &&
         now - lastEmitTime < FLY_FRAME_INTERVAL_MS

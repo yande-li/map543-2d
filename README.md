@@ -9,13 +9,18 @@ English | [繁體中文](./README.zh-TW.md)
 ## Usage
 
 ```tsx
-import { MapView, PointLayer, Marker } from 'map543-2d';
+import { MapView, VectorLayer, PointLayer, Marker } from 'map543-2d';
 
-export function App({ points }) {
+export function App({ layers, points }) {
   return (
     <MapView center={[25, 121]} zoom={4} showZoomControls>
-      <PointLayer points={points} precision="i16" />
-      <Marker lat={25.033} lon={121.565} pulse="radar" />
+      <VectorLayer
+        fillLayers={layers.fillLayers}
+        strokeLayers={layers.strokeLayers}
+        precision={16}
+      />
+      <PointLayer points={points} precision={16} />
+      <Marker position={[25.033, 121.565]} pulse="radar" />
     </MapView>
   );
 }
@@ -25,21 +30,21 @@ export function App({ points }) {
 
 Full prop types and JSDoc are included in TypeScript declarations (`.d.ts`).
 
-- `<MapView>` — Viewport container with drag, pinch, wheel/double-click zoom, keyboard/gamepad, and zoom controls.
+- `<MapView>` — Viewport container with drag, pinch, wheel/double-click zoom, keyboard/gamepad, `onClick`, `smooth`, and zoom controls.
 - `<CanvasLayer>` — DPR-aware canvas synchronized via `requestAnimationFrame` (supports `interactionMaxDpr`).
-- `<VectorLayer>` — WASM-accelerated Geobuf fill/stroke rendering with LOD and `precision` (`'f32' | 'u16'`).
-- `<PointLayer>` — Batch-projected canvas points with nearest-point click/hover hit-testing and `precision` (`'f32' | 'i16'`).
-- `<TrajectoryLayer>` — SVG animated trajectory arcs synced with `Camera`.
+- `<VectorLayer>` — WASM-accelerated Geobuf fill/stroke rendering with LOD, `styles`, and `precision` (`32 | 16`).
+- `<PointLayer>` — Batch-projected canvas points with nearest-point click/hover hit-testing and `precision` (`32 | 16`).
+- `<TrajectoryLayer>` — SVG animated trajectory arcs (`src`, `dst`) synced with `Camera`.
 - `<ImageLayer>` — Georeferenced image overlay (`loadImage`, `drawImage`).
-- `<Marker>`, `<Overlay>`, `<Popup>` — GPU-positioned DOM overlays (`translate3d`).
+- `<Marker>`, `<Overlay>`, `<Popup>` — GPU-positioned DOM overlays (`translate3d`, supports `position={[lat, lon]}`).
 - `useMap()` — Returns `{ camera, getContainer, subscribeClick }`.
 
 ## Core API (`map543-2d/core`, React-free, Web Worker compatible)
 
 - **Camera & Projections**: `Camera`, `MERCATOR_PROJECTION`, `createEquirectangular`, `latLngToNorm` / `normToLatLng`, `getViewportBounds`, `getWrappedSlices`.
 - **Formats & Curves**: `parseGeobuf`, `computeArc`, `computeArcsBatch`, `prepareArcs`, `drawTrajectories`.
-- **WASM & Reduced-Precision (`u16` / `i16`)**: WASM auto-initializes synchronously on first use (`decodeLocationDictBatch`, `uploadStaticRings` / `uploadStaticRingsU16`, `uploadStaticPoints` / `uploadStaticPointsI16`, `batchProjectStaticPoints`, `hitTestStaticPoints`, `encodeNormU16`, `encodePointsToI16`, `resetWasmArena`, `disposeWasm`).
-- **Controllers & Custom Layers**: `attachInteractions`, `attachGamepad`, `BlanketCanvasLayer`, `MapLayerRenderer`.
+- **WASM & Reduced-Precision (`32 | 16`)**: WASM auto-initializes synchronously on first use (`decodeLocationDictBatch`, `uploadStaticRings`, `drawRings`, `uploadStaticPoints`, `batchProjectPoints`, `hitTestPoints`, `encodeRings16`, `encodePoints16`, `resetWasmArena`, `disposeWasm`).
+- **Controllers & Custom Layers**: `attachInteractions`, `attachGamepad`, `CanvasRenderer`, `MapLayerRenderer`.
 
 ## Scripts
 

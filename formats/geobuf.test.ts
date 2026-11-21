@@ -198,4 +198,79 @@ describe('parseGeobuf', () => {
     expect(fillLayers).toHaveLength(1);
     expect(fillLayers[0].name).toBe('auto');
   });
+
+  it('decodes LineString and GeometryCollection, filters allowedLayers, and splits antimeridian polygons', () => {
+    const scale = 1e6;
+
+    // 1. LineString (type = 2) inside a GeometryCollection (type = 6)
+    const lineCoords: number[] = [];
+    pushZigZag(lineCoords, Math.round(10 * scale));
+    pushZigZag(lineCoords, Math.round(20 * scale));
+    pushZigZag(lineCoords, Math.round(5 * scale));
+    pushZigZag(lineCoords, Math.round(5 * scale));
+
+    const lineGeom: number[] = [];
+    pushTag(lineGeom, 1, 0);
+    pushVarint(lineGeom, 2); // LINESTRING
+    pushBytesField(lineGeom, 3, lineCoords);
+
+    const collGeom: number[] = [];
+    pushTag(collGeom, 1, 0);
+    pushVarint(collGeom, 6); // GEOMETRYCOLLECTION
+    pushBytesField(collGeom, 4, lineGeom);
+
+    const data: number[] = [];
+    pushBytesField(data, 6, collGeom);
+
+    const parsedLine = parseGeobuf(Uint8Array.from(data).buffer, 'roads');
+    expect(parsedLine.fillLayers).toHaveLength(1);
+    const roadFeat = parsedLine.fillLayers[0].features[0];
+    expect(roadFeat.isPolygon).toBe(false);
+    // 2 points = 4 floats (not closed)
+    expect(roadFeat.packedXY.length).toBe(4);
+
+    // 2. allowedLayers filter
+    const urbanBuf = buildTestGeobufPolygon({ layerName: 'urban' });
+    const filteredOut = parseGeobuf(urbanBuf, 'land', new Set(['water']));
+    expect(filteredOut.fillLayers).toHaveLength(0);
+
+    const filteredIn = parseGeobuf(urbanBuf, 'land', new Set(['urban']));
+    expect(filteredIn.fillLayers).toHaveLength(1);
+
+    // 3. Antimeridian seam polygon on 'land' layer
+    const seamPts: [number, number][] = [
+      [175, 10],
+      [-175, 10],
+      [-175, 20],
+      [175, 20],
+    ];
+    const seamCoords: number[] = [];
+    let sx = 0;
+    let sy = 0;
+    for (const [lon, lat] of seamPts) {
+      const qx = Math.round(lon * scale);
+      const qy = Math.round(lat * scale);
+      pushZigZag(seamCoords, qx - sx);
+      pushZigZag(seamCoords, qy - sy);
+      sx = qx;
+      sy = qy;
+    }
+    const seamGeom: number[] = [];
+    pushTag(seamGeom, 1, 0);
+    pushVarint(seamGeom, 4); // POLYGON
+    pushBytesField(seamGeom, 3, seamCoords);
+
+    const seamFeat: number[] = [];
+    pushBytesField(seamFeat, 1, seamGeom);
+    const seamData: number[] = [];
+    pushBytesField(seamData, 5, seamFeat); // singleFeatureReader (field 5)
+
+    const seamParsed = parseGeobuf(Uint8Array.from(seamData).buffer, 'land');
+    expect(seamParsed.fillLayers).toHaveLength(1);
+    expect(seamParsed.strokeLayers).toHaveLength(1);
+    // Stroke feature is seam-cleaned across the antimeridian
+    expect(
+      seamParsed.strokeLayers[0].features[0].ringCount
+    ).toBeGreaterThanOrEqual(1);
+  });
 });

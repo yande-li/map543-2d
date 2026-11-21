@@ -31,6 +31,29 @@ const TABLE_SIZE = 5400; // 90 deg * 60 arc-minutes
 const TMP_NORM: Point2D = { x: 0, y: 0 };
 const TMP_NORM_2: Point2D = { x: 0, y: 0 };
 
+export interface BoundsExtent {
+  minLat: number;
+  maxLat: number;
+  minLon: number;
+  maxLon: number;
+}
+
+const TMP_EXTENT: BoundsExtent = { minLat: 0, maxLat: 0, minLon: 0, maxLon: 0 };
+
+/**
+ * Normalizes two opposite [lat, lon] corners into min/max extents, writing into `out`.
+ */
+export function getBoundsExtent(
+  bounds: readonly [LatLng, LatLng],
+  out: BoundsExtent
+): BoundsExtent {
+  out.minLat = Math.min(bounds[0][0], bounds[1][0]);
+  out.maxLat = Math.max(bounds[0][0], bounds[1][0]);
+  out.minLon = Math.min(bounds[0][1], bounds[1][1]);
+  out.maxLon = Math.max(bounds[0][1], bounds[1][1]);
+  return out;
+}
+
 /**
  * Symmetric Web Mercator Y lookup table (0..90 deg at 1 arc-minute resolution).
  */
@@ -322,11 +345,10 @@ export function computeZoomForBounds(
   paddingPx = 0,
   projection: Projection = MERCATOR_PROJECTION
 ): { center: LatLng; zoom: number } {
-  const minLat = Math.min(bounds[0][0], bounds[1][0]);
-  const maxLat = Math.max(bounds[0][0], bounds[1][0]);
-  const minLon = Math.min(bounds[0][1], bounds[1][1]);
-  const maxLon = Math.max(bounds[0][1], bounds[1][1]);
-
+  const { minLat, maxLat, minLon, maxLon } = getBoundsExtent(
+    bounds,
+    TMP_EXTENT
+  );
   const nw = projection.latLngToNorm(maxLat, minLon, TMP_NORM);
   const se = projection.latLngToNorm(minLat, maxLon, TMP_NORM_2);
   const centerNormX = (nw.x + se.x) * 0.5;

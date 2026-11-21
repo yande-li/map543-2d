@@ -6,13 +6,16 @@ import {
   normalizePulseMode,
   resolveMarkerGeometry,
 } from '../core/marker';
+import { type LatLng } from '../core/projection';
 import { Overlay } from './Overlay';
 
 export type { MarkerVariant, MarkerPulse };
 
 export interface MarkerProps {
-  lat: number;
-  lon: number;
+  /** Geographic position as [lat, lon] tuple (or pass `lat` and `lon`). */
+  position?: LatLng;
+  lat?: number;
+  lon?: number;
   variant?: MarkerVariant;
   size?: number;
   color?: string;
@@ -196,10 +199,11 @@ function buildMarkerStyleProps(
 }
 
 /**
- * Thin React wrapper around core marker geometry and Overlay.
+ * React wrapper around core marker geometry and Overlay.
  */
 export const Marker: React.FC<MarkerProps> = memo(
   ({
+    position,
     lat,
     lon,
     variant = 'pin',
@@ -228,6 +232,8 @@ export const Marker: React.FC<MarkerProps> = memo(
       ensureMarkerStyles();
     }, []);
 
+    const resolvedLat = position?.[0] ?? lat ?? Number.NaN;
+    const resolvedLon = position?.[1] ?? lon ?? Number.NaN;
     const geom = resolveMarkerGeometry(variant, size);
     const resolvedSize = geom.size;
     const quantizedIntensity = Math.max(0.5, Math.round(intensity * 10) / 10);
@@ -280,8 +286,8 @@ export const Marker: React.FC<MarkerProps> = memo(
 
     return (
       <Overlay
-        lat={lat}
-        lon={lon}
+        lat={resolvedLat}
+        lon={resolvedLon}
         zIndex={zIndex}
         anchor={geom.anchor}
         fixedSize={[geom.boxSize, geom.boxSize]}

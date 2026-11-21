@@ -383,6 +383,20 @@ function appendFeature(
   }
 }
 
+function pushLengthsOrTotal(
+  geom: RawGeobufGeometry,
+  totalPoints: number,
+  outCounts: number[]
+): void {
+  if (geom.lengthsLen === 0) {
+    outCounts.push(totalPoints);
+    return;
+  }
+  for (let i = 0; i < geom.lengthsLen; i++) {
+    outCounts.push(geom.lengths[i]);
+  }
+}
+
 function extractRingCounts(
   geom: RawGeobufGeometry,
   totalPoints: number,
@@ -394,22 +408,10 @@ function extractRingCounts(
       outCounts.push(totalPoints);
       return false;
     case GeomType.MultiLineString:
-      if (geom.lengthsLen > 0) {
-        for (let i = 0; i < geom.lengthsLen; i++) {
-          outCounts.push(geom.lengths[i]);
-        }
-      } else {
-        outCounts.push(totalPoints);
-      }
+      pushLengthsOrTotal(geom, totalPoints, outCounts);
       return false;
     case GeomType.Polygon:
-      if (geom.lengthsLen > 0) {
-        for (let i = 0; i < geom.lengthsLen; i++) {
-          outCounts.push(geom.lengths[i]);
-        }
-      } else {
-        outCounts.push(totalPoints);
-      }
+      pushLengthsOrTotal(geom, totalPoints, outCounts);
       return true;
     case GeomType.MultiPolygon: {
       if (geom.lengthsLen === 0) {

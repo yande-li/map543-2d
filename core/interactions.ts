@@ -30,9 +30,8 @@ interface ActivePointer {
 const CLICK_SLOP_SQ = 25; // 5px
 
 /**
- * Attaches framework-agnostic DOM viewport interactions (ResizeObserver, pointer drag,
- * two-finger pinch, wheel zoom, double-click zoom, and click detection) to an HTMLElement.
- * Suitable for Vue, Svelte, or Vanilla JS integrations. Returns a cleanup function.
+ * Attaches DOM viewport interactions (resize, drag, pinch, wheel, double-click, keyboard, and click)
+ * to an HTMLElement and returns a cleanup function.
  */
 export function attachInteractions(
   el: HTMLElement,

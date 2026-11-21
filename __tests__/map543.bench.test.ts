@@ -60,25 +60,17 @@ import {
   initWasm,
   resetWasmArena,
   uploadStaticRings,
-  encodeNormU16,
-  uploadStaticRingsU16,
-  drawStaticDirect,
-  drawStaticU16Direct,
-  drawDecimatedRings,
+  encodeRings16,
+  drawRings,
   findNearestPoint,
   hitTestPoints,
-  hitTestStaticPoints,
-  encodePointsToI16,
-  hitTestPointsI16,
+  encodePoints16,
   batchProjectPoints,
-  batchProjectPointsI16,
   uploadStaticPoints,
-  batchProjectStaticPoints,
   latLngToNormInto,
   getWrappedSlices,
   computeArc,
   computeArcsBatch,
-  QUADRATIC_ARC_POINTS,
   projectMercator,
   xyToSvgPath,
   prepareArcs,
@@ -94,11 +86,12 @@ import {
   type StaticPointsHandle,
   type PreparedFeature,
   type Point2D,
-  type TrajectorySpec,
+  type TrajectoryItem,
   type PointItem,
   type StyledVectorLayer,
   type VectorScratchBuffers,
 } from 'map543-2d';
+import { QUADRATIC_ARC_POINTS } from '../core/curves';
 
 const defaultGzPath = resolve(
   import.meta.dirname,
@@ -205,8 +198,8 @@ const pts100 = createPointDataset(100);
 const pts1000 = createPointDataset(1000);
 const pts10000 = createPointDataset(10000);
 const pts50000 = createPointDataset(50000);
-const pts10000I16 = encodePointsToI16(pts10000.lats, pts10000.lons);
-const pts50000I16 = encodePointsToI16(pts50000.lats, pts50000.lons);
+const pts10000I16 = encodePoints16(pts10000.lats, pts10000.lons);
+const pts50000I16 = encodePoints16(pts50000.lats, pts50000.lons);
 
 const batchOutXY = new Float32Array(50000 * 2);
 const batchOutIdx = new Int32Array(50000);
@@ -246,8 +239,8 @@ beforeAll(() => {
     if (h) {
       landHandles.push({ feature: f, handle: h });
     }
-    const hu16 = uploadStaticRingsU16(
-      encodeNormU16(f.packedXY),
+    const hu16 = uploadStaticRings(
+      encodeRings16(f.packedXY),
       f.ringLengths,
       f.ringCount
     );
@@ -285,7 +278,7 @@ describe.runIf(RUN_BENCH)(
           ) {
             continue;
           }
-          drawDecimatedRings(
+          drawRings(
             noopCtx,
             f.packedXY,
             f.ringLengths,
@@ -316,15 +309,7 @@ describe.runIf(RUN_BENCH)(
           ) {
             continue;
           }
-          drawStaticDirect(
-            noopCtx,
-            handle,
-            scale,
-            drawOffsetX,
-            offsetY,
-            1.0,
-            true
-          );
+          drawRings(noopCtx, handle, scale, drawOffsetX, offsetY, 1.0, true);
         }
       }
     });
@@ -343,15 +328,7 @@ describe.runIf(RUN_BENCH)(
           ) {
             continue;
           }
-          drawStaticDirect(
-            noopCtx,
-            handle,
-            scale,
-            drawOffsetX,
-            offsetY,
-            1.0,
-            true
-          );
+          drawRings(noopCtx, handle, scale, drawOffsetX, offsetY, 1.0, true);
         }
       }
     });
@@ -370,15 +347,7 @@ describe.runIf(RUN_BENCH)(
           ) {
             continue;
           }
-          drawStaticU16Direct(
-            noopCtx,
-            handle,
-            scale,
-            drawOffsetX,
-            offsetY,
-            1.0,
-            true
-          );
+          drawRings(noopCtx, handle, scale, drawOffsetX, offsetY, 1.0, true);
         }
       }
     });
@@ -397,15 +366,7 @@ describe.runIf(RUN_BENCH)(
           ) {
             continue;
           }
-          drawStaticU16Direct(
-            noopCtx,
-            handle,
-            scale,
-            drawOffsetX,
-            offsetY,
-            1.0,
-            true
-          );
+          drawRings(noopCtx, handle, scale, drawOffsetX, offsetY, 1.0, true);
         }
       }
     });
@@ -438,19 +399,11 @@ describe.runIf(RUN_BENCH)('3. Hit-Test & Batch Projection (JS vs WASM)', () => {
   });
   bench('hitTestStaticPoints (WASM Arena zero-copy) - 10,000 pts', () => {
     if (staticPts10k) {
-      hitTestStaticPoints(960, 540, staticPts10k, cameraZoom4, 16);
+      hitTestPoints(960, 540, staticPts10k, cameraZoom4, 16);
     }
   });
   bench('hitTestPointsI16 (WASM i16) - 10,000 pts', () => {
-    hitTestPointsI16(
-      960,
-      540,
-      pts10000I16.latsI16,
-      pts10000I16.lonsI16,
-      pts10000I16.count,
-      cameraZoom4,
-      16
-    );
+    hitTestPoints(960, 540, pts10000I16, cameraZoom4, 16);
   });
 
   bench('Camera.projectInto loop (JS) - 50,000 pts', () => {
@@ -472,7 +425,7 @@ describe.runIf(RUN_BENCH)('3. Hit-Test & Batch Projection (JS vs WASM)', () => {
   });
   bench('batchProjectStaticPoints (WASM Arena zero-copy) - 50,000 pts', () => {
     if (staticPts50k) {
-      batchProjectStaticPoints(
+      batchProjectPoints(
         staticPts50k,
         cameraZoom4,
         32,
@@ -482,15 +435,7 @@ describe.runIf(RUN_BENCH)('3. Hit-Test & Batch Projection (JS vs WASM)', () => {
     }
   });
   bench('batchProjectPointsI16 (WASM i16) - 50,000 pts', () => {
-    batchProjectPointsI16(
-      pts50000I16.latsI16,
-      pts50000I16.lonsI16,
-      pts50000I16.count,
-      cameraZoom4,
-      32,
-      batchOutXY,
-      batchOutIdx
-    );
+    batchProjectPoints(pts50000I16, cameraZoom4, 32, batchOutXY, batchOutIdx);
   });
 });
 
@@ -573,7 +518,7 @@ describe.runIf(RUN_BENCH)('5. Trajectory, PointLayer & VectorLayer', () => {
     projectMercator(arcLatLon500, ptCount6500, cameraZoom1, projectedXY6500);
   });
 
-  const makeSpecs = (n: number): TrajectorySpec[] =>
+  const makeSpecs = (n: number): TrajectoryItem[] =>
     Array.from({ length: n }, (_, i) => ({
       key: `t-${i}`,
       srcLat: ((i * 37) % 140) - 70,
@@ -606,7 +551,11 @@ describe.runIf(RUN_BENCH)('5. Trajectory, PointLayer & VectorLayer', () => {
   bench('Legacy JS (computeArc + projectInto + SVG paths) x 1,000', () => {
     for (let i = 0; i < specs1000.length; i++) {
       const s = specs1000[i];
-      const pts = computeArc([s.srcLat, s.srcLon], [s.dstLat, s.dstLon], false);
+      const pts = computeArc(
+        [s.srcLat!, s.srcLon!],
+        [s.dstLat!, s.dstLon!],
+        false
+      );
       let _d = '';
       for (let j = 0; j < pts.length; j++) {
         cameraZoom1.projectInto(pts[j][0], pts[j][1], tmpPt);
@@ -824,8 +773,8 @@ describe.runIf(RUN_BENCH)(
 
       resetWasmArena();
       for (const f of landFeatures) {
-        uploadStaticRingsU16(
-          encodeNormU16(f.packedXY),
+        uploadStaticRings(
+          encodeRings16(f.packedXY),
           f.ringLengths,
           f.ringCount
         );
@@ -838,18 +787,17 @@ describe.runIf(RUN_BENCH)(
       expect(u16Stats.arenaUsedBytes).toBeLessThan(f32Stats.arenaUsedBytes);
     });
 
-    it('verifies 50% JS TypedArray reduction for i16 points', () => {
+    it('verifies 50% JS TypedArray reduction for 16-bit points', () => {
       const items50k: PointItem[] = Array.from({ length: 50000 }, (_, i) => ({
         lat: ((i * 37) % 140) - 70,
         lon: ((i * 73) % 360) - 180,
         radius: 4,
         color: '#0ebf9c',
       }));
-      const f32Buf = packPoints(items50k, 'f32');
-      const i16Buf = packPoints(items50k, 'i16');
+      const f32Buf = packPoints(items50k, 32);
+      const i16Buf = packPoints(items50k, 16);
       const f32Bytes = f32Buf.lats.byteLength + f32Buf.lons.byteLength;
-      const i16Bytes =
-        (i16Buf.latsI16?.byteLength ?? 0) + (i16Buf.lonsI16?.byteLength ?? 0);
+      const i16Bytes = i16Buf.lats.byteLength + i16Buf.lons.byteLength;
 
       const mem = process.memoryUsage();
       console.log(

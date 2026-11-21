@@ -1,29 +1,29 @@
 import { Camera, ViewportState } from './camera';
 import { MapLayerRenderer } from './renderer';
 
-export type BlanketDrawCallback = (
+export type CanvasDrawCallback = (
   ctx: CanvasRenderingContext2D,
   state: ViewportState,
   camera: Camera,
   isInteracting: boolean
 ) => void;
 
-export interface BlanketLayerOptions {
+export interface CanvasRendererOptions {
   zIndex?: number;
   maxDpr?: number;
   interactionMaxDpr?: number;
   interactionIdleDelayMs?: number;
   className?: string;
-  onDraw: BlanketDrawCallback;
+  onDraw: CanvasDrawCallback;
 }
 
 const IDLE_DELAY_MS = 140;
 
 /**
- * Framework-agnostic 2D canvas layer renderer managing a DPR-aware `<canvas>`,
- * rAF redraw coalescing, and optional interaction downsampling.
+ * 2D canvas layer renderer managing a DPR-aware `<canvas>`, rAF redraw coalescing,
+ * and optional interaction downsampling.
  */
-export class BlanketCanvasLayer implements MapLayerRenderer {
+export class CanvasRenderer implements MapLayerRenderer {
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
   private camera: Camera | null = null;
@@ -35,7 +35,7 @@ export class BlanketCanvasLayer implements MapLayerRenderer {
   private interactionMaxDpr: number | undefined;
   private interactionIdleDelayMs: number;
   private className: string;
-  private onDraw: BlanketDrawCallback;
+  private onDraw: CanvasDrawCallback;
 
   private rafId = 0;
   private isInteracting = false;
@@ -45,7 +45,7 @@ export class BlanketCanvasLayer implements MapLayerRenderer {
   private lowResCanvas: HTMLCanvasElement | null = null;
   private lowResCtx: CanvasRenderingContext2D | null = null;
 
-  constructor(options: BlanketLayerOptions) {
+  constructor(options: CanvasRendererOptions) {
     this.zIndex = options.zIndex ?? 100;
     this.maxDpr = options.maxDpr ?? 2;
     this.interactionMaxDpr = options.interactionMaxDpr;
@@ -56,7 +56,7 @@ export class BlanketCanvasLayer implements MapLayerRenderer {
   }
 
   /**
-   * Attaches the layer to an existing <canvas> element (used by React wrapper).
+   * Attaches the renderer to an existing `<canvas>` element.
    */
   attachCanvas(canvas: HTMLCanvasElement, camera: Camera): void {
     this.onDetach();
@@ -67,7 +67,7 @@ export class BlanketCanvasLayer implements MapLayerRenderer {
   }
 
   /**
-   * Creates and mounts a managed <canvas> into a container element (framework-agnostic).
+   * Creates and mounts a managed `<canvas>` into a container element.
    */
   mount(container: HTMLElement, camera: Camera): () => void {
     this.onDetach();
@@ -99,7 +99,7 @@ export class BlanketCanvasLayer implements MapLayerRenderer {
     this.renderFrame();
   }
 
-  setOptions(partial: Partial<BlanketLayerOptions>): void {
+  setOptions(partial: Partial<CanvasRendererOptions>): void {
     if (partial.onDraw !== undefined) this.onDraw = partial.onDraw;
     if (partial.maxDpr !== undefined) this.maxDpr = partial.maxDpr;
     if ('interactionMaxDpr' in partial) {

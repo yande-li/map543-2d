@@ -58,9 +58,7 @@ export function computeArc(
 export const QUADRATIC_ARC_POINTS = BEZIER_STEPS + 1;
 
 /**
- * Zero-allocation batch variant of computeArc that writes
- * `count * 19` [lat, wrappedLon] pairs directly into `outLatLon`.
- * Returns the number of float32 values written (`count * 38`).
+ * Batch variant of `computeArc` that writes `count * 19` [lat, wrappedLon] pairs into `outLatLon`.
  */
 export function computeArcsBatch(
   srcLats: ArrayLike<number>,
@@ -77,7 +75,7 @@ export function computeArcsBatch(
 
   const rt = getWasmRuntime();
   if (rt === null) {
-    throw new Error('WASM runtime is not initialized');
+    return 0;
   }
 
   const inBytes = count * 4;
@@ -206,7 +204,7 @@ export function projectMercator(
   }
   const rt = getWasmRuntime();
   if (rt === null) {
-    throw new Error('WASM runtime is not initialized');
+    return 0;
   }
   const bytes = needed * 4;
   const inOff = rt.getScratchBase();

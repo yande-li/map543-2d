@@ -21,8 +21,7 @@ function applyDeadzoneCurve(raw: number, deadzone: number): number {
 }
 
 /**
- * Attaches tree-shakeable Gamepad API navigation to a Camera.
- * Zero idle overhead: only runs a requestAnimationFrame loop while at least one gamepad is connected.
+ * Attaches Gamepad API navigation to a Camera while at least one gamepad is connected.
  */
 export function attachGamepad(
   camera: Camera,

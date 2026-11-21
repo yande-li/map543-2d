@@ -1,17 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { type LatLng } from '../core/projection';
 import { useMap } from './MapContext';
 
 export interface OverlayProps {
-  lat: number;
-  lon: number;
+  /** Geographic position as [lat, lon] tuple (or pass `lat` and `lon`). */
+  position?: LatLng;
+  lat?: number;
+  lon?: number;
   zIndex?: number;
   anchor?: [number, number]; // [0.5, 0.5] = center, [0.5, 1] = bottom-center
-  /**
-   * Optional known [width, height] in CSS pixels for fixed-size markers.
-   * Skips initial offsetWidth/offsetHeight layout reads and ResizeObserver registration.
-   */
+  /** Optional known [width, height] in CSS pixels for fixed-size markers. */
   fixedSize?: [number, number];
-  /** Hide DOM overlay with display:none when its full bounding box is outside the viewport (default: true). */
+  /** Hide DOM overlay when outside the viewport (default: true). */
   cullOffscreen?: boolean;
   /** Extra margin in CSS pixels around viewport edges before culling (default: 64). */
   cullMarginPx?: number;
@@ -22,10 +22,10 @@ export interface OverlayProps {
 }
 
 /**
- * Positions arbitrary React UI at [lat, lon] using GPU-accelerated translate3d
- * without triggering React re-renders on pan/zoom.
+ * Positions React UI at [lat, lon] using CSS transforms synchronized with Camera.
  */
 export const Overlay: React.FC<OverlayProps> = ({
+  position,
   lat,
   lon,
   zIndex = 500,
@@ -40,6 +40,8 @@ export const Overlay: React.FC<OverlayProps> = ({
 }) => {
   const { camera } = useMap();
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const resolvedLat = position?.[0] ?? lat ?? Number.NaN;
+  const resolvedLon = position?.[1] ?? lon ?? Number.NaN;
   const anchorX = anchor[0];
   const anchorY = anchor[1];
   const fixedW = fixedSize?.[0];
@@ -50,7 +52,6 @@ export const Overlay: React.FC<OverlayProps> = ({
     if (!el) return;
 
     const hasFixedSize = fixedW !== undefined && fixedH !== undefined;
-    // Cache element dimensions outside camera.subscribe to prevent layout thrashing
     let cachedWidth = hasFixedSize ? fixedW : el.offsetWidth;
     let cachedHeight = hasFixedSize ? fixedH : el.offsetHeight;
     const pt = { x: 0, y: 0 };
@@ -66,12 +67,11 @@ export const Overlay: React.FC<OverlayProps> = ({
     };
 
     const updatePosition = () => {
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      if (!Number.isFinite(resolvedLat) || !Number.isFinite(resolvedLon)) {
         setHidden();
         return;
       }
-      camera.projectInto(lat, lon, pt);
-      // Snap both projected point and anchor offset to integer pixels to keep text crisp
+      camera.projectInto(resolvedLat, resolvedLon, pt);
       const ox = Math.round(-anchorX * cachedWidth);
       const oy = Math.round(-anchorY * cachedHeight);
       const x = Math.round(pt.x) + ox;
@@ -121,8 +121,8 @@ export const Overlay: React.FC<OverlayProps> = ({
     };
   }, [
     camera,
-    lat,
-    lon,
+    resolvedLat,
+    resolvedLon,
     anchorX,
     anchorY,
     fixedW,
@@ -155,8 +155,10 @@ export const Overlay: React.FC<OverlayProps> = ({
 };
 
 export interface PopupProps {
-  lat: number;
-  lon: number;
+  /** Geographic position as [lat, lon] tuple (or pass `lat` and `lon`). */
+  position?: LatLng;
+  lat?: number;
+  lon?: number;
   maxWidth?: number;
   zIndex?: number;
   className?: string;
@@ -169,6 +171,7 @@ export interface PopupProps {
  * Lightweight popup anchored above [lat, lon] (auto-flips below near top edge).
  */
 export const Popup: React.FC<PopupProps> = ({
+  position,
   lat,
   lon,
   maxWidth = 260,
@@ -180,6 +183,8 @@ export const Popup: React.FC<PopupProps> = ({
 }) => {
   const { camera } = useMap();
   const [flipped, setFlipped] = useState(false);
+  const resolvedLat = position?.[0] ?? lat ?? Number.NaN;
+  const resolvedLon = position?.[1] ?? lon ?? Number.NaN;
 
   useEffect(() => {
     if (!onClose || typeof window === 'undefined') return;
@@ -197,22 +202,24 @@ export const Popup: React.FC<PopupProps> = ({
   useEffect(() => {
     const pt = { x: 0, y: 0 };
     const checkFlip = () => {
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+      if (!Number.isFinite(resolvedLat) || !Number.isFinite(resolvedLon)) {
+        return;
+      }
       const state = camera.getState();
       if (state.height <= 0) return;
-      camera.projectInto(lat, lon, pt);
+      camera.projectInto(resolvedLat, resolvedLon, pt);
       const shouldFlip = pt.y < 140 && state.height - pt.y > pt.y;
       setFlipped((prev) => (prev === shouldFlip ? prev : shouldFlip));
     };
 
     checkFlip();
     return camera.subscribe(checkFlip);
-  }, [camera, lat, lon]);
+  }, [camera, resolvedLat, resolvedLon]);
 
   return (
     <Overlay
-      lat={lat}
-      lon={lon}
+      lat={resolvedLat}
+      lon={resolvedLon}
       zIndex={zIndex}
       anchor={flipped ? [0.5, 0] : [0.5, 1]}
       interactive={true}

@@ -1,7 +1,12 @@
 import { Camera } from './camera';
 import { type StaticPointsHandle } from './batch';
 import { Point2D } from './projection';
-import { LUT_OFFSET_BYTES, getWasmRuntime } from '../wasm/bridge';
+import {
+  LUT_OFFSET_BYTES,
+  getWasmRuntime,
+  stageCoordPair,
+  type HitTestKernelFn,
+} from '../wasm/bridge';
 
 export interface SpatialPoints {
   count: number;
@@ -44,21 +49,6 @@ export function findNearestPoint(
   return bestIdx;
 }
 
-type HitTestKernelFn = (
-  clickX: number,
-  clickY: number,
-  radiusSq: number,
-  count: number,
-  lutOffset: number,
-  latsOffset: number,
-  lonsOffset: number,
-  centerNormX: number,
-  centerNormY: number,
-  worldSize: number,
-  halfW: number,
-  halfH: number
-) => number;
-
 function runHitTestKernel<T extends Float32Array | Int16Array>(
   clickX: number,
   clickY: number,
@@ -84,14 +74,14 @@ function runHitTestKernel<T extends Float32Array | Int16Array>(
   const lonsOffset = latsOffset + byteLen;
   if (!rt.ensureCapacity(lonsOffset + byteLen)) return -1;
 
-  const view = getView(rt);
-  view.set(
-    count === lats.length ? lats : lats.subarray(0, count),
-    latsOffset >> elemShift
-  );
-  view.set(
-    count === lons.length ? lons : lons.subarray(0, count),
-    lonsOffset >> elemShift
+  stageCoordPair(
+    getView(rt),
+    lats,
+    lons,
+    count,
+    latsOffset,
+    lonsOffset,
+    elemShift
   );
 
   const p = camera.getProjectionParams();
@@ -111,102 +101,20 @@ function runHitTestKernel<T extends Float32Array | Int16Array>(
   );
 }
 
-/**
- * High-throughput nearest-point hit-test executed directly in the WebAssembly kernel.
- * Returns -1 if WASM is not initialized or no point lies within radiusPx.
- */
-export function hitTestPoints(
-  clickX: number,
-  clickY: number,
-  points: SpatialPoints | null,
-  camera: Camera,
-  radiusPx = 14
-): number {
-  if (
-    !points ||
-    !(points.lats instanceof Float32Array) ||
-    !(points.lons instanceof Float32Array)
-  ) {
-    return -1;
-  }
-  return runHitTestKernel(
-    clickX,
-    clickY,
-    points.lats,
-    points.lons,
-    points.count,
-    camera,
-    radiusPx,
-    2,
-    (rt) => rt.f32,
-    (rt) => rt.exports.findNearestPointBatch
-  );
-}
-
-/**
- * Encodes (lat, lon) arrays into Int16 fixed-point buffers (50% RAM reduction).
- */
-export function encodePointsToI16(
-  lats: ArrayLike<number>,
-  lons: ArrayLike<number>,
-  count = Math.min(lats.length, lons.length)
-): { count: number; latsI16: Int16Array; lonsI16: Int16Array } {
-  const n = Math.max(0, Math.min(count, lats.length, lons.length));
-  const latsI16 = new Int16Array(n);
-  const lonsI16 = new Int16Array(n);
-  for (let i = 0; i < n; i++) {
-    const lat = lats[i];
-    const lon = lons[i];
-    const cLat = Number.isFinite(lat) ? Math.max(-90, Math.min(90, lat)) : 0;
-    const cLon = Number.isFinite(lon) ? Math.max(-180, Math.min(180, lon)) : 0;
-    latsI16[i] = Math.round((cLat / 90) * 32767);
-    lonsI16[i] = Math.round((cLon / 180) * 32767);
-  }
-  return { count: n, latsI16, lonsI16 };
-}
-
-/**
- * Optional Int16 variant of `hitTestPoints` for 50% point buffer RAM reduction.
- */
-export function hitTestPointsI16(
-  clickX: number,
-  clickY: number,
-  latsI16: Int16Array,
-  lonsI16: Int16Array,
-  count: number,
-  camera: Camera,
-  radiusPx = 14
-): number {
-  return runHitTestKernel(
-    clickX,
-    clickY,
-    latsI16,
-    lonsI16,
-    count,
-    camera,
-    radiusPx,
-    1,
-    (rt) => rt.i16,
-    (rt) => rt.exports.findNearestPointBatchI16
-  );
-}
-
-/**
- * Zero-copy nearest-point hit-test against points resident in the WASM static arena.
- */
-export function hitTestStaticPoints(
+function hitTestStaticPointsHandle(
   clickX: number,
   clickY: number,
   handle: StaticPointsHandle,
   camera: Camera,
-  radiusPx = 14
+  radiusPx: number
 ): number {
   if (handle.count <= 0) return -1;
   const rt = getWasmRuntime();
   if (rt === null || handle.epoch !== rt.arenaEpoch) return -1;
-  const kernel = handle.isI16
-    ? rt.exports.findNearestPointBatchI16
-    : rt.exports.findNearestPointBatch;
+  const kernel =
+    handle.precision === 16
+      ? rt.exports.findNearestPointBatchI16
+      : rt.exports.findNearestPointBatch;
   if (!kernel) return -1;
 
   const p = camera.getProjectionParams();
@@ -224,4 +132,75 @@ export function hitTestStaticPoints(
     p.halfW,
     p.halfH
   );
+}
+
+/**
+ * Nearest-point hit-test executed in WASM (supports 32-bit Float32Array, 16-bit Int16Array, or StaticPointsHandle).
+ * Returns -1 if no point lies within radiusPx.
+ */
+export function hitTestPoints(
+  clickX: number,
+  clickY: number,
+  points: SpatialPoints | StaticPointsHandle | null,
+  camera: Camera,
+  radiusPx = 14
+): number {
+  if (!points) return -1;
+  if ('latsOffset' in points) {
+    return hitTestStaticPointsHandle(clickX, clickY, points, camera, radiusPx);
+  }
+  if (points.lats instanceof Int16Array && points.lons instanceof Int16Array) {
+    return runHitTestKernel(
+      clickX,
+      clickY,
+      points.lats,
+      points.lons,
+      points.count,
+      camera,
+      radiusPx,
+      1,
+      (rt) => rt.i16,
+      (rt) => rt.exports.findNearestPointBatchI16
+    );
+  }
+  if (
+    points.lats instanceof Float32Array &&
+    points.lons instanceof Float32Array
+  ) {
+    return runHitTestKernel(
+      clickX,
+      clickY,
+      points.lats,
+      points.lons,
+      points.count,
+      camera,
+      radiusPx,
+      2,
+      (rt) => rt.f32,
+      (rt) => rt.exports.findNearestPointBatch
+    );
+  }
+  return -1;
+}
+
+/**
+ * Encodes (lat, lon) arrays into 16-bit fixed-point SpatialPoints buffers.
+ */
+export function encodePoints16(
+  lats: ArrayLike<number>,
+  lons: ArrayLike<number>,
+  count = Math.min(lats.length, lons.length)
+): { count: number; lats: Int16Array; lons: Int16Array } {
+  const n = Math.max(0, Math.min(count, lats.length, lons.length));
+  const outLats = new Int16Array(n);
+  const outLons = new Int16Array(n);
+  for (let i = 0; i < n; i++) {
+    const lat = lats[i];
+    const lon = lons[i];
+    const cLat = Number.isFinite(lat) ? Math.max(-90, Math.min(90, lat)) : 0;
+    const cLon = Number.isFinite(lon) ? Math.max(-180, Math.min(180, lon)) : 0;
+    outLats[i] = Math.round((cLat / 90) * 32767);
+    outLons[i] = Math.round((cLon / 180) * 32767);
+  }
+  return { count: n, lats: outLats, lons: outLons };
 }

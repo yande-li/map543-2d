@@ -5,10 +5,10 @@ import {
   getWrappedSlices,
 } from './projection';
 import {
+  type CoordPrecision,
   type StaticGeometryHandle,
-  encodeNormU16,
+  encodeRings16,
   uploadStaticRings,
-  uploadStaticRingsU16,
 } from './batch';
 import {
   getPixelStep,
@@ -32,7 +32,7 @@ export interface VectorLayerStyle {
 
 export interface StyledVectorLayer {
   name: string;
-  style: VectorLayerStyle;
+  style?: VectorLayerStyle;
   features: PreparedFeature[];
 }
 
@@ -48,16 +48,24 @@ export interface DrawVectorOptions {
   minInteractFeaturePx?: number;
   minPixelStep?: number;
   projection?: Projection;
+  styles?: Readonly<Record<string, VectorLayerStyle>>;
 }
 
 const EMPTY_LAYER_SET = new Set<string>();
+const DEFAULT_VECTOR_STYLE: VectorLayerStyle = {
+  color: '#64748b',
+  fillColor: '#334155',
+  fillOpacity: 0.25,
+  weight: 1,
+  opacity: 0.8,
+};
 const dashArrayCache = new WeakMap<VectorLayerStyle, number[]>();
 
 export interface UploadVectorOptions {
-  /** Reset the shared WASM arena before uploading (default: false to avoid invalidating other maps). */
+  /** Reset the shared WASM arena before uploading (default: false). */
   reset?: boolean;
-  /** Arena coordinate precision: 'f32' (default) or 'u16' (50% arena RAM reduction). */
-  precision?: 'f32' | 'u16';
+  /** Arena coordinate precision in bits: 32 (default) or 16. */
+  precision?: CoordPrecision;
 }
 
 /**
@@ -65,25 +73,23 @@ export interface UploadVectorOptions {
  */
 export function uploadVectorLayers(
   fillLayers: readonly StyledVectorLayer[],
-  strokeLayers: readonly StyledVectorLayer[],
+  strokeLayers: readonly StyledVectorLayer[] = [],
   options: UploadVectorOptions = {}
 ): WeakMap<PreparedFeature, StaticGeometryHandle> {
   if (options.reset) {
     resetWasmArena();
   }
-  const useU16 = options.precision === 'u16';
+  const use16 = options.precision === 16;
   const handles = new WeakMap<PreparedFeature, StaticGeometryHandle>();
   const upload = (layers: readonly StyledVectorLayer[]) => {
     for (const layer of layers) {
       for (const f of layer.features) {
         if (handles.has(f)) continue;
-        const handle = useU16
-          ? uploadStaticRingsU16(
-              encodeNormU16(f.packedXY),
-              f.ringLengths,
-              f.ringCount
-            )
-          : uploadStaticRings(f.packedXY, f.ringLengths, f.ringCount);
+        const handle = uploadStaticRings(
+          use16 ? encodeRings16(f.packedXY) : f.packedXY,
+          f.ringLengths,
+          f.ringCount
+        );
         if (handle) {
           handles.set(f, handle);
         }
@@ -96,8 +102,7 @@ export function uploadVectorLayers(
 }
 
 /**
- * Renders fill and stroke vector layers across wrapped viewport slices using
- * WASM static ring handles when available and decimated fallback otherwise.
+ * Renders fill and stroke vector layers across wrapped viewport slices.
  */
 export function drawVectorLayers(
   ctx: CanvasRenderingContext2D,
@@ -117,6 +122,7 @@ export function drawVectorLayers(
     minInteractFeaturePx = 6,
     minPixelStep = 0.75,
     projection = MERCATOR_PROJECTION,
+    styles,
   } = options;
 
   const { scale, offsetY, viewLatMin, viewLatMax, slices } = getWrappedSlices(
@@ -132,6 +138,9 @@ export function drawVectorLayers(
   const pxPerDeg = scale / 360;
   const rt = getWasmRuntime();
   const scratchBase = rt !== null ? rt.getScratchBase() : 0;
+
+  const resolveStyle = (layer: StyledVectorLayer): VectorLayerStyle =>
+    layer.style ?? styles?.[layer.name] ?? DEFAULT_VECTOR_STYLE;
 
   const traceFeature = (
     f: PreparedFeature,
@@ -208,7 +217,7 @@ export function drawVectorLayers(
     adjLonMin: number,
     adjLonMax: number
   ) => {
-    const s = layer.style;
+    const s = resolveStyle(layer);
     const fillColor = s.fillColor ?? s.color;
     if (!fillColor) return;
 
@@ -232,7 +241,7 @@ export function drawVectorLayers(
     adjLonMin: number,
     adjLonMax: number
   ) => {
-    const s = layer.style;
+    const s = resolveStyle(layer);
     const weight = s.weight ?? 1;
     if (weight <= 0 || s.stroke === false) return;
 

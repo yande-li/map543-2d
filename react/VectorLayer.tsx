@@ -2,44 +2,49 @@ import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { type ViewportState } from '../core/camera';
 import {
   type StyledVectorLayer,
+  type VectorLayerStyle,
   type VectorScratchBuffers,
   drawVectorLayers,
   uploadVectorLayers,
 } from '../core/vectorLayer';
 import { type PreparedFeature } from '../formats/types';
-import { type StaticGeometryHandle } from '../core/batch';
+import { type CoordPrecision, type StaticGeometryHandle } from '../core/batch';
 import { CanvasLayer } from './CanvasLayer';
 import { useMap } from './MapContext';
 
+const EMPTY_LAYERS: readonly StyledVectorLayer[] = [];
+
 export interface VectorLayerProps {
-  fillLayers: StyledVectorLayer[];
-  strokeLayers: StyledVectorLayer[];
+  fillLayers: readonly StyledVectorLayer[];
+  strokeLayers?: readonly StyledVectorLayer[];
+  /** Optional layer name -> style map when passing PreparedLayer[] directly from parseGeobuf. */
+  styles?: Readonly<Record<string, VectorLayerStyle>>;
   smoothFactor?: number;
   lowPower?: boolean;
   zIndex?: number;
   skipOnInteractLayers?: ReadonlySet<string>;
   /** Reset the shared WASM static arena before uploading new layers (default: false). */
   resetOnUpload?: boolean;
-  /** WASM arena coordinate precision: 'f32' (default) or 'u16' (50% arena RAM reduction). */
-  precision?: 'f32' | 'u16';
-  /** Max DPR during active pan/zoom interaction (default: 0.45 to reduce Canvas2D CPU/RAM). */
+  /** Arena coordinate precision in bits: 32 (default) or 16. */
+  precision?: CoordPrecision;
+  /** Max DPR during active pan/zoom interaction (default: 0.45). */
   interactionMaxDpr?: number;
 }
 
 /**
- * Thin React wrapper around core/vectorLayer for WASM-accelerated Geobuf
- * fill and stroke background rendering.
+ * React wrapper around core/vectorLayer for WASM-accelerated Geobuf fill and stroke rendering.
  */
 export const VectorLayer: React.FC<VectorLayerProps> = memo(
   ({
     fillLayers,
-    strokeLayers,
+    strokeLayers = EMPTY_LAYERS,
+    styles,
     smoothFactor = 1.0,
     lowPower = false,
     zIndex = 100,
     skipOnInteractLayers,
     resetOnUpload = false,
-    precision = 'f32',
+    precision = 32,
     interactionMaxDpr = 0.45,
   }) => {
     const { camera } = useMap();
@@ -94,11 +99,19 @@ export const VectorLayer: React.FC<VectorLayerProps> = memo(
             smoothFactor,
             isInteracting,
             projection: camera.getProjection(),
+            ...(styles ? { styles } : {}),
             ...(skipOnInteractLayers ? { skipOnInteractLayers } : {}),
           }
         );
       },
-      [fillLayers, strokeLayers, smoothFactor, skipOnInteractLayers, camera]
+      [
+        fillLayers,
+        strokeLayers,
+        styles,
+        smoothFactor,
+        skipOnInteractLayers,
+        camera,
+      ]
     );
 
     return (

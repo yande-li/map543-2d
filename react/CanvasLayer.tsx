@@ -1,30 +1,25 @@
 import React, { useEffect, useRef } from 'react';
 import {
-  BlanketCanvasLayer,
-  type BlanketDrawCallback,
-} from '../core/blanketLayer';
+  CanvasRenderer,
+  type CanvasDrawCallback,
+} from '../core/canvasRenderer';
 import { useMap } from './MapContext';
 
 export interface CanvasLayerProps {
   zIndex?: number;
   maxDpr?: number;
-  /**
-   * Optional reduced maxDpr applied during active camera interaction via an
-   * offscreen buffer, restoring full maxDpr after interaction stops.
-   */
+  /** Optional reduced maxDpr applied during active camera interaction. */
   interactionMaxDpr?: number;
-  /**
-   * Delay in ms after camera interaction stops before restoring full detail.
-   */
+  /** Delay in ms after camera interaction stops before restoring full detail. */
   interactionIdleDelayMs?: number;
   className?: string;
-  onDraw: BlanketDrawCallback;
+  onDraw: CanvasDrawCallback;
 }
 
 const IDLE_DELAY_MS = 140;
 
 /**
- * DPR-aware canvas layer synchronized with camera viewport changes via BlanketCanvasLayer.
+ * DPR-aware canvas layer synchronized with camera viewport changes via CanvasRenderer.
  */
 export const CanvasLayer: React.FC<CanvasLayerProps> = ({
   zIndex = 100,
@@ -36,7 +31,7 @@ export const CanvasLayer: React.FC<CanvasLayerProps> = ({
 }) => {
   const { camera } = useMap();
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const layerRef = useRef<BlanketCanvasLayer | null>(null);
+  const layerRef = useRef<CanvasRenderer | null>(null);
   const latestOptionsRef = useRef({
     zIndex,
     maxDpr,
@@ -59,7 +54,7 @@ export const CanvasLayer: React.FC<CanvasLayerProps> = ({
     if (!canvas) return;
 
     const opts = latestOptionsRef.current;
-    const layer = new BlanketCanvasLayer({
+    const layer = new CanvasRenderer({
       maxDpr: opts.maxDpr,
       ...(opts.interactionMaxDpr !== undefined
         ? { interactionMaxDpr: opts.interactionMaxDpr }

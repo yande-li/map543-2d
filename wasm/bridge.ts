@@ -11,39 +11,66 @@ function align16(n: number): number {
   return (n + 15) & ~15;
 }
 
+export type HitTestKernelFn = (
+  clickX: number,
+  clickY: number,
+  radiusSq: number,
+  count: number,
+  lutOffset: number,
+  latsOffset: number,
+  lonsOffset: number,
+  centerNormX: number,
+  centerNormY: number,
+  worldSize: number,
+  halfW: number,
+  halfH: number
+) => number;
+
+export type BatchProjectKernelFn = (
+  count: number,
+  lutOffset: number,
+  latsOffset: number,
+  lonsOffset: number,
+  outXYOffset: number,
+  outIdxOffset: number,
+  centerNormX: number,
+  centerNormY: number,
+  worldSize: number,
+  halfW: number,
+  halfH: number,
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number
+) => number;
+
+/**
+ * Copies the first `count` lat/lon elements into two WASM linear-memory regions.
+ * `view` must be freshly acquired from the runtime after `ensureCapacity`.
+ */
+export function stageCoordPair<T extends Float32Array | Int16Array>(
+  view: T,
+  lats: T,
+  lons: T,
+  count: number,
+  latsOffset: number,
+  lonsOffset: number,
+  elemShift: 1 | 2
+): void {
+  view.set(
+    count === lats.length ? lats : lats.subarray(0, count),
+    latsOffset >> elemShift
+  );
+  view.set(
+    count === lons.length ? lons : lons.subarray(0, count),
+    lonsOffset >> elemShift
+  );
+}
+
 interface WasmKernelExports {
   memory: WebAssembly.Memory;
-  findNearestPointBatch: (
-    clickX: number,
-    clickY: number,
-    radiusSq: number,
-    count: number,
-    lutOffset: number,
-    latsOffset: number,
-    lonsOffset: number,
-    centerNormX: number,
-    centerNormY: number,
-    worldSize: number,
-    halfW: number,
-    halfH: number
-  ) => number;
-  batchProjectMercator: (
-    count: number,
-    lutOffset: number,
-    latsOffset: number,
-    lonsOffset: number,
-    outXYOffset: number,
-    outIdxOffset: number,
-    centerNormX: number,
-    centerNormY: number,
-    worldSize: number,
-    halfW: number,
-    halfH: number,
-    minX: number,
-    minY: number,
-    maxX: number,
-    maxY: number
-  ) => number;
+  findNearestPointBatch: HitTestKernelFn;
+  batchProjectMercator: BatchProjectKernelFn;
   decimateRingsBatch: (
     ringCount: number,
     inXYOffset: number,
@@ -111,37 +138,8 @@ interface WasmKernelExports {
     offsetY: number,
     pixelStep: number
   ) => number;
-  batchProjectMercatorI16?: (
-    count: number,
-    lutOffset: number,
-    latsI16Offset: number,
-    lonsI16Offset: number,
-    outXYOffset: number,
-    outIdxOffset: number,
-    centerNormX: number,
-    centerNormY: number,
-    worldSize: number,
-    halfW: number,
-    halfH: number,
-    minX: number,
-    minY: number,
-    maxX: number,
-    maxY: number
-  ) => number;
-  findNearestPointBatchI16?: (
-    clickX: number,
-    clickY: number,
-    radiusSq: number,
-    count: number,
-    lutOffset: number,
-    latsI16Offset: number,
-    lonsI16Offset: number,
-    centerNormX: number,
-    centerNormY: number,
-    worldSize: number,
-    halfW: number,
-    halfH: number
-  ) => number;
+  batchProjectMercatorI16?: BatchProjectKernelFn;
+  findNearestPointBatchI16?: HitTestKernelFn;
 }
 
 export interface WasmRuntime {
@@ -284,8 +282,7 @@ function decodeEmbeddedWasm(): Uint8Array<ArrayBuffer> {
 }
 
 /**
- * Returns the singleton WebAssembly runtime, synchronously compiling and
- * instantiating the embedded <4 KB WASM kernel module on first access.
+ * Returns the singleton WebAssembly runtime, initializing it synchronously on first access.
  */
 export function getWasmRuntime(): WasmRuntime | null {
   if (runtime !== null) return runtime;
@@ -301,24 +298,21 @@ export function getWasmRuntime(): WasmRuntime | null {
 }
 
 /**
- * Synchronously warms up the singleton WebAssembly runtime and returns whether
- * WebAssembly acceleration is available. Calling this is optional because all
- * WASM-backed operations auto-initialize on first use.
+ * Warms up the singleton WebAssembly runtime and returns whether it is available.
  */
 export function initWasm(): boolean {
   return getWasmRuntime() !== null;
 }
 
 /**
- * Resets the static geometry bump arena without destroying the WASM instance.
+ * Resets the static geometry arena without destroying the WASM instance.
  */
 export function resetWasmArena(): void {
   runtime?.resetArena();
 }
 
 /**
- * Releases the singleton WASM instance and its linear memory so the browser GC
- * can reclaim all allocated pages. Subsequent calls will automatically re-instantiate.
+ * Releases the singleton WASM instance and its linear memory.
  */
 export function disposeWasm(): void {
   runtime = null;

@@ -13,12 +13,14 @@ import { type LatLng, MERCATOR_PROJECTION } from './projection';
 
 export type TrajectoryCurveMode = 'arc' | 'straight' | 'none';
 
-export interface TrajectorySpec {
+export interface TrajectoryItem {
   key: string;
-  srcLat: number;
-  srcLon: number;
-  dstLat: number;
-  dstLon: number;
+  src?: LatLng;
+  dst?: LatLng;
+  srcLat?: number;
+  srcLon?: number;
+  dstLat?: number;
+  dstLon?: number;
   color?: string;
   curve?: TrajectoryCurveMode;
   isReversed?: boolean;
@@ -26,8 +28,6 @@ export interface TrajectorySpec {
   duration?: number;
   className?: string;
 }
-
-export type { TrajectoryTimingFn };
 
 export interface PreparedArc {
   key: string;
@@ -41,13 +41,12 @@ export interface PreparedArc {
   className: string | undefined;
 }
 
-export interface PreparedArcs {
+interface PreparedArcs {
   items: PreparedArc[];
   arcCount: number;
   arcBuffer: Float32Array | null;
 }
 
-// Shared rAF queue so all stroke animations start in a single frame callback
 const pendingAnimations = new Set<() => void>();
 let sharedRafId: number | null = null;
 
@@ -80,7 +79,6 @@ export function scheduleAnimation(fn: () => void): () => void {
 
 /**
  * Starts a Web Animations API dash-flight animation along an SVG path with `pathLength="1"`.
- * Defaults to 18fps stepped easing; pass `smooth = true` to unlock full native frame rate.
  */
 export function animateStroke(
   el: SVGPathElement,
@@ -111,7 +109,7 @@ export function animateStroke(
  * Prepares trajectory timings and computes all curved arcs in one WASM batch.
  */
 export function prepareArcs(
-  items: readonly TrajectorySpec[],
+  items: readonly TrajectoryItem[],
   timingFn: TrajectoryTimingFn = getArcTiming
 ): PreparedArcs {
   const result: PreparedArc[] = [];
@@ -119,8 +117,8 @@ export function prepareArcs(
 
   for (const item of items) {
     if (item.curve === 'none') continue;
-    const src: LatLng = [item.srcLat, item.srcLon];
-    const dst: LatLng = [item.dstLat, item.dstLon];
+    const src: LatLng = item.src ?? [item.srcLat ?? 0, item.srcLon ?? 0];
+    const dst: LatLng = item.dst ?? [item.dstLat ?? 0, item.dstLon ?? 0];
     const isStraight = item.curve === 'straight';
     const dist = manhattanDeg(src, dst);
     const timing = timingFn(dist);
@@ -165,8 +163,8 @@ export function prepareArcs(
 }
 
 /**
- * Attaches a framework-agnostic camera subscription to an SVG container:
- * translates via GPU `translate3d` on pan, and batch-projects via WASM on zoom/init.
+ * Attaches a camera subscription to an SVG container: translates via `translate3d` on pan
+ * and batch-projects via WASM on zoom/init.
  */
 export function attachSvgSync(
   svg: SVGSVGElement | null,
@@ -196,16 +194,16 @@ export function attachSvgSync(
     originNormX = params.centerNormX;
     originNormY = params.centerNormY;
 
-    const isMercator = camera.getProjection() === MERCATOR_PROJECTION;
-
-    if (batch.arcBuffer && projectedXY && isMercator) {
+    const isMercator =
+      camera.getProjection() === MERCATOR_PROJECTION &&
+      batch.arcBuffer &&
+      projectedXY &&
       projectMercator(
         batch.arcBuffer,
         batch.arcCount * QUADRATIC_ARC_POINTS,
         camera,
         projectedXY
-      );
-    }
+      ) > 0;
 
     for (const item of batch.items) {
       let d: string;

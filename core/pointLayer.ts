@@ -1,18 +1,11 @@
 import { type Camera } from './camera';
 import {
+  type CoordPrecision,
   type StaticPointsHandle,
   batchProjectPoints,
-  batchProjectPointsI16,
-  batchProjectStaticPoints,
   uploadStaticPoints,
-  uploadStaticPointsI16,
 } from './batch';
-import {
-  encodePointsToI16,
-  hitTestPoints,
-  hitTestPointsI16,
-  hitTestStaticPoints,
-} from './hitTest';
+import { encodePoints16, hitTestPoints } from './hitTest';
 import { getWasmRuntime } from '../wasm/bridge';
 
 export interface PointItem {
@@ -30,10 +23,9 @@ interface PointBucketStyle {
 
 export interface PointBuffers {
   count: number;
-  lats: Float32Array;
-  lons: Float32Array;
-  latsI16?: Int16Array;
-  lonsI16?: Int16Array;
+  lats: Float32Array | Int16Array;
+  lons: Float32Array | Int16Array;
+  precision: CoordPrecision;
   palette?: PointBucketStyle[];
   bucketIds?: Uint16Array;
   staticHandle?: StaticPointsHandle | null;
@@ -41,7 +33,7 @@ export interface PointBuffers {
 
 export function packPoints(
   points: readonly PointItem[],
-  precision: 'f32' | 'i16' = 'f32'
+  precision: CoordPrecision = 32
 ): PointBuffers {
   const count = points.length;
   const palette: PointBucketStyle[] = [];
@@ -62,41 +54,35 @@ export function packPoints(
     bucketIds[i] = bid;
   };
 
-  if (precision === 'i16') {
-    const tmpLats = new Float32Array(count);
-    const tmpLons = new Float32Array(count);
-    for (let i = 0; i < count; i++) {
-      tmpLats[i] = points[i].lat;
-      tmpLons[i] = points[i].lon;
-      assignBucket(i);
-    }
-    const { latsI16, lonsI16 } = encodePointsToI16(tmpLats, tmpLons, count);
+  const tmpLats = new Float32Array(count);
+  const tmpLons = new Float32Array(count);
+  for (let i = 0; i < count; i++) {
+    tmpLats[i] = points[i].lat;
+    tmpLons[i] = points[i].lon;
+    assignBucket(i);
+  }
+
+  if (precision === 16) {
+    const encoded = encodePoints16(tmpLats, tmpLons, count);
     return {
       count,
-      lats: new Float32Array(0),
-      lons: new Float32Array(0),
-      latsI16,
-      lonsI16,
+      lats: encoded.lats,
+      lons: encoded.lons,
+      precision: 16,
       palette,
       bucketIds,
-      staticHandle: uploadStaticPointsI16(latsI16, lonsI16, count),
+      staticHandle: uploadStaticPoints(encoded.lats, encoded.lons, count),
     };
   }
 
-  const lats = new Float32Array(count);
-  const lons = new Float32Array(count);
-  for (let i = 0; i < count; i++) {
-    lats[i] = points[i].lat;
-    lons[i] = points[i].lon;
-    assignBucket(i);
-  }
   return {
     count,
-    lats,
-    lons,
+    lats: tmpLats,
+    lons: tmpLons,
+    precision: 32,
     palette,
     bucketIds,
-    staticHandle: uploadStaticPoints(lats, lons, count),
+    staticHandle: uploadStaticPoints(tmpLats, tmpLons, count),
   };
 }
 
@@ -107,10 +93,7 @@ function getValidStaticHandle(
   if (rt === null || spatial.count <= 0) return null;
   const h = spatial.staticHandle;
   if (h && h.epoch === rt.arenaEpoch) return h;
-  const next =
-    spatial.latsI16 && spatial.lonsI16
-      ? uploadStaticPointsI16(spatial.latsI16, spatial.lonsI16, spatial.count)
-      : uploadStaticPoints(spatial.lats, spatial.lons, spatial.count);
+  const next = uploadStaticPoints(spatial.lats, spatial.lons, spatial.count);
   spatial.staticHandle = next;
   return next;
 }
@@ -123,6 +106,25 @@ interface PointBucket {
 
 const reusableBuckets = new Map<string, PointBucket>();
 const reusableBucketCoords: number[][] = [];
+
+function fillCircles(
+  ctx: CanvasRenderingContext2D,
+  coords: readonly number[],
+  color: string,
+  alpha: number
+): void {
+  ctx.beginPath();
+  ctx.fillStyle = color;
+  ctx.globalAlpha = alpha;
+  for (let i = 0; i < coords.length; i += 3) {
+    const cx = coords[i];
+    const cy = coords[i + 1];
+    const r = coords[i + 2];
+    ctx.moveTo(cx + r, cy);
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  }
+  ctx.fill();
+}
 
 /**
  * Batch-projects points via WASM and renders them into a 2D canvas grouped by
@@ -140,27 +142,13 @@ export function drawBatchPoints(
   if (spatial.count === 0) return;
 
   const staticHandle = getValidStaticHandle(spatial);
-  const visible = staticHandle
-    ? batchProjectStaticPoints(staticHandle, camera, margin, outXY, outIdx)
-    : spatial.latsI16 && spatial.lonsI16
-      ? batchProjectPointsI16(
-          spatial.latsI16,
-          spatial.lonsI16,
-          spatial.count,
-          camera,
-          margin,
-          outXY,
-          outIdx
-        )
-      : batchProjectPoints(
-          spatial.lats,
-          spatial.lons,
-          spatial.count,
-          camera,
-          margin,
-          outXY,
-          outIdx
-        );
+  const visible = batchProjectPoints(
+    staticHandle ?? spatial,
+    camera,
+    margin,
+    outXY,
+    outIdx
+  );
   if (visible === 0) return;
 
   const { palette, bucketIds } = spatial;
@@ -185,17 +173,7 @@ export function drawBatchPoints(
       const coords = reusableBucketCoords[b];
       if (coords.length === 0) continue;
       const style = palette[b];
-      ctx.beginPath();
-      ctx.fillStyle = style.color;
-      ctx.globalAlpha = style.alpha;
-      for (let i = 0; i < coords.length; i += 3) {
-        const cx = coords[i];
-        const cy = coords[i + 1];
-        const r = coords[i + 2];
-        ctx.moveTo(cx + r, cy);
-        ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      }
-      ctx.fill();
+      fillCircles(ctx, coords, style.color, style.alpha);
     }
     return;
   }
@@ -207,7 +185,6 @@ export function drawBatchPoints(
   for (let k = 0; k < visible; k++) {
     const p = points[outIdx[k]];
     const alpha = p.alpha ?? 0.7;
-    // Quantize alpha to 8-bit integer 0.05 steps (0..20) to maximize Canvas fill batching
     const qAlphaStep = (alpha * 20 + 0.5) | 0;
     const key = `${p.color}|${qAlphaStep}`;
     let bucket = reusableBuckets.get(key);
@@ -226,17 +203,7 @@ export function drawBatchPoints(
       }
       return;
     }
-    ctx.beginPath();
-    ctx.fillStyle = color;
-    ctx.globalAlpha = alphaStep * 0.05;
-    for (let i = 0; i < coords.length; i += 3) {
-      const cx = coords[i];
-      const cy = coords[i + 1];
-      const r = coords[i + 2];
-      ctx.moveTo(cx + r, cy);
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    }
-    ctx.fill();
+    fillCircles(ctx, coords, color, alphaStep * 0.05);
   });
 }
 
@@ -280,19 +247,13 @@ export function attachPointHover(
     const x = lastX - rectLeft;
     const y = lastY - rectTop;
     const staticHandle = getValidStaticHandle(spatial);
-    const idx = staticHandle
-      ? hitTestStaticPoints(x, y, staticHandle, camera, hitRadiusPx)
-      : spatial.latsI16 && spatial.lonsI16
-        ? hitTestPointsI16(
-            x,
-            y,
-            spatial.latsI16,
-            spatial.lonsI16,
-            spatial.count,
-            camera,
-            hitRadiusPx
-          )
-        : hitTestPoints(x, y, spatial, camera, hitRadiusPx);
+    const idx = hitTestPoints(
+      x,
+      y,
+      staticHandle ?? spatial,
+      camera,
+      hitRadiusPx
+    );
     container.style.cursor = idx >= 0 ? 'pointer' : '';
   };
 

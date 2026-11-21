@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.build.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "paths": {
+      "map543-2d/core": ["./core.ts"],
+      "map543-2d": ["./index.ts"]
+    }
+  },
+  "include": [
+    "core.ts",
+    "index.ts",
+    "core/**/*.ts",
+    "formats/**/*.ts",
+    "react/**/*.ts",
+    "react/**/*.tsx",
+    "wasm/**/*.ts",
+    "__tests__/**/*.ts",
+    "vitest.config.ts"
+  ],
+  "exclude": ["dist", "node_modules"]
+}
