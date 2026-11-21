@@ -55,7 +55,6 @@ import {
   computeZoomForBounds,
   clampCenterToBounds,
   createEquirectangular,
-  resolveProjection,
   computeArc,
   computeArcsBatch,
   latLngsToSvgPath,
@@ -77,6 +76,7 @@ import {
   shouldCullFeature,
   shouldSkipLayer,
 } from '../core/vectorLod';
+import { resolveProjection } from '../core/projection';
 
 describe('map543-2d projection', () => {
   it('round-trips normalized Mercator coordinates', () => {
@@ -186,9 +186,16 @@ describe('Camera', () => {
     camera.flyTo([35.6762, 139.6503], 5, 100);
     vi.advanceTimersByTime(150);
 
-    const state = camera.getState();
+    let state = camera.getState();
     expect(state.center[0]).toBeCloseTo(35.6762, 2);
     expect(state.center[1]).toBeCloseTo(139.6503, 2);
+    expect(state.zoom).toBeCloseTo(5, 2);
+
+    // Omitting zoom preserves current zoom
+    camera.flyTo([25, 121], undefined, 50);
+    vi.advanceTimersByTime(100);
+    state = camera.getState();
+    expect(state.center[0]).toBeCloseTo(25, 1);
     expect(state.zoom).toBeCloseTo(5, 2);
     vi.useRealTimers();
   });
@@ -1399,7 +1406,7 @@ describe('DOM interactions (drag, click, pinch, gamepad) and React layers', () =
       onClick,
     });
 
-    // 1. Click within 5px slop triggers onClick
+    // 1. Click within 5px slop triggers onClick with { latLng, x, y }
     el.dispatchEvent(
       new MouseEvent('pointerdown', {
         clientX: 400,
@@ -1417,6 +1424,13 @@ describe('DOM interactions (drag, click, pinch, gamepad) and React layers', () =
       })
     );
     expect(onClick).toHaveBeenCalledTimes(1);
+    expect(onClick.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        x: 401,
+        y: 301,
+        latLng: expect.any(Array),
+      })
+    );
 
     // 2. Drag > 5px pans camera and does NOT trigger onClick
     onClick.mockClear();
@@ -1564,20 +1578,22 @@ describe('DOM interactions (drag, click, pinch, gamepad) and React layers', () =
           variant: 'ring',
         }),
         React.createElement(PointLayer, {
-          points: [{ lat: 25, lon: 121, radius: 6, color: '#0ebf9c' }],
+          points: [{ lat: 25, lon: 121, radius: 6, color: '#0ebf9c' }] as const,
           precision: 16,
+          className: 'pt-layer',
           onPointClick,
         }),
         React.createElement(VectorLayer, {
-          fillLayers: [],
+          fillLayers: [] as const,
           precision: 16,
+          className: 'vec-layer',
         }),
         React.createElement(TrajectoryLayer, {
-          items: [{ key: 'arc-1', src: [25, 121], dst: [35, 139] }],
+          items: [{ key: 'arc-1', src: [25, 121], dst: [35, 139] }] as const,
           lowPower: true,
         }),
         React.createElement(ImageLayer, {
-          src: '',
+          image: {} as CanvasImageSource,
           bounds: [
             [20, 118],
             [28, 124],
@@ -1598,11 +1614,14 @@ describe('DOM interactions (drag, click, pinch, gamepad) and React layers', () =
     fireEvent.click(zoomInBtn);
     fireEvent.click(zoomOutBtn);
 
-    // Map click triggers onClick and PointLayer hit-test
+    // Map click triggers onClick({ latLng, x, y }) and PointLayer hit-test
     const mapEl = container.querySelector('.geo-map-container')!;
+    expect(container.querySelector('.pt-layer')).not.toBeNull();
+    expect(container.querySelector('.vec-layer')).not.toBeNull();
     fireEvent.pointerDown(mapEl, { clientX: 0, clientY: 0, button: 0 });
     fireEvent.pointerUp(mapEl, { clientX: 0, clientY: 0, button: 0 });
     expect(onMapClick).toHaveBeenCalledTimes(1);
+    expect(onMapClick.mock.calls[0][0].latLng).toHaveLength(2);
     expect(onPointClick).toHaveBeenCalledTimes(1);
 
     // Escape key closes Popup

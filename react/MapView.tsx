@@ -301,10 +301,10 @@ export const MapView: React.FC<MapViewProps> = ({
       observeResize: true,
       moveEndDelayMs,
       onMoveEnd: () => onMoveEndRef.current?.(),
-      onClick: (px, py, latLng) => {
-        onClickRef.current?.(px, py, latLng);
+      onClick: (event) => {
+        onClickRef.current?.(event);
         for (const listener of clickListenersRef.current) {
-          listener(px, py, latLng);
+          listener(event);
         }
       },
     });

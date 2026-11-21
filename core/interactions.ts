@@ -1,6 +1,12 @@
 import { Camera } from './camera';
 import { LatLng } from './projection';
 
+export interface MapClickEvent {
+  latLng: LatLng;
+  x: number;
+  y: number;
+}
+
 export interface InteractionOptions {
   /** Enable drag, pinch, wheel, double-click, and click events (default: true). */
   interactive?: boolean;
@@ -13,7 +19,7 @@ export interface InteractionOptions {
   /** Automatically sync container dimensions via ResizeObserver (default: true). */
   observeResize?: boolean;
   /** Callback invoked on pointerup when movement stayed within the 5px click threshold. */
-  onClick?: (x: number, y: number, latLng: LatLng) => void;
+  onClick?: (event: MapClickEvent) => void;
   /** Debounced callback invoked after camera movement settles. */
   onMoveEnd?: () => void;
   /** Debounce delay in ms for onMoveEnd (default: 120). */
@@ -241,7 +247,7 @@ export function attachInteractions(
       ) {
         const px = e.clientX - rectLeft;
         const py = e.clientY - rectTop;
-        onClick(px, py, camera.unproject(px, py));
+        onClick({ latLng: camera.unproject(px, py), x: px, y: py });
       }
 
       if (pointers.size === 0) {

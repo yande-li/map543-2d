@@ -29,6 +29,7 @@ export interface VectorLayerProps {
   precision?: CoordPrecision;
   /** Max DPR during active pan/zoom interaction (default: 0.45). */
   interactionMaxDpr?: number;
+  className?: string;
 }
 
 /**
@@ -46,6 +47,7 @@ export const VectorLayer: React.FC<VectorLayerProps> = memo(
     resetOnUpload = false,
     precision = 32,
     interactionMaxDpr = 0.45,
+    className,
   }) => {
     const { camera } = useMap();
     const scratchRef = useRef<VectorScratchBuffers>({
@@ -119,6 +121,7 @@ export const VectorLayer: React.FC<VectorLayerProps> = memo(
         zIndex={zIndex}
         maxDpr={maxDpr}
         interactionMaxDpr={Math.min(maxDpr, interactionMaxDpr)}
+        {...(className ? { className } : {})}
         onDraw={onDraw}
       />
     );

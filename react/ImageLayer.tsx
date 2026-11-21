@@ -5,7 +5,9 @@ import { CanvasLayer } from './CanvasLayer';
 
 export interface ImageLayerProps {
   /** Image URL or data URI (supports PNG, WebP, SVG, JPEG). */
-  src: string;
+  src?: string;
+  /** Pre-loaded image source (takes precedence over `src` when provided). */
+  image?: CanvasImageSource;
   /** Geographic bounds [[minLat, minLon], [maxLat, maxLon]] (default: [[-90, -180], [90, 180]]). */
   bounds?: ImageBounds;
   zIndex?: number;
@@ -25,6 +27,7 @@ const DEFAULT_WORLD_BOUNDS: ImageBounds = [
  */
 export const ImageLayer: React.FC<ImageLayerProps> = ({
   src,
+  image,
   bounds = DEFAULT_WORLD_BOUNDS,
   zIndex = 50,
   opacity = 1,
@@ -39,7 +42,7 @@ export const ImageLayer: React.FC<ImageLayerProps> = ({
   const b1Lon = bounds[1][1];
 
   useEffect(() => {
-    if (!src) {
+    if (image || !src) {
       setLoadedImg(null);
       return;
     }
@@ -54,14 +57,16 @@ export const ImageLayer: React.FC<ImageLayerProps> = ({
     return () => {
       active = false;
     };
-  }, [src]);
+  }, [src, image]);
+
+  const activeImg = image ?? loadedImg;
 
   const onDraw = useCallback(
     (ctx: CanvasRenderingContext2D, _state: ViewportState, cam: Camera) => {
-      if (!loadedImg) return;
+      if (!activeImg) return;
       drawImage(
         ctx,
-        loadedImg,
+        activeImg,
         [
           [b0Lat, b0Lon],
           [b1Lat, b1Lon],
@@ -73,7 +78,7 @@ export const ImageLayer: React.FC<ImageLayerProps> = ({
         }
       );
     },
-    [loadedImg, b0Lat, b0Lon, b1Lat, b1Lon, opacity, imageSmoothingEnabled]
+    [activeImg, b0Lat, b0Lon, b1Lat, b1Lon, opacity, imageSmoothingEnabled]
   );
 
   return (

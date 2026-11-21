@@ -13,12 +13,13 @@ import { CanvasLayer } from './CanvasLayer';
 import { useMap } from './MapContext';
 
 export interface PointLayerProps {
-  points: PointItem[];
+  points: readonly PointItem[];
   zIndex?: number;
   hitRadiusPx?: number;
   marginPx?: number;
   /** Coordinate buffer precision in bits: 32 (default) or 16. */
   precision?: CoordPrecision;
+  className?: string;
   onPointClick?: (point: PointItem, index: number) => void;
 }
 
@@ -33,6 +34,7 @@ export const PointLayer: React.FC<PointLayerProps> = memo(
     hitRadiusPx = 18,
     marginPx = 30,
     precision = 32,
+    className,
     onPointClick,
   }) => {
     const { camera, getContainer, subscribeClick } = useMap();
@@ -53,7 +55,7 @@ export const PointLayer: React.FC<PointLayerProps> = memo(
 
     useEffect(() => {
       if (!onPointClick || points.length === 0) return;
-      return subscribeClick((x, y) => {
+      return subscribeClick(({ x, y }) => {
         const rt = getWasmRuntime();
         const sh = spatial.staticHandle;
         const target =
@@ -90,7 +92,13 @@ export const PointLayer: React.FC<PointLayerProps> = memo(
       [points, spatial, marginPx]
     );
 
-    return <CanvasLayer zIndex={zIndex} onDraw={onDraw} />;
+    return (
+      <CanvasLayer
+        zIndex={zIndex}
+        {...(className ? { className } : {})}
+        onDraw={onDraw}
+      />
+    );
   }
 );
 PointLayer.displayName = 'PointLayer';

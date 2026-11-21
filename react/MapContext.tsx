@@ -1,8 +1,8 @@
 import React, { createContext, useContext } from 'react';
 import { Camera } from '../core/camera';
-import { LatLng } from '../core/projection';
+import { type MapClickEvent } from '../core/interactions';
 
-export type MapClickListener = (x: number, y: number, latLng: LatLng) => void;
+export type MapClickListener = (event: MapClickEvent) => void;
 
 export interface MapContextValue {
   camera: Camera;

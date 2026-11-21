@@ -4,7 +4,12 @@
 
 使用降精度等方法的 2D 地圖繪圖函式庫，以減少記憶體與資源消耗。
 
-**支援格式**：Mapbox Geobuf（`.geobuf`、`.pbf`）及瀏覽器支援的圖片格式（PNG、WebP、AVIF、SVG、JPEG 等）
+- **支援格式**：Mapbox Geobuf（`.geobuf`、`.pbf`）及瀏覽器支援的圖片格式（PNG、WebP、AVIF、SVG、JPEG 等）
+- **地理座標系（GCS）**：**WGS 84**（`EPSG:4326`，`[lat, lon]` 十進位經緯度）
+- **投影座標系（PCS）**：
+  - **Web Mercator**（`EPSG:3857`，預設，緯度範圍 `±85.051129°`）
+  - **Equirectangular / 等距圓柱投影**（`projection="equirectangular"` 或 `createEquirectangular(bounds)`）
+  - **自訂 `Projection`**（實作 `latLngToNorm` / `normToLatLng`）
 
 ## 使用範例
 
@@ -13,7 +18,12 @@ import { MapView, VectorLayer, PointLayer, Marker } from 'map543-2d';
 
 export function App({ layers, points }) {
   return (
-    <MapView center={[25, 121]} zoom={4} showZoomControls>
+    <MapView
+      center={[25, 121]}
+      zoom={4}
+      showZoomControls
+      onClick={({ latLng }) => console.log(latLng)}
+    >
       <VectorLayer
         fillLayers={layers.fillLayers}
         strokeLayers={layers.strokeLayers}
@@ -30,18 +40,18 @@ export function App({ layers, points }) {
 
 完整 Props 型別與 JSDoc 皆附帶於 TypeScript `.d.ts` 宣告檔中。
 
-- `<MapView>` — Root viewport container，支援 `ResizeObserver`、拖曳、pinch、滾輪／雙擊縮放、鍵盤／手把操作、`onClick`、`smooth` 與縮放控制項。
+- `<MapView>` — Root viewport container，支援 `ResizeObserver`、拖曳、pinch、滾輪／雙擊縮放、鍵盤／手把操作、`onClick`（`{ latLng, x, y }`）、`smooth` 與縮放控制項。
 - `<CanvasLayer>` — 支援 DPR 的 Canvas layer，於 `Camera` 變更時透過 `requestAnimationFrame` 批次重繪（支援 `interactionMaxDpr`）。
-- `<VectorLayer>` — 將 Geobuf fill 與 stroke 圖層繪製至 `<CanvasLayer>`，支援 WASM decimation、互動 LOD、`styles` 與 `precision`（`32 | 16`）。
-- `<PointLayer>` — Canvas point layer，支援 WASM batch projection、最近點點擊／hover hit-testing 與 `precision`（`32 | 16`）。
+- `<VectorLayer>` — 將 Geobuf fill 與 stroke 圖層繪製至 `<CanvasLayer>`，支援 WASM decimation、互動 LOD、`styles`、`className` 與 `precision`（`32 | 16`）。
+- `<PointLayer>` — Canvas point layer，支援 WASM batch projection、最近點點擊／hover hit-testing、`className` 與 `precision`（`32 | 16`）。
 - `<TrajectoryLayer>` — 繪製與 `Camera` 同步的 SVG 動態地理軌跡曲線（`src`、`dst`）。
-- `<ImageLayer>` — 將具地理座標的圖片繪製至 `<CanvasLayer>`（核心亦匯出 `loadImage` 與 `drawImage`）。
+- `<ImageLayer>` — 將具地理座標的圖片繪製至 `<CanvasLayer>`（支援 `src` 或預載 `image`；核心亦匯出 `loadImage` 與 `drawImage`）。
 - `<Marker>`、`<Overlay>`、`<Popup>` — 使用 GPU `translate3d` 定位的 DOM overlay、marker 與浮動 popup（支援 `position={[lat, lon]}`）。
 - `useMap()` — 取得 `{ camera, getContainer, subscribeClick }`。
 
 ## Core API（`map543-2d/core`，不依賴 React，支援 Web Worker）
 
-- **Camera & Projections**：`Camera`、`MERCATOR_PROJECTION`、`createEquirectangular`、`latLngToNorm` / `normToLatLng`、`getViewportBounds`、`getWrappedSlices`。
+- **Camera & Projections**：`Camera`（`setView` / `flyTo` 支援省略 `zoom`）、`MERCATOR_PROJECTION`、`createEquirectangular`、`latLngToNorm` / `normToLatLng`、`getViewportBounds`、`getWrappedSlices`。
 - **Formats & Curves**：`parseGeobuf`、`computeArc`、`computeArcsBatch`、`prepareArcs`、`drawTrajectories`。
 - **WASM & 降精度（`32 | 16`）**：首次呼叫時自動同步初始化 WASM（`decodeLocationDictBatch`、`uploadStaticRings`、`drawRings`、`uploadStaticPoints`、`batchProjectPoints`、`hitTestPoints`、`encodeRings16`、`encodePoints16`、`resetWasmArena`、`disposeWasm`）。
 - **Controllers & Custom Renderers**：`attachInteractions`、`attachGamepad`、`CanvasRenderer`、`MapLayerRenderer`。

@@ -8,12 +8,8 @@ export {
   type Projection,
   MERCATOR_PROJECTION,
   createEquirectangular,
-  resolveProjection,
   TILE_SIZE,
   MAX_MERCATOR_LAT,
-  DEG_TO_RAD,
-  RAD_TO_DEG,
-  MERCATOR_Y_LOOKUP,
   latToMercatorY,
   latLngToNorm,
   latLngToNormInto,
@@ -71,16 +67,15 @@ export {
 export { type ZoomControlPosition, drawRings } from './core/vectorLod';
 export {
   initWasm,
-  getWasmRuntime,
   resetWasmArena,
   disposeWasm,
   getWasmMemoryStats,
-  type WasmRuntime,
   type WasmMemoryStats,
 } from './wasm/bridge';
 export {
   attachInteractions,
   type InteractionOptions,
+  type MapClickEvent,
 } from './core/interactions';
 export { attachGamepad, type GamepadOptions } from './core/gamepad';
 export {

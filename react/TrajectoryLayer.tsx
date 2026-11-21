@@ -13,7 +13,7 @@ import { useMap } from './MapContext';
 export type { TrajectoryCurveMode, TrajectoryItem };
 
 export interface TrajectoryLayerProps {
-  items: TrajectoryItem[];
+  items: readonly TrajectoryItem[];
   animationKey?: number;
   strokeWidth?: number;
   showBasePath?: boolean;

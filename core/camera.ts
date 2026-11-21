@@ -310,7 +310,7 @@ export class Camera {
     this.emit();
   }
 
-  setView(center: LatLng, zoom: number): void {
+  setView(center: LatLng, zoom = this.state.zoom): void {
     this.cancelAnimation();
     const clampedZoom = this.clampZoom(zoom);
     const clampedCenter = this.clampStateCenter(center, clampedZoom);
@@ -374,7 +374,11 @@ export class Camera {
     this.emit();
   }
 
-  flyTo(targetCenter: LatLng, targetZoom: number, durationMs = 1500): void {
+  flyTo(
+    targetCenter: LatLng,
+    targetZoom = this.state.zoom,
+    durationMs = 1500
+  ): void {
     this.cancelAnimation();
     const startCenter = this.state.center;
     const startZoom = this.state.zoom;

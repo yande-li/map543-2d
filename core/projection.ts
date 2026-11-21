@@ -21,8 +21,8 @@ export interface ProjectionState {
 
 export const TILE_SIZE = 256;
 export const MAX_MERCATOR_LAT = 85.05112878;
-export const DEG_TO_RAD = 0.017453292519943295;
-export const RAD_TO_DEG = 57.29577951308232;
+const DEG_TO_RAD = 0.017453292519943295;
+const RAD_TO_DEG = 57.29577951308232;
 
 const INV_360 = 1 / 360;
 const INV_TWO_PI = 1 / (2 * Math.PI);
