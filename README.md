@@ -2,7 +2,7 @@
 
 English | [繁體中文](./README.zh-TW.md)
 
-2D map rendering library using reduced-precision techniques to reduce memory and resource usage.
+A 2D map rendering library using lower-precision techniques to reduce memory footprint and resource overhead. It is designed to handle map rendering and related features for another toy project of mine.
 
 - **Supported formats**: Mapbox Geobuf (`.geobuf`, `.pbf`), and browser-supported image formats (PNG, WebP, AVIF, SVG, JPEG, etc.)
 - **Geographic Coordinate System (GCS)**: **WGS 84** (`EPSG:4326`, `[lat, lon]`)
