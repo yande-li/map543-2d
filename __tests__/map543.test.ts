@@ -3,7 +3,7 @@ import React from 'react';
 import { fireEvent, render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  Camera,
+  Viewport,
   MapView,
   Popup,
   Overlay,
@@ -16,17 +16,15 @@ import {
   CanvasRenderer,
   attachInteractions,
   attachGamepad,
-  findNearestPoint,
   hitTestPoints,
   encodePoints16,
   batchProjectPoints,
   uploadStaticPoints,
-  decimatePackedRings,
   uploadStaticRings,
   encodeRings16,
-  decodeLocationDictBatch,
+  decodeLocDict,
   drawRings,
-  cleanSeamRing,
+  splitAntimeridianRing,
   prepareArcs,
   drawTrajectories,
   createGlowDotSprite,
@@ -42,27 +40,26 @@ import {
   disposeWasm,
   getWasmMemoryStats,
   latToMercatorY,
-  latLngToNorm,
-  latLngToNormInto,
-  normToLatLng,
-  latLngToWorld,
-  worldToLatLng,
-  latLngToPx,
-  pxToLatLng,
+  latLonToNorm,
+  latLonToNormInto,
+  normToLatLon,
+  latLonToMapPx,
+  mapPxToLatLon,
+  latLonToPx,
+  pxToLatLon,
   getViewportBounds,
   getMinZoom,
   getResponsiveZoom,
   computeZoomForBounds,
   clampCenterToBounds,
   createEquirectangular,
-  computeArc,
   computeArcsBatch,
-  latLngsToSvgPath,
+  latLonsToSvgPath,
   xyToSvgPath,
   projectMercator,
   traceArc,
   getWrappedSlices,
-  type LatLng,
+  type LatLon,
 } from 'map543-2d';
 import {
   QUADRATIC_ARC_POINTS,
@@ -88,8 +85,8 @@ describe('map543-2d projection', () => {
     ];
 
     for (const [lat, lon] of samples) {
-      const norm = latLngToNorm(lat, lon);
-      const [outLat, outLon] = normToLatLng(norm.x, norm.y);
+      const norm = latLonToNorm(lat, lon);
+      const [outLat, outLon] = normToLatLon(norm.x, norm.y);
       expect(outLat).toBeCloseTo(lat, 4);
       expect(outLon).toBeCloseTo(lon, 4);
     }
@@ -102,26 +99,26 @@ describe('map543-2d projection', () => {
   });
 });
 
-describe('Camera', () => {
+describe('Viewport', () => {
   it('projects center to container midpoint and unprojects back', () => {
-    const camera = new Camera({
+    const viewport = new Viewport({
       center: [25.033, 121.5654],
       zoom: 5,
       width: 1000,
       height: 600,
     });
 
-    const centerPt = camera.project(25.033, 121.5654);
+    const centerPt = viewport.project(25.033, 121.5654);
     expect(centerPt.x).toBeCloseTo(500, 3);
     expect(centerPt.y).toBeCloseTo(300, 3);
 
-    const [lat, lon] = camera.unproject(500, 300);
+    const [lat, lon] = viewport.unproject(500, 300);
     expect(lat).toBeCloseTo(25.033, 3);
     expect(lon).toBeCloseTo(121.5654, 3);
   });
 
   it('clamps zoom and center to constraints and notifies subscribers', () => {
-    const camera = new Camera({
+    const viewport = new Viewport({
       center: [0, 0],
       zoom: 2,
       width: 800,
@@ -130,9 +127,9 @@ describe('Camera', () => {
       maxZoom: 8,
     });
     const listener = vi.fn();
-    const unsubscribe = camera.subscribe(listener);
+    const unsubscribe = viewport.subscribe(listener);
 
-    camera.setConstraints({
+    viewport.setConstraints({
       minZoom: 2,
       maxZoom: 6,
       maxBounds: [
@@ -141,8 +138,8 @@ describe('Camera', () => {
       ],
     });
 
-    camera.setView([80, 170], 10);
-    const state = camera.getState();
+    viewport.setView([80, 170], 10);
+    const state = viewport.getState();
     expect(state.zoom).toBe(6);
     expect(state.center[0]).toBeLessThanOrEqual(60);
     expect(state.center[1]).toBeLessThanOrEqual(120);
@@ -152,7 +149,7 @@ describe('Camera', () => {
   });
 
   it('pans and zooms around an anchor point', () => {
-    const camera = new Camera({
+    const viewport = new Viewport({
       center: [0, 0],
       zoom: 3,
       width: 1000,
@@ -161,61 +158,43 @@ describe('Camera', () => {
       maxZoom: 10,
     });
 
-    const anchorLatLon = camera.unproject(250, 200);
-    camera.zoomAt(5, 250, 200);
-    const afterPt = camera.project(anchorLatLon[0], anchorLatLon[1]);
+    const anchorLatLon = viewport.unproject(250, 200);
+    viewport.zoomAt(5, 250, 200);
+    const afterPt = viewport.project(anchorLatLon[0], anchorLatLon[1]);
     expect(afterPt.x).toBeCloseTo(250, 1);
     expect(afterPt.y).toBeCloseTo(200, 1);
 
-    const beforeCenter = camera.getState().center;
-    camera.panBy(100, -50);
-    const afterCenter = camera.getState().center;
+    const beforeCenter = viewport.getState().center;
+    viewport.panBy(100, -50);
+    const afterCenter = viewport.getState().center;
     expect(afterCenter[1]).toBeLessThan(beforeCenter[1]);
     expect(afterCenter[0]).toBeLessThan(beforeCenter[0]);
   });
 
   it('animates flyTo to target view', () => {
     vi.useFakeTimers();
-    const camera = new Camera({
+    const viewport = new Viewport({
       center: [0, 0],
       zoom: 2,
       width: 800,
       height: 600,
     });
 
-    camera.flyTo([35.6762, 139.6503], 5, 100);
+    viewport.flyTo([35.6762, 139.6503], 5, 100);
     vi.advanceTimersByTime(150);
 
-    let state = camera.getState();
+    let state = viewport.getState();
     expect(state.center[0]).toBeCloseTo(35.6762, 2);
     expect(state.center[1]).toBeCloseTo(139.6503, 2);
     expect(state.zoom).toBeCloseTo(5, 2);
 
     // Omitting zoom preserves current zoom
-    camera.flyTo([25, 121], undefined, 50);
+    viewport.flyTo([25, 121], undefined, 50);
     vi.advanceTimersByTime(100);
-    state = camera.getState();
+    state = viewport.getState();
     expect(state.center[0]).toBeCloseTo(25, 1);
     expect(state.zoom).toBeCloseTo(5, 2);
     vi.useRealTimers();
-  });
-});
-
-describe('findNearestPoint', () => {
-  it('returns the closest point index within radius or -1 when out of range', () => {
-    const points = {
-      count: 2,
-      lats: new Float32Array([10, 20]),
-      lons: new Float32Array([10, 20]),
-    };
-    const projectFn = (lat: number, lon: number) => ({
-      x: lon * 10,
-      y: lat * 10,
-    });
-
-    expect(findNearestPoint(103, 102, points, projectFn, 14)).toBe(0);
-    expect(findNearestPoint(198, 204, points, projectFn, 14)).toBe(1);
-    expect(findNearestPoint(500, 500, points, projectFn, 14)).toBe(-1);
   });
 });
 
@@ -240,11 +219,11 @@ describe('Popup & MapView', () => {
       )
     );
 
-    const tip = container.querySelector('.geo-popup-tip');
+    const tip = container.querySelector('.map-popup-tip');
     expect(tip).not.toBeNull();
     expect(container.textContent).toContain('Taipei');
 
-    const mapEl = container.querySelector('.geo-map-container')!;
+    const mapEl = container.querySelector('.map-container')!;
     onMove.mockClear();
     fireEvent.doubleClick(mapEl, { clientX: 100, clientY: 100 });
     expect(onMove).toHaveBeenCalled();
@@ -256,7 +235,7 @@ describe('WebAssembly batch kernels', () => {
     expect(initWasm()).toBe(true);
     expect(getWasmMemoryStats().ready).toBe(true);
 
-    const camera = new Camera({
+    const viewport = new Viewport({
       center: [25.033, 121.5654],
       zoom: 4,
       width: 1200,
@@ -274,26 +253,18 @@ describe('WebAssembly batch kernels', () => {
     lats[targetIdx] = 25.033;
     lons[targetIdx] = 121.5654;
 
-    const pt = camera.project(25.033, 121.5654);
+    const pt = viewport.project(25.033, 121.5654);
     const points = { count, lats, lons };
 
-    const fastIdx = hitTestPoints(pt.x + 2, pt.y - 2, points, camera, 18);
-    const tsIdx = findNearestPoint(
-      pt.x + 2,
-      pt.y - 2,
-      points,
-      (lat, lon, out) => camera.projectInto(lat, lon, out),
-      18
-    );
+    const fastIdx = hitTestPoints(pt.x + 2, pt.y - 2, points, viewport, 18);
 
     expect(fastIdx).toBe(targetIdx);
-    expect(fastIdx).toBe(tsIdx);
-    expect(hitTestPoints(-9999, -9999, points, camera, 18)).toBe(-1);
+    expect(hitTestPoints(-9999, -9999, points, viewport, 18)).toBe(-1);
   });
 
-  it('batchProjectPoints matches Camera.project within sub-pixel precision', async () => {
+  it('batchProjectPoints matches Viewport.project within sub-pixel precision', async () => {
     expect(initWasm()).toBe(true);
-    const camera = new Camera({
+    const viewport = new Viewport({
       center: [0, 0],
       zoom: 2,
       width: 1000,
@@ -314,7 +285,7 @@ describe('WebAssembly batch kernels', () => {
       lats,
       lons,
       count,
-      camera,
+      viewport,
       20,
       outXY,
       outIdx
@@ -323,42 +294,13 @@ describe('WebAssembly batch kernels', () => {
     expect(visible).toBeGreaterThan(0);
     for (let k = 0; k < Math.min(visible, 50); k++) {
       const idx = outIdx[k];
-      const expected = camera.project(lats[idx], lons[idx]);
+      const expected = viewport.project(lats[idx], lons[idx]);
       expect(Math.abs(outXY[k * 2] - expected.x)).toBeLessThan(1e-2);
       expect(Math.abs(outXY[k * 2 + 1] - expected.y)).toBeLessThan(1e-2);
     }
   });
 
-  it('decimatePackedRings compacts dense rings accurately in WASM', async () => {
-    expect(initWasm()).toBe(true);
-    const totalVertices = 1200; // 2400 floats >= 2048 threshold
-    const packedXY = new Float32Array(totalVertices * 2);
-    for (let i = 0; i < totalVertices; i++) {
-      packedXY[i * 2] = 0.5 + i * 0.0001;
-      packedXY[i * 2 + 1] = 0.5 + (i % 5) * 0.0001;
-    }
-    const ringLengths = new Int32Array([totalVertices * 2]);
-    const outXY = new Float32Array(totalVertices * 2);
-    const outLens = new Int32Array(1);
-
-    const outFloats = decimatePackedRings(
-      packedXY,
-      ringLengths,
-      1,
-      1024,
-      0,
-      0,
-      2.0,
-      outXY,
-      outLens
-    );
-
-    expect(outFloats).toBe(outLens[0]);
-    expect(outFloats).toBeGreaterThanOrEqual(4);
-    expect(outFloats).toBeLessThan(totalVertices * 2);
-  });
-
-  it('cleanSeamRing splits antimeridian jumps and computes bbox in WASM', async () => {
+  it('splitAntimeridianRing splits antimeridian jumps and computes bbox in WASM', async () => {
     expect(initWasm()).toBe(true);
     const vertexCount = 140; // 280 floats >= 256 threshold
     const inLonLat = new Float32Array(vertexCount * 2);
@@ -373,7 +315,7 @@ describe('WebAssembly batch kernels', () => {
     const outSegLens = new Int32Array(vertexCount);
     const outBbox = new Float32Array(4);
 
-    const segCount = cleanSeamRing(
+    const segCount = splitAntimeridianRing(
       inLonLat,
       vertexCount * 2,
       outLonLat,
@@ -386,62 +328,17 @@ describe('WebAssembly batch kernels', () => {
     expect(outBbox[2]).toBe(179);
   });
 
-  it('rejects out-of-bounds or odd-aligned inputs in decimatePackedRings and cleanSeamRing', async () => {
+  it('rejects odd-aligned inputs in splitAntimeridianRing', async () => {
     expect(initWasm()).toBe(true);
 
-    const packedXY = new Float32Array([0.1, 0.2, 0.3, 0.4]);
-    const outXY = new Float32Array(4);
-    const outLens = new Int32Array(2);
-
-    // Sum of ringLengths exceeds packedXY.length
-    expect(
-      decimatePackedRings(
-        packedXY,
-        new Int32Array([4, 4]),
-        2,
-        1024,
-        0,
-        0,
-        1,
-        outXY,
-        outLens
-      )
-    ).toBe(0);
-
-    // Odd or negative ring length
-    expect(
-      decimatePackedRings(
-        packedXY,
-        new Int32Array([3]),
-        1,
-        1024,
-        0,
-        0,
-        1,
-        outXY,
-        outLens
-      )
-    ).toBe(0);
-    expect(
-      decimatePackedRings(
-        packedXY,
-        new Int32Array([-2]),
-        1,
-        1024,
-        0,
-        0,
-        1,
-        outXY,
-        outLens
-      )
-    ).toBe(0);
-
-    // Odd floatLen in cleanSeamRing
+    // Odd floatLen in splitAntimeridianRing
     const oddIn = new Float32Array([10, 20, 30, 40, 50]);
     const outLonLat = new Float32Array(6);
     const outSegLens = new Int32Array(3);
     const outBbox = new Float32Array(4);
-    expect(cleanSeamRing(oddIn, 5, outLonLat, outSegLens, outBbox)).toBe(0);
+    expect(
+      splitAntimeridianRing(oddIn, 5, outLonLat, outSegLens, outBbox)
+    ).toBe(0);
     expect(outBbox[0]).toBe(Infinity);
   });
 
@@ -456,21 +353,6 @@ describe('WebAssembly batch kernels', () => {
     const handle = uploadStaticRings(packedXY, ringLengths, 1);
     expect(handle).not.toBeNull();
     expect(getWasmMemoryStats().arenaUsedBytes).toBeGreaterThan(0);
-
-    const directOutXY = new Float32Array(10);
-    const directOutLens = new Int32Array(1);
-    const directCount = decimatePackedRings(
-      packedXY,
-      ringLengths,
-      1,
-      1024,
-      0,
-      0,
-      2.0,
-      directOutXY,
-      directOutLens
-    );
-    expect(directCount).toBeGreaterThan(0);
 
     const ops: Array<[string, ...number[]]> = [];
     const ctx = {
@@ -507,26 +389,26 @@ describe('WebAssembly batch kernels', () => {
       toJSON: () => ({}),
     });
 
-    const camera = new Camera({ center: [0, 0], zoom: 3 });
-    const dispose = attachInteractions(el, camera, {
+    const viewport = new Viewport({ center: [0, 0], zoom: 3 });
+    const dispose = attachInteractions(el, viewport, {
       zoomDelta: 0.5,
       observeResize: true,
     });
 
-    expect(camera.getState().width).toBe(800);
+    expect(viewport.getState().width).toBe(800);
     el.dispatchEvent(
       new MouseEvent('dblclick', { clientX: 400, clientY: 300, bubbles: true })
     );
-    expect(camera.getState().zoom).toBeCloseTo(4, 3);
+    expect(viewport.getState().zoom).toBeCloseTo(4, 3);
 
     dispose();
     el.dispatchEvent(
       new MouseEvent('dblclick', { clientX: 400, clientY: 300, bubbles: true })
     );
-    expect(camera.getState().zoom).toBeCloseTo(4, 3);
+    expect(viewport.getState().zoom).toBeCloseTo(4, 3);
   });
 
-  it('traces static rings directly from WASM linear memory matching drawDecimatedRings', async () => {
+  it('traces static rings directly from WASM linear memory', async () => {
     expect(initWasm()).toBe(true);
     resetWasmArena();
 
@@ -537,39 +419,18 @@ describe('WebAssembly batch kernels', () => {
     const handle = uploadStaticRings(packedXY, ringLengths, 1);
     expect(handle).not.toBeNull();
 
-    const recordCalls = () => {
-      const ops: Array<[string, ...number[]]> = [];
-      const ctx = {
-        moveTo: (x: number, y: number) => ops.push(['M', x, y]),
-        lineTo: (x: number, y: number) => ops.push(['L', x, y]),
-        closePath: () => ops.push(['Z']),
-      } as unknown as CanvasRenderingContext2D;
-      return { ctx, ops };
-    };
+    const ops: Array<[string, ...number[]]> = [];
+    const ctx = {
+      moveTo: (x: number, y: number) => ops.push(['M', x, y]),
+      lineTo: (x: number, y: number) => ops.push(['L', x, y]),
+      closePath: () => ops.push(['Z']),
+    } as unknown as CanvasRenderingContext2D;
 
-    const a = recordCalls();
-    const b = recordCalls();
-    const scratchXY = new Float32Array(10);
-    const scratchLens = new Int32Array(1);
-
-    drawRings(
-      a.ctx,
-      packedXY,
-      ringLengths,
-      1,
-      1024,
-      0,
-      0,
-      2.0,
-      true,
-      scratchXY,
-      scratchLens
-    );
-    expect(drawRings(b.ctx, handle!, 1024, 0, 0, 2.0, true)).toBe(true);
-    expect(b.ops).toEqual(a.ops);
+    expect(drawRings(ctx, handle!, 1024, 0, 0, 2.0, true)).toBe(true);
+    expect(ops.length).toBeGreaterThan(0);
   });
 
-  it('decodes packed 6-byte location dictionary entries via decodeLocationDictBatch', async () => {
+  it('decodes packed 6-byte location dictionary entries via decodeLocDict', async () => {
     expect(initWasm()).toBe(true);
     const raw = new Uint8Array(12);
     const dv = new DataView(raw.buffer);
@@ -584,14 +445,7 @@ describe('WebAssembly batch kernels', () => {
     const outLons = new Float32Array(2);
     const outMxs = new Float32Array(2);
     const outMys = new Float32Array(2);
-    const count = decodeLocationDictBatch(
-      raw,
-      2,
-      outLats,
-      outLons,
-      outMxs,
-      outMys
-    );
+    const count = decodeLocDict(raw, 2, outLats, outLons, outMxs, outMys);
     expect(count).toBe(2);
     expect(outLats[0]).toBeCloseTo(25.033, 2);
     expect(outLons[0]).toBeCloseTo(121.565, 2);
@@ -601,7 +455,7 @@ describe('WebAssembly batch kernels', () => {
 
     // Also works synchronously right after disposeWasm without calling initWasm()
     disposeWasm();
-    expect(decodeLocationDictBatch(raw, 2, outLats, outLons)).toBe(2);
+    expect(decodeLocDict(raw, 2, outLats, outLons)).toBe(2);
     expect(outLats[0]).toBeCloseTo(25.033, 2);
   });
 
@@ -613,13 +467,13 @@ describe('WebAssembly batch kernels', () => {
       [-90, 180],
       [25.03, 121.56],
     ] as Array<[number, number]>) {
-      const n = eq.latLngToNorm(lat, lon);
-      const back = eq.normToLatLng(n.x, n.y);
+      const n = eq.latLonToNorm(lat, lon);
+      const back = eq.normToLatLon(n.x, n.y);
       expect(back[0]).toBeCloseTo(lat, 5);
       expect(back[1]).toBeCloseTo(lon, 5);
     }
 
-    const camera = new Camera({
+    const viewport = new Viewport({
       projection: 'equirectangular',
       center: [0, 0],
       zoom: 0,
@@ -630,14 +484,14 @@ describe('WebAssembly batch kernels', () => {
         [90, 180],
       ],
     });
-    camera.fitBounds([
+    viewport.fitBounds([
       [-90, -180],
       [90, 180],
     ]);
 
-    const nw = camera.project(90, -180);
-    const se = camera.project(-90, 180);
-    const mid = camera.project(0, 0);
+    const nw = viewport.project(90, -180);
+    const se = viewport.project(-90, 180);
+    const mid = viewport.project(0, 0);
     expect(nw.x).toBeCloseTo(0, 2);
     expect(nw.y).toBeCloseTo(0, 2);
     expect(se.x).toBeCloseTo(400, 2);
@@ -646,7 +500,7 @@ describe('WebAssembly batch kernels', () => {
     expect(mid.y).toBeCloseTo(100, 2);
   });
 
-  it('computes batch quadratic Bezier arcs in WASM matching computeArc', async () => {
+  it('computes batch quadratic Bezier arcs in WASM', async () => {
     expect(initWasm()).toBe(true);
     const count = 12;
     const srcLats = new Float32Array(count).fill(25.033);
@@ -664,12 +518,11 @@ describe('WebAssembly batch kernels', () => {
       out
     );
     expect(written).toBe(count * QUADRATIC_ARC_POINTS * 2);
-
-    const expected = computeArc([25.033, 121.5654], [37.7749, -122.4194]);
-    for (let i = 0; i < QUADRATIC_ARC_POINTS; i++) {
-      expect(out[i * 2]).toBeCloseTo(expected[i][0], 2);
-      expect(out[i * 2 + 1]).toBeCloseTo(expected[i][1], 2);
-    }
+    expect(out[0]).toBeCloseTo(25.033, 2);
+    expect(out[1]).toBeCloseTo(121.5654, 2);
+    const lastIdx = (QUADRATIC_ARC_POINTS - 1) * 2;
+    expect(out[lastIdx]).toBeCloseTo(37.7749, 2);
+    expect(out[lastIdx + 1]).toBeCloseTo(-122.4194, 2);
   });
 
   it('sets touchAction none, caches rect on wheel, and supports keyboard navigation', () => {
@@ -687,7 +540,7 @@ describe('WebAssembly batch kernels', () => {
       toJSON: () => ({}),
     });
 
-    const cam = new Camera({
+    const cam = new Viewport({
       center: [0, 0],
       zoom: 3,
       width: 800,
@@ -730,7 +583,7 @@ describe('WebAssembly batch kernels', () => {
   });
 
   it('manages CanvasRenderer lifecycle cleanly without React', () => {
-    const cam = new Camera({
+    const cam = new Viewport({
       center: [0, 0],
       zoom: 2,
       width: 400,
@@ -750,7 +603,7 @@ describe('WebAssembly batch kernels', () => {
   });
 
   it('attaches and cleans up attachGamepad with zero idle rAF when no gamepad is connected', () => {
-    const cam = new Camera({
+    const cam = new Viewport({
       center: [0, 0],
       zoom: 2,
       width: 400,
@@ -775,7 +628,7 @@ describe('WebAssembly batch kernels', () => {
   });
 
   it('renders half-DOM Marker using CSS pseudo-element pulse classes and optional smooth mode', () => {
-    const cam = new Camera({
+    const cam = new Viewport({
       center: [0, 0],
       zoom: 2,
       width: 800,
@@ -794,18 +647,18 @@ describe('WebAssembly batch kernels', () => {
         })
       )
     );
-    const pulseEl = container.querySelector('.ll-marker-pulse--ripple');
+    const pulseEl = container.querySelector('.map-marker-pulse--ripple');
     expect(pulseEl).not.toBeNull();
-    expect(pulseEl?.classList.contains('ll-marker-pulse--smooth')).toBe(true);
+    expect(pulseEl?.classList.contains('map-marker-pulse--smooth')).toBe(true);
     expect(pulseEl?.children.length).toBe(0);
   });
 
   it('never renders 3 world copies at 1280x600 minimum zoom with [-180, 180] bounds', () => {
-    const maxBounds: [LatLng, LatLng] = [
+    const maxBounds: [LatLon, LatLon] = [
       [-85, -180],
       [85, 180],
     ];
-    const cam = new Camera({
+    const cam = new Viewport({
       center: [0, 0],
       zoom: 0,
       width: 1280,
@@ -854,7 +707,7 @@ describe('WebAssembly batch kernels', () => {
     expect(lines.length).toBeGreaterThan(0);
 
     // 2. 16-bit points via unified encodePoints16, batchProjectPoints, and hitTestPoints
-    const cam = new Camera({
+    const cam = new Viewport({
       center: [25.033, 121.5654],
       zoom: 4,
       width: 800,
@@ -900,7 +753,7 @@ describe('WebAssembly batch kernels', () => {
     expect(initWasm()).toBe(true);
     resetWasmArena();
 
-    const cam = new Camera({
+    const cam = new Viewport({
       center: [25, 121],
       zoom: 4,
       width: 800,
@@ -953,42 +806,36 @@ describe('WebAssembly batch kernels', () => {
       fill: () => {},
       stroke: () => {},
     } as unknown as CanvasRenderingContext2D;
-    drawVectorLayers(
-      mockCtx,
-      cam.getState(),
-      rawLayers,
-      [],
-      handles,
-      { xy: new Float32Array(0), lens: new Int32Array(0) },
-      { styles: { land: { fillColor: '#123456' } } }
-    );
+    drawVectorLayers(mockCtx, cam.getState(), rawLayers, [], handles, {
+      styles: { land: { fillColor: '#123456' } },
+    });
   });
 });
 
-describe('Extended projection, Camera, curves, and trajectories', () => {
+describe('Extended projection, Viewport, curves, and trajectories', () => {
   it('converts world/px coordinates, computes responsive zoom, bounds, and resolves projections', () => {
     const out = { x: 0, y: 0 };
-    latLngToNormInto(25.033, 121.5654, out);
-    const norm = latLngToNorm(25.033, 121.5654);
+    latLonToNormInto(25.033, 121.5654, out);
+    const norm = latLonToNorm(25.033, 121.5654);
     expect(out.x).toBeCloseTo(norm.x, 6);
     expect(out.y).toBeCloseTo(norm.y, 6);
 
-    const world = latLngToWorld(25.033, 121.5654, 4);
-    const [wLat, wLon] = worldToLatLng(world.x, world.y, 4);
+    const world = latLonToMapPx(25.033, 121.5654, 4);
+    const [wLat, wLon] = mapPxToLatLon(world.x, world.y, 4);
     expect(wLat).toBeCloseTo(25.033, 3);
     expect(wLon).toBeCloseTo(121.5654, 3);
 
     const state = {
-      center: [25.033, 121.5654] as LatLng,
+      center: [25.033, 121.5654] as LatLon,
       zoom: 4,
       width: 800,
       height: 600,
     };
-    const px = latLngToPx(25.033, 121.5654, state);
+    const px = latLonToPx(25.033, 121.5654, state);
     expect(px.x).toBeCloseTo(400, 3);
     expect(px.y).toBeCloseTo(300, 3);
 
-    const [pLat, pLon] = pxToLatLng(400, 300, state);
+    const [pLat, pLon] = pxToLatLon(400, 300, state);
     expect(pLat).toBeCloseTo(25.033, 3);
     expect(pLon).toBeCloseTo(121.5654, 3);
 
@@ -1023,8 +870,8 @@ describe('Extended projection, Camera, curves, and trajectories', () => {
     expect(resolveProjection('equirectangular').id).toBe('equirectangular');
   });
 
-  it('preserves viewport span and scales referenceWidth on Camera.setSize', () => {
-    const cam = new Camera({
+  it('preserves viewport span and scales referenceWidth on Viewport.setSize', () => {
+    const cam = new Viewport({
       center: [0, 0],
       zoom: 4,
       width: 0,
@@ -1048,7 +895,7 @@ describe('Extended projection, Camera, curves, and trajectories', () => {
     expect(timing.dashRatio).toBeGreaterThan(0);
     expect(timing.duration).toBeGreaterThanOrEqual(800);
 
-    const cam = new Camera({
+    const cam = new Viewport({
       center: [25, 121],
       zoom: 4,
       width: 800,
@@ -1068,7 +915,7 @@ describe('Extended projection, Camera, curves, and trajectories', () => {
     const smoothPath = xyToSvgPath(outXY, 0, 3, true);
     expect(smoothPath.includes('Q')).toBe(true);
 
-    const directPath = latLngsToSvgPath(
+    const directPath = latLonsToSvgPath(
       [
         [25, 121],
         [26, 122],
@@ -1088,7 +935,7 @@ describe('Extended projection, Camera, curves, and trajectories', () => {
   });
 
   it('synchronizes SVG trajectories on pan/zoom and batches drawTrajectories overloads', () => {
-    const cam = new Camera({
+    const cam = new Viewport({
       center: [25, 121],
       zoom: 4,
       width: 800,
@@ -1182,7 +1029,7 @@ describe('Extended projection, Camera, curves, and trajectories', () => {
 
 describe('PointLayer, VectorLayer, VectorLod, and ImageLayer core helpers', () => {
   it('packs f32 and 16bit points with style buckets, draws batches, and handles hover cursor', () => {
-    const cam = new Camera({
+    const cam = new Viewport({
       center: [25, 121],
       zoom: 4,
       width: 800,
@@ -1277,7 +1124,7 @@ describe('PointLayer, VectorLayer, VectorLod, and ImageLayer core helpers', () =
     expect(resolveMarkerGeometry('pin', 24).anchor).toEqual([0.5, 1]);
     expect(resolveMarkerGeometry('dot', 10).anchor).toEqual([0.5, 0.5]);
 
-    const cam = new Camera({
+    const cam = new Viewport({
       center: [0, 0],
       zoom: 3,
       width: 800,
@@ -1314,37 +1161,15 @@ describe('PointLayer, VectorLayer, VectorLod, and ImageLayer core helpers', () =
     } as unknown as CanvasRenderingContext2D;
 
     const handles = uploadVectorLayers([], [strokeLayer], { reset: true });
-    const scratch = { xy: new Float32Array(0), lens: new Int32Array(0) };
-    drawVectorLayers(
-      mockCtx,
-      cam.getState(),
-      [],
-      [strokeLayer],
-      handles,
-      scratch
-    );
-    drawVectorLayers(
-      mockCtx,
-      cam.getState(),
-      [],
-      [strokeLayer],
-      handles,
-      scratch
-    );
+    drawVectorLayers(mockCtx, cam.getState(), [], [strokeLayer], handles);
+    drawVectorLayers(mockCtx, cam.getState(), [], [strokeLayer], handles);
     expect(dashesApplied).toEqual([
       [4, 2],
       [4, 2],
     ]);
 
-    // Fallback to drawDecimatedRings when handle is missing from WeakMap
-    drawVectorLayers(
-      mockCtx,
-      cam.getState(),
-      [],
-      [strokeLayer],
-      new WeakMap(),
-      scratch
-    );
+    // No JS fallback when handle is missing from WeakMap (no-op)
+    drawVectorLayers(mockCtx, cam.getState(), [], [strokeLayer], new WeakMap());
 
     // drawImage projects bounds and calls ctx.drawImage
     const fakeImg = {} as CanvasImageSource;
@@ -1395,7 +1220,7 @@ describe('DOM interactions (drag, click, pinch, gamepad) and React layers', () =
       toJSON: () => ({}),
     });
     const onClick = vi.fn();
-    const cam = new Camera({
+    const cam = new Viewport({
       center: [0, 0],
       zoom: 3,
       width: 800,
@@ -1406,7 +1231,7 @@ describe('DOM interactions (drag, click, pinch, gamepad) and React layers', () =
       onClick,
     });
 
-    // 1. Click within 5px slop triggers onClick with { latLng, x, y }
+    // 1. Click within 5px slop triggers onClick with { latLon, x, y }
     el.dispatchEvent(
       new MouseEvent('pointerdown', {
         clientX: 400,
@@ -1428,11 +1253,11 @@ describe('DOM interactions (drag, click, pinch, gamepad) and React layers', () =
       expect.objectContaining({
         x: 401,
         y: 301,
-        latLng: expect.any(Array),
+        latLon: expect.any(Array),
       })
     );
 
-    // 2. Drag > 5px pans camera and does NOT trigger onClick
+    // 2. Drag > 5px pans viewport and does NOT trigger onClick
     onClick.mockClear();
     const dragDown = new MouseEvent('pointerdown', {
       clientX: 400,
@@ -1604,24 +1429,24 @@ describe('DOM interactions (drag, click, pinch, gamepad) and React layers', () =
 
     // Zoom control buttons
     const zoomInBtn = container.querySelector(
-      '.geo-zoom-in'
+      '.map-zoom-in'
     ) as HTMLButtonElement;
     const zoomOutBtn = container.querySelector(
-      '.geo-zoom-out'
+      '.map-zoom-out'
     ) as HTMLButtonElement;
     expect(zoomInBtn).not.toBeNull();
     expect(zoomOutBtn).not.toBeNull();
     fireEvent.click(zoomInBtn);
     fireEvent.click(zoomOutBtn);
 
-    // Map click triggers onClick({ latLng, x, y }) and PointLayer hit-test
-    const mapEl = container.querySelector('.geo-map-container')!;
+    // Map click triggers onClick({ latLon, x, y }) and PointLayer hit-test
+    const mapEl = container.querySelector('.map-container')!;
     expect(container.querySelector('.pt-layer')).not.toBeNull();
     expect(container.querySelector('.vec-layer')).not.toBeNull();
     fireEvent.pointerDown(mapEl, { clientX: 0, clientY: 0, button: 0 });
     fireEvent.pointerUp(mapEl, { clientX: 0, clientY: 0, button: 0 });
     expect(onMapClick).toHaveBeenCalledTimes(1);
-    expect(onMapClick.mock.calls[0][0].latLng).toHaveLength(2);
+    expect(onMapClick.mock.calls[0][0].latLon).toHaveLength(2);
     expect(onPointClick).toHaveBeenCalledTimes(1);
 
     // Escape key closes Popup

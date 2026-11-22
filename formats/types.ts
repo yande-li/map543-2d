@@ -1,3 +1,13 @@
+export interface VectorLayerStyle {
+  color?: string;
+  weight?: number;
+  opacity?: number;
+  fillColor?: string;
+  fillOpacity?: number;
+  dashArray?: string;
+  stroke?: boolean;
+}
+
 export interface PreparedFeature {
   packedXY: Float32Array;
   ringLengths: Int32Array;
@@ -11,5 +21,6 @@ export interface PreparedFeature {
 
 export interface PreparedLayer {
   name: string;
+  style?: VectorLayerStyle;
   features: PreparedFeature[];
 }

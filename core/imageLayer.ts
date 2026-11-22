@@ -1,8 +1,9 @@
-import { Camera } from './camera';
+import { Viewport } from './viewport';
+import { MapError } from './errors';
 import {
   getBoundsExtent,
   type BoundsExtent,
-  type LatLng,
+  type GeoBounds,
   type Point2D,
 } from './projection';
 
@@ -10,8 +11,6 @@ const TMP_EXTENT: BoundsExtent = { minLat: 0, maxLat: 0, minLon: 0, maxLon: 0 };
 
 const TMP_NW: Point2D = { x: 0, y: 0 };
 const TMP_SE: Point2D = { x: 0, y: 0 };
-
-export type ImageBounds = [LatLng, LatLng];
 
 export interface DrawImageOptions {
   opacity?: number;
@@ -27,7 +26,10 @@ export async function loadImage(src: string): Promise<HTMLImageElement> {
 
   await new Promise<void>((resolve, reject) => {
     img.onload = () => resolve();
-    img.onerror = () => reject(new Error(`Failed to load geo image: ${src}`));
+    img.onerror = () =>
+      reject(
+        new MapError('IMAGE_DECODE_ERROR', `Failed to load geo image: ${src}`)
+      );
     img.src = src;
   });
 
@@ -42,13 +44,13 @@ export async function loadImage(src: string): Promise<HTMLImageElement> {
 }
 
 /**
- * Draws a georeferenced image onto a 2D canvas using the camera's active projection.
+ * Draws a georeferenced image onto a 2D canvas using the viewport's active projection.
  */
 export function drawImage(
   ctx: CanvasRenderingContext2D,
   img: CanvasImageSource,
-  bounds: ImageBounds,
-  camera: Camera,
+  bounds: GeoBounds,
+  viewport: Viewport,
   options: DrawImageOptions = {}
 ): void {
   const { minLat, maxLat, minLon, maxLon } = getBoundsExtent(
@@ -56,8 +58,8 @@ export function drawImage(
     TMP_EXTENT
   );
 
-  const nw = camera.projectInto(maxLat, minLon, TMP_NW);
-  const se = camera.projectInto(minLat, maxLon, TMP_SE);
+  const nw = viewport.projectInto(maxLat, minLon, TMP_NW);
+  const se = viewport.projectInto(minLat, maxLon, TMP_SE);
   const drawW = se.x - nw.x;
   const drawH = se.y - nw.y;
   if (drawW <= 0 || drawH <= 0) return;

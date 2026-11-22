@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
-import { type Camera, type ViewportState } from '../core/camera';
+import { type Viewport, type ViewportState } from '../core/viewport';
 import { type CoordPrecision } from '../core/batch';
 import { hitTestPoints } from '../core/hitTest';
 import { getWasmRuntime } from '../wasm/bridge';
@@ -21,6 +21,7 @@ export interface PointLayerProps {
   precision?: CoordPrecision;
   className?: string;
   onPointClick?: (point: PointItem, index: number) => void;
+  onPointHover?: (point: PointItem | null, index: number) => void;
 }
 
 /**
@@ -36,10 +37,15 @@ export const PointLayer: React.FC<PointLayerProps> = memo(
     precision = 32,
     className,
     onPointClick,
+    onPointHover,
   }) => {
-    const { camera, getContainer, subscribeClick } = useMap();
+    const { viewport, getContainer, subscribeClick } = useMap();
     const outXYRef = useRef<Float32Array>(new Float32Array(0));
     const outIdxRef = useRef<Int32Array>(new Int32Array(0));
+    const onPointClickRef = useRef(onPointClick);
+    const onPointHoverRef = useRef(onPointHover);
+    onPointClickRef.current = onPointClick;
+    onPointHoverRef.current = onPointHover;
 
     useEffect(() => {
       return () => {
@@ -53,27 +59,46 @@ export const PointLayer: React.FC<PointLayerProps> = memo(
       [points, precision]
     );
 
+    const hasClick = Boolean(onPointClick);
+    const hasHover = Boolean(onPointHover);
+
     useEffect(() => {
-      if (!onPointClick || points.length === 0) return;
+      if (!hasClick || points.length === 0) return;
       return subscribeClick(({ x, y }) => {
         const rt = getWasmRuntime();
         const sh = spatial.staticHandle;
         const target =
           rt !== null && sh && sh.epoch === rt.arenaEpoch ? sh : spatial;
-        const idx = hitTestPoints(x, y, target, camera, hitRadiusPx);
+        const idx = hitTestPoints(x, y, target, viewport, hitRadiusPx);
         if (idx >= 0) {
-          onPointClick(points[idx], idx);
+          onPointClickRef.current?.(points[idx], idx);
         }
       });
-    }, [points, spatial, camera, subscribeClick, hitRadiusPx, onPointClick]);
+    }, [points, spatial, viewport, subscribeClick, hitRadiusPx, hasClick]);
 
     useEffect(() => {
-      if (!onPointClick) return;
-      return attachPointHover(getContainer(), camera, spatial, hitRadiusPx);
-    }, [getContainer, camera, spatial, hitRadiusPx, onPointClick]);
+      if (!hasClick && !hasHover) return;
+      return attachPointHover(
+        getContainer(),
+        viewport,
+        spatial,
+        hitRadiusPx,
+        (idx) => {
+          onPointHoverRef.current?.(idx >= 0 ? points[idx] : null, idx);
+        }
+      );
+    }, [
+      getContainer,
+      viewport,
+      spatial,
+      hitRadiusPx,
+      hasClick,
+      hasHover,
+      points,
+    ]);
 
     const onDraw = useCallback(
-      (ctx: CanvasRenderingContext2D, _state: ViewportState, cam: Camera) => {
+      (ctx: CanvasRenderingContext2D, _state: ViewportState, cam: Viewport) => {
         if (spatial.count === 0) return;
         if (outIdxRef.current.length < spatial.count) {
           outIdxRef.current = new Int32Array(spatial.count);

@@ -2,7 +2,7 @@ export type MarkerVariant = 'pin' | 'dot' | 'ring';
 export type MarkerPulse = boolean | 'radar' | 'expand' | 'ripple';
 type MarkerPulseMode = 'radar' | 'expand' | 'ripple' | null;
 
-const MARKER_STYLE_ID = 'map543-marker-styles';
+const MARKER_STYLE_ID = 'map-marker-styles';
 
 interface MarkerStyleOptions {
   target?: Document | ShadowRoot;
@@ -28,17 +28,17 @@ export function ensureMarkerStyles(options: MarkerStyleOptions = {}): void {
     style.nonce = options.nonce;
   }
   style.textContent =
-    '@keyframes ll-marker-drop{0%{transform:translateY(-200px);opacity:0}40%{transform:translateY(0);opacity:1}55%{transform:translateY(-20px)}70%{transform:translateY(0)}85%{transform:translateY(-5px)}100%{transform:translateY(0)}}' +
-    '@keyframes ll-marker-expand{0%{transform:scale(0);opacity:1}100%{transform:scale(3.5);opacity:0}}' +
-    '@keyframes ll-marker-ripple{0%{transform:scale(1);opacity:.8}100%{transform:scale(5);opacity:0}}' +
-    '@keyframes ll-marker-fade{0%,80%{opacity:1}100%{opacity:0}}' +
-    '.ll-marker-pulse{position:relative;isolation:isolate;backface-visibility:hidden;contain:layout style}' +
-    '.ll-marker-pulse::before,.ll-marker-pulse--ripple::after{content:"";position:absolute;inset:0;border-radius:50%;pointer-events:none;box-sizing:border-box;z-index:-1;will-change:transform,opacity}' +
-    '.ll-marker-pulse--radar::before,.ll-marker-pulse--expand::before{background:var(--ll-pulse-color,currentColor);opacity:0;animation:ll-marker-expand 1.8s infinite ease-out;animation-delay:var(--ll-pulse-delay,0ms)}' +
-    '.ll-marker-pulse--ripple::before,.ll-marker-pulse--ripple::after{border:1.5px solid var(--ll-pulse-color,currentColor);opacity:0;animation:ll-marker-ripple 2.4s 1 ease-out forwards;animation-delay:var(--ll-pulse-delay,0ms)}' +
-    '.ll-marker-pulse--ripple::after{animation-delay:calc(var(--ll-pulse-delay,0ms) + 800ms)}' +
-    '.ll-marker-pulse--loop.ll-marker-pulse--expand::before,.ll-marker-pulse--loop.ll-marker-pulse--radar::before,.ll-marker-pulse--loop.ll-marker-pulse--ripple::before,.ll-marker-pulse--loop.ll-marker-pulse--ripple::after{animation-iteration-count:infinite}' +
-    '.ll-marker-pulse--smooth.ll-marker-pulse--radar::before,.ll-marker-pulse--smooth.ll-marker-pulse--expand::before,.ll-marker-pulse--smooth.ll-marker-pulse--ripple::before,.ll-marker-pulse--smooth.ll-marker-pulse--ripple::after{animation-timing-function:ease-out}';
+    '@keyframes map-marker-drop{0%{transform:translateY(-200px);opacity:0}40%{transform:translateY(0);opacity:1}55%{transform:translateY(-20px)}70%{transform:translateY(0)}85%{transform:translateY(-5px)}100%{transform:translateY(0)}}' +
+    '@keyframes map-marker-expand{0%{transform:scale(0);opacity:1}100%{transform:scale(3.5);opacity:0}}' +
+    '@keyframes map-marker-ripple{0%{transform:scale(1);opacity:.8}100%{transform:scale(5);opacity:0}}' +
+    '@keyframes map-marker-fade{0%,80%{opacity:1}100%{opacity:0}}' +
+    '.map-marker-pulse{position:relative;isolation:isolate;backface-visibility:hidden;contain:layout style}' +
+    '.map-marker-pulse::before,.map-marker-pulse--ripple::after{content:"";position:absolute;inset:0;border-radius:50%;pointer-events:none;box-sizing:border-box;z-index:-1;will-change:transform,opacity}' +
+    '.map-marker-pulse--radar::before,.map-marker-pulse--expand::before{background:var(--map-pulse-color,currentColor);opacity:0;animation:map-marker-expand 1.8s infinite ease-out;animation-delay:var(--map-pulse-delay,0ms)}' +
+    '.map-marker-pulse--ripple::before,.map-marker-pulse--ripple::after{border:1.5px solid var(--map-pulse-color,currentColor);opacity:0;animation:map-marker-ripple 2.4s 1 ease-out forwards;animation-delay:var(--map-pulse-delay,0ms)}' +
+    '.map-marker-pulse--ripple::after{animation-delay:calc(var(--map-pulse-delay,0ms) + 800ms)}' +
+    '.map-marker-pulse--loop.map-marker-pulse--expand::before,.map-marker-pulse--loop.map-marker-pulse--radar::before,.map-marker-pulse--loop.map-marker-pulse--ripple::before,.map-marker-pulse--loop.map-marker-pulse--ripple::after{animation-iteration-count:infinite}' +
+    '.map-marker-pulse--smooth.map-marker-pulse--radar::before,.map-marker-pulse--smooth.map-marker-pulse--expand::before,.map-marker-pulse--smooth.map-marker-pulse--ripple::before,.map-marker-pulse--smooth.map-marker-pulse--ripple::after{animation-timing-function:ease-out}';
   if (root instanceof Document) {
     root.head.appendChild(style);
   } else {

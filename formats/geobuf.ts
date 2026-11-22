@@ -1,6 +1,7 @@
 import type { PreparedFeature, PreparedLayer } from './types';
-import { cleanSeamFeature } from './seam';
+import { splitAntimeridianFeature } from './antimeridian';
 import { LUT_OFFSET_BYTES, getWasmRuntime } from '../wasm/bridge';
+import { MapError } from '../core/errors';
 
 const textDecoder = new TextDecoder('utf-8');
 
@@ -77,7 +78,7 @@ class GeobufScratch {
   }
 }
 
-const SEAM_LAYERS: ReadonlySet<string> = new Set(['land', 'lakes']);
+const ANTIMERIDIAN_LAYERS: ReadonlySet<string> = new Set(['land', 'lakes']);
 
 function assertRange(r: PbReader, needed: number): void {
   if (needed < 0 || r.pos + needed > r.end) {
@@ -315,7 +316,7 @@ function appendFeature(
   sc: GeobufScratch,
   fillMap: Map<string, PreparedFeature[]>,
   strokeMap: Map<string, PreparedFeature[]>,
-  seamCleanLayers: ReadonlySet<string>,
+  antimeridianLayers: ReadonlySet<string>,
   allowedLayers?: ReadonlySet<string>
 ): void {
   sc.resetFeature();
@@ -348,7 +349,7 @@ function appendFeature(
   if (allowedLayers !== undefined && !allowedLayers.has(layerName)) {
     return;
   }
-  const needsCleanSeam = seamCleanLayers.has(layerName);
+  const needsCleanSeam = antimeridianLayers.has(layerName);
 
   let fillList = fillMap.get(layerName);
   let strokeList = strokeMap.get(layerName);
@@ -372,7 +373,7 @@ function appendFeature(
       const pf = tempOut[i];
       fillList.push(pf);
       if (needsCleanSeam && pf.isPolygon) {
-        const cleaned = cleanSeamFeature(pf);
+        const cleaned = splitAntimeridianFeature(pf);
         if (cleaned) strokeList.push(cleaned);
       } else {
         strokeList.push(pf);
@@ -584,10 +585,10 @@ function parseGeobufHeader(r: PbReader): GeobufHeader {
   }
 
   if (dimensions < 2 || dimensions > 4) {
-    throw new Error('GEOBUF_DECODE_ERROR: dimensions');
+    throw new MapError('GEOBUF_DECODE_ERROR', 'dimensions');
   }
   if (precision > 12) {
-    throw new Error('GEOBUF_DECODE_ERROR: precision');
+    throw new MapError('GEOBUF_DECODE_ERROR', 'precision');
   }
 
   return {
@@ -600,6 +601,21 @@ function parseGeobufHeader(r: PbReader): GeobufHeader {
   };
 }
 
+export interface ParsedGeobuf {
+  fillLayers: PreparedLayer[];
+  strokeLayers: PreparedLayer[];
+}
+
+export interface LoadGeobufOptions {
+  signal?: AbortSignal;
+  defaultLayerName?: string;
+  allowedLayers?: ReadonlySet<string>;
+  antimeridianLayers?: ReadonlySet<string>;
+  maxBytes?: number;
+}
+
+const DEFAULT_MAX_GEOBUF_BYTES = 64 * 1024 * 1024;
+
 /**
  * Parses a Mapbox Geobuf (.geobuf / .pbf) binary buffer into normalized
  * Web Mercator PreparedLayer arrays compatible with map543-2d renderers.
@@ -608,12 +624,18 @@ export function parseGeobuf(
   rawBuffer: ArrayBuffer,
   defaultLayerName = 'land',
   allowedLayers?: ReadonlySet<string>,
-  seamCleanLayers: ReadonlySet<string> = SEAM_LAYERS
-): { fillLayers: PreparedLayer[]; strokeLayers: PreparedLayer[] } {
+  antimeridianLayers: ReadonlySet<string> = ANTIMERIDIAN_LAYERS
+): ParsedGeobuf {
   const scratch = new GeobufScratch();
   const bytes = new Uint8Array(rawBuffer);
   if (bytes.length === 0) {
-    throw new Error('GEOBUF_DECODE_ERROR: empty');
+    throw new MapError('GEOBUF_DECODE_ERROR', 'empty');
+  }
+  if (bytes.length > DEFAULT_MAX_GEOBUF_BYTES) {
+    throw new MapError(
+      'RESOURCE_LIMIT_EXCEEDED',
+      `Geobuf exceeds max size (${DEFAULT_MAX_GEOBUF_BYTES} bytes)`
+    );
   }
 
   const {
@@ -644,7 +666,7 @@ export function parseGeobuf(
           scratch,
           fillMap,
           strokeMap,
-          seamCleanLayers,
+          antimeridianLayers,
           allowedLayers
         );
       } else {
@@ -661,7 +683,7 @@ export function parseGeobuf(
       scratch,
       fillMap,
       strokeMap,
-      seamCleanLayers,
+      antimeridianLayers,
       allowedLayers
     );
   } else if (singleGeomReader) {
@@ -670,11 +692,11 @@ export function parseGeobuf(
     prepareGeometry(geom, dimensions, invScale, prepared, scratch);
     if (prepared.length > 0) {
       fillMap.set(defaultLayerName, prepared);
-      const needsCleanSeam = seamCleanLayers.has(defaultLayerName);
+      const needsCleanSeam = antimeridianLayers.has(defaultLayerName);
       const strokeList: PreparedFeature[] = [];
       for (const pf of prepared) {
         if (needsCleanSeam && pf.isPolygon) {
-          const cleaned = cleanSeamFeature(pf);
+          const cleaned = splitAntimeridianFeature(pf);
           if (cleaned) strokeList.push(cleaned);
         } else {
           strokeList.push(pf);
@@ -694,4 +716,64 @@ export function parseGeobuf(
   }
 
   return { fillLayers, strokeLayers };
+}
+
+/**
+ * Fetches and parses a Mapbox Geobuf (.geobuf / .pbf) file with quota and AbortSignal support.
+ */
+export async function loadGeobuf(
+  url: string,
+  options: LoadGeobufOptions = {}
+): Promise<ParsedGeobuf> {
+  const maxBytes = options.maxBytes ?? DEFAULT_MAX_GEOBUF_BYTES;
+  const res = await fetch(
+    url,
+    options.signal ? { signal: options.signal } : undefined
+  );
+  if (!res.ok) {
+    throw new MapError(
+      'GEOBUF_DECODE_ERROR',
+      `Failed to fetch Geobuf (${res.status})`
+    );
+  }
+  const contentLength = res.headers?.get('content-length');
+  if (contentLength) {
+    const declared = Number(contentLength);
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      throw new MapError(
+        'RESOURCE_LIMIT_EXCEEDED',
+        `Geobuf exceeds max size (${maxBytes} bytes)`
+      );
+    }
+  }
+  const buf = await res.arrayBuffer();
+  if (buf.byteLength > maxBytes) {
+    throw new MapError(
+      'RESOURCE_LIMIT_EXCEEDED',
+      `Geobuf exceeds max size (${maxBytes} bytes)`
+    );
+  }
+  return parseGeobuf(
+    buf,
+    options.defaultLayerName,
+    options.allowedLayers,
+    options.antimeridianLayers
+  );
+}
+
+/**
+ * Normalizes an ArrayBuffer, Uint8Array, or pre-parsed Geobuf object into ParsedGeobuf.
+ */
+export function parseGeobufInput(
+  data: ArrayBuffer | Uint8Array | ParsedGeobuf
+): ParsedGeobuf {
+  if (data instanceof ArrayBuffer) return parseGeobuf(data);
+  if (data instanceof Uint8Array) {
+    const slice = data.buffer.slice(
+      data.byteOffset,
+      data.byteOffset + data.byteLength
+    );
+    return parseGeobuf(slice as ArrayBuffer);
+  }
+  return data;
 }

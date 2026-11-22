@@ -1,22 +1,28 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
-import { type ViewportState } from '../core/camera';
+import { type ViewportState } from '../core/viewport';
+import { toMapError, type MapError } from '../core/errors';
 import {
-  type StyledVectorLayer,
   type VectorLayerStyle,
-  type VectorScratchBuffers,
+  computeVectorMaxDpr,
   drawVectorLayers,
   uploadVectorLayers,
 } from '../core/vectorLayer';
-import { type PreparedFeature } from '../formats/types';
+import { parseGeobufInput, type ParsedGeobuf } from '../formats/geobuf';
+import { type PreparedFeature, type PreparedLayer } from '../formats/types';
 import { type CoordPrecision, type StaticGeometryHandle } from '../core/batch';
 import { CanvasLayer } from './CanvasLayer';
 import { useMap } from './MapContext';
+import { useGeobuf } from './useGeobuf';
 
-const EMPTY_LAYERS: readonly StyledVectorLayer[] = [];
+const EMPTY_LAYERS: readonly PreparedLayer[] = [];
 
 export interface VectorLayerProps {
-  fillLayers: readonly StyledVectorLayer[];
-  strokeLayers?: readonly StyledVectorLayer[];
+  /** Geobuf URL to fetch and parse automatically (no manual useEffect required). */
+  src?: string;
+  /** Pre-fetched Geobuf binary buffer or parsed { fillLayers, strokeLayers } object. */
+  data?: ArrayBuffer | Uint8Array | ParsedGeobuf;
+  fillLayers?: readonly PreparedLayer[];
+  strokeLayers?: readonly PreparedLayer[];
   /** Optional layer name -> style map when passing PreparedLayer[] directly from parseGeobuf. */
   styles?: Readonly<Record<string, VectorLayerStyle>>;
   smoothFactor?: number;
@@ -30,6 +36,19 @@ export interface VectorLayerProps {
   /** Max DPR during active pan/zoom interaction (default: 0.45). */
   interactionMaxDpr?: number;
   className?: string;
+  onLoad?: (layers: ParsedGeobuf) => void;
+  onError?: (error: MapError) => void;
+}
+
+function resolveGeobufData(
+  data: ArrayBuffer | Uint8Array | ParsedGeobuf | undefined
+): { parsed: ParsedGeobuf | null; error: MapError | null } {
+  if (!data) return { parsed: null, error: null };
+  try {
+    return { parsed: parseGeobufInput(data), error: null };
+  } catch (err) {
+    return { parsed: null, error: toMapError(err, 'GEOBUF_DECODE_ERROR') };
+  }
 }
 
 /**
@@ -37,8 +56,10 @@ export interface VectorLayerProps {
  */
 export const VectorLayer: React.FC<VectorLayerProps> = memo(
   ({
+    src,
+    data,
     fillLayers,
-    strokeLayers = EMPTY_LAYERS,
+    strokeLayers,
     styles,
     smoothFactor = 1.0,
     lowPower = false,
@@ -48,71 +69,98 @@ export const VectorLayer: React.FC<VectorLayerProps> = memo(
     precision = 32,
     interactionMaxDpr = 0.45,
     className,
+    onLoad,
+    onError,
   }) => {
-    const { camera } = useMap();
-    const scratchRef = useRef<VectorScratchBuffers>({
-      xy: new Float32Array(0),
-      lens: new Int32Array(0),
-    });
+    const { viewport } = useMap();
+    const shouldFetch = !fillLayers && !data ? src : null;
+    const fetched = useGeobuf(shouldFetch);
+    const dataResult = useMemo(() => resolveGeobufData(data), [data]);
+
+    const onLoadRef = useRef(onLoad);
+    const onErrorRef = useRef(onError);
+    onLoadRef.current = onLoad;
+    onErrorRef.current = onError;
+
+    useEffect(() => {
+      if (fetched.data) {
+        onLoadRef.current?.(fetched.data);
+      }
+    }, [fetched.data]);
+
+    useEffect(() => {
+      const err = fetched.error ?? dataResult.error;
+      if (err) {
+        onErrorRef.current?.(err);
+      }
+    }, [fetched.error, dataResult.error]);
+
+    const resolvedFillLayers =
+      fillLayers ??
+      dataResult.parsed?.fillLayers ??
+      fetched.data?.fillLayers ??
+      EMPTY_LAYERS;
+    const resolvedStrokeLayers =
+      strokeLayers ??
+      dataResult.parsed?.strokeLayers ??
+      fetched.data?.strokeLayers ??
+      EMPTY_LAYERS;
+
     const handlesRef = useRef<WeakMap<PreparedFeature, StaticGeometryHandle>>(
       new WeakMap()
     );
 
     useEffect(() => {
       return () => {
-        scratchRef.current = {
-          xy: new Float32Array(0),
-          lens: new Int32Array(0),
-        };
         handlesRef.current = new WeakMap();
       };
     }, []);
 
     useEffect(() => {
-      handlesRef.current = uploadVectorLayers(fillLayers, strokeLayers, {
-        reset: resetOnUpload,
-        precision,
-      });
-    }, [fillLayers, strokeLayers, resetOnUpload, precision]);
+      handlesRef.current = uploadVectorLayers(
+        resolvedFillLayers,
+        resolvedStrokeLayers,
+        {
+          reset: resetOnUpload,
+          precision,
+        }
+      );
+    }, [resolvedFillLayers, resolvedStrokeLayers, resetOnUpload, precision]);
 
-    const maxDpr = useMemo(() => {
-      if (lowPower) return 1;
-      const sf = Math.max(0, smoothFactor ?? 1.0);
-      if (sf >= 1.8) return 1;
-      if (sf <= 0.6) return 2;
-      return 1.5;
-    }, [lowPower, smoothFactor]);
+    const maxDpr = useMemo(
+      () => computeVectorMaxDpr(lowPower, smoothFactor),
+      [lowPower, smoothFactor]
+    );
 
     const onDraw = useCallback(
       (
         ctx: CanvasRenderingContext2D,
         state: ViewportState,
-        _camera: unknown,
+        _viewport: unknown,
         isInteracting = false
       ) => {
         drawVectorLayers(
           ctx,
           state,
-          fillLayers,
-          strokeLayers,
+          resolvedFillLayers,
+          resolvedStrokeLayers,
           handlesRef.current,
-          scratchRef.current,
           {
             smoothFactor,
             isInteracting,
-            projection: camera.getProjection(),
+            projection: viewport.getProjection(),
             ...(styles ? { styles } : {}),
             ...(skipOnInteractLayers ? { skipOnInteractLayers } : {}),
           }
         );
       },
       [
-        fillLayers,
-        strokeLayers,
+        resolvedFillLayers,
+        resolvedStrokeLayers,
         styles,
         smoothFactor,
         skipOnInteractLayers,
-        camera,
+        viewport,
       ]
     );
 

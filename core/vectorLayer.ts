@@ -1,4 +1,4 @@
-import { type ViewportState } from './camera';
+import { type ViewportState } from './viewport';
 import {
   type Projection,
   MERCATOR_PROJECTION,
@@ -14,32 +14,16 @@ import {
   getPixelStep,
   shouldCullFeature,
   shouldSkipLayer,
-  drawDecimatedRings,
-  drawStaticWithRuntime,
+  simplifyRings,
 } from './vectorLod';
-import { type PreparedFeature } from '../formats/types';
+import {
+  type PreparedFeature,
+  type PreparedLayer,
+  type VectorLayerStyle,
+} from '../formats/types';
 import { getWasmRuntime, resetWasmArena } from '../wasm/bridge';
 
-export interface VectorLayerStyle {
-  color?: string;
-  weight?: number;
-  opacity?: number;
-  fillColor?: string;
-  fillOpacity?: number;
-  dashArray?: string;
-  stroke?: boolean;
-}
-
-export interface StyledVectorLayer {
-  name: string;
-  style?: VectorLayerStyle;
-  features: PreparedFeature[];
-}
-
-export interface VectorScratchBuffers {
-  xy: Float32Array;
-  lens: Int32Array;
-}
+export type { VectorLayerStyle };
 
 export interface DrawVectorOptions {
   smoothFactor?: number;
@@ -61,6 +45,17 @@ const DEFAULT_VECTOR_STYLE: VectorLayerStyle = {
 };
 const dashArrayCache = new WeakMap<VectorLayerStyle, number[]>();
 
+export function computeVectorMaxDpr(
+  lowPower: boolean,
+  smoothFactor = 1.0
+): number {
+  if (lowPower) return 1;
+  const sf = Math.max(0, smoothFactor);
+  if (sf >= 1.8) return 1;
+  if (sf <= 0.6) return 2;
+  return 1.5;
+}
+
 export interface UploadVectorOptions {
   /** Reset the shared WASM arena before uploading (default: false). */
   reset?: boolean;
@@ -72,33 +67,48 @@ export interface UploadVectorOptions {
  * Uploads all fill/stroke features into the WASM static geometry arena.
  */
 export function uploadVectorLayers(
-  fillLayers: readonly StyledVectorLayer[],
-  strokeLayers: readonly StyledVectorLayer[] = [],
+  fillLayers: readonly PreparedLayer[],
+  strokeLayers: readonly PreparedLayer[] = [],
   options: UploadVectorOptions = {}
 ): WeakMap<PreparedFeature, StaticGeometryHandle> {
   if (options.reset) {
     resetWasmArena();
   }
   const use16 = options.precision === 16;
-  const handles = new WeakMap<PreparedFeature, StaticGeometryHandle>();
-  const upload = (layers: readonly StyledVectorLayer[]) => {
-    for (const layer of layers) {
-      for (const f of layer.features) {
-        if (handles.has(f)) continue;
-        const handle = uploadStaticRings(
-          use16 ? encodeRings16(f.packedXY) : f.packedXY,
-          f.ringLengths,
-          f.ringCount
-        );
-        if (handle) {
-          handles.set(f, handle);
+  const uploadAll = (): {
+    handles: WeakMap<PreparedFeature, StaticGeometryHandle>;
+    exhausted: boolean;
+  } => {
+    const handles = new WeakMap<PreparedFeature, StaticGeometryHandle>();
+    let exhausted = false;
+    const upload = (layers: readonly PreparedLayer[]) => {
+      for (const layer of layers) {
+        for (const f of layer.features) {
+          if (handles.has(f)) continue;
+          const handle = uploadStaticRings(
+            use16 ? encodeRings16(f.packedXY) : f.packedXY,
+            f.ringLengths,
+            f.ringCount
+          );
+          if (handle) {
+            handles.set(f, handle);
+          } else {
+            exhausted = true;
+          }
         }
       }
-    }
+    };
+    upload(fillLayers);
+    upload(strokeLayers);
+    return { handles, exhausted };
   };
-  upload(fillLayers);
-  upload(strokeLayers);
-  return handles;
+
+  const first = uploadAll();
+  if (first.exhausted && !options.reset) {
+    resetWasmArena();
+    return uploadAll().handles;
+  }
+  return first.handles;
 }
 
 interface DrawFrameContext {
@@ -106,7 +116,6 @@ interface DrawFrameContext {
   rt: ReturnType<typeof getWasmRuntime>;
   scratchBase: number;
   handles: WeakMap<PreparedFeature, StaticGeometryHandle>;
-  scratch: VectorScratchBuffers;
   scale: number;
   offsetY: number;
   viewLatMin: number;
@@ -119,7 +128,7 @@ interface DrawFrameContext {
 }
 
 function resolveLayerStyle(
-  layer: StyledVectorLayer,
+  layer: PreparedLayer,
   styles: Readonly<Record<string, VectorLayerStyle>> | undefined
 ): VectorLayerStyle {
   return layer.style ?? styles?.[layer.name] ?? DEFAULT_VECTOR_STYLE;
@@ -156,49 +165,24 @@ function traceFeatureInFrame(
   drawOffsetX: number,
   closePath: boolean
 ): void {
-  if (fc.rt !== null) {
-    const handle = fc.handles.get(f);
-    if (
-      handle &&
-      drawStaticWithRuntime(
-        fc.ctx,
-        fc.rt,
-        fc.scratchBase,
-        handle,
-        fc.scale,
-        drawOffsetX,
-        fc.offsetY,
-        fc.effectivePixelStep,
-        closePath
-      )
-    ) {
-      return;
-    }
-  }
-  const { scratch } = fc;
-  if (scratch.xy.length < f.packedXY.length) {
-    scratch.xy = new Float32Array(f.packedXY.length);
-  }
-  if (scratch.lens.length < f.ringCount) {
-    scratch.lens = new Int32Array(f.ringCount);
-  }
-  drawDecimatedRings(
+  if (fc.rt === null) return;
+  const handle = fc.handles.get(f);
+  if (!handle) return;
+  simplifyRings(
     fc.ctx,
-    f.packedXY,
-    f.ringLengths,
-    f.ringCount,
+    fc.rt,
+    fc.scratchBase,
+    handle,
     fc.scale,
     drawOffsetX,
     fc.offsetY,
     fc.effectivePixelStep,
-    closePath,
-    scratch.xy,
-    scratch.lens
+    closePath
   );
 }
 
 function drawFillLayerInFrame(
-  layer: StyledVectorLayer,
+  layer: PreparedLayer,
   fc: DrawFrameContext,
   drawOffsetX: number,
   adjLonMin: number,
@@ -224,7 +208,7 @@ function drawFillLayerInFrame(
 }
 
 function drawStrokeLayerInFrame(
-  layer: StyledVectorLayer,
+  layer: PreparedLayer,
   fc: DrawFrameContext,
   drawOffsetX: number,
   adjLonMin: number,
@@ -267,10 +251,9 @@ function drawStrokeLayerInFrame(
 export function drawVectorLayers(
   ctx: CanvasRenderingContext2D,
   state: ViewportState,
-  fillLayers: readonly StyledVectorLayer[],
-  strokeLayers: readonly StyledVectorLayer[],
+  fillLayers: readonly PreparedLayer[],
+  strokeLayers: readonly PreparedLayer[],
   handles: WeakMap<PreparedFeature, StaticGeometryHandle>,
-  scratch: VectorScratchBuffers,
   options: DrawVectorOptions = {}
 ): void {
   if (fillLayers.length === 0 && strokeLayers.length === 0) return;
@@ -303,7 +286,6 @@ export function drawVectorLayers(
     rt,
     scratchBase,
     handles,
-    scratch,
     scale,
     offsetY,
     viewLatMin,

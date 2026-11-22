@@ -56,20 +56,18 @@ function bench(name: string, fn: () => void, minTimeMs = 250): void {
   });
 }
 import {
-  Camera,
+  Viewport,
   initWasm,
   resetWasmArena,
   uploadStaticRings,
   encodeRings16,
   drawRings,
-  findNearestPoint,
   hitTestPoints,
   encodePoints16,
   batchProjectPoints,
   uploadStaticPoints,
-  latLngToNormInto,
+  latLonToNormInto,
   getWrappedSlices,
-  computeArc,
   computeArcsBatch,
   projectMercator,
   xyToSvgPath,
@@ -78,8 +76,8 @@ import {
   packPoints,
   drawBatchPoints,
   drawVectorLayers,
-  cleanSeamRing,
-  decodeLocationDictBatch,
+  splitAntimeridianRing,
+  decodeLocDict,
   getWasmMemoryStats,
   parseGeobuf,
   type StaticGeometryHandle,
@@ -88,8 +86,7 @@ import {
   type Point2D,
   type TrajectoryItem,
   type PointItem,
-  type StyledVectorLayer,
-  type VectorScratchBuffers,
+  type PreparedLayer,
 } from 'map543-2d';
 import { QUADRATIC_ARC_POINTS } from '../core/curves';
 
@@ -176,18 +173,16 @@ const landHandlesU16: Array<{
   feature: PreparedFeature;
   handle: StaticGeometryHandle;
 }> = [];
-let maxScratchXY = new Float32Array(0);
-let maxScratchLens = new Int32Array(0);
 let staticPts10k: StaticPointsHandle | null = null;
 let staticPts50k: StaticPointsHandle | null = null;
 
-const cameraZoom1 = new Camera({
+const viewportZoom1 = new Viewport({
   center: [20, 10],
   zoom: 1.5,
   width: 1920,
   height: 1080,
 });
-const cameraZoom4 = new Camera({
+const viewportZoom4 = new Viewport({
   center: [25.033, 121.5654],
   zoom: 4,
   width: 1920,
@@ -230,11 +225,7 @@ beforeAll(() => {
     landFeatures = createSyntheticFeatures(500);
   }
 
-  let maxXYLen = 0;
-  let maxRingCount = 0;
   for (const f of landFeatures) {
-    if (f.packedXY.length > maxXYLen) maxXYLen = f.packedXY.length;
-    if (f.ringCount > maxRingCount) maxRingCount = f.ringCount;
     const h = uploadStaticRings(f.packedXY, f.ringLengths, f.ringCount);
     if (h) {
       landHandles.push({ feature: f, handle: h });
@@ -248,8 +239,6 @@ beforeAll(() => {
       landHandlesU16.push({ feature: f, handle: hu16 });
     }
   }
-  maxScratchXY = new Float32Array(maxXYLen);
-  maxScratchLens = new Int32Array(maxRingCount);
   staticPts10k = uploadStaticPoints(pts10000.lats, pts10000.lons);
   staticPts50k = uploadStaticPoints(pts50000.lats, pts50000.lons);
 });
@@ -264,39 +253,8 @@ describe.runIf(RUN_BENCH)('1. Geobuf parsing (WorldMap-all)', () => {
 describe.runIf(RUN_BENCH)(
   '2. Vector LOD & Static Arena (WorldMap-all land layer)',
   () => {
-    bench('drawDecimatedRings (per-frame JS->WASM copy, zoom 1.5)', () => {
-      const state = cameraZoom1.getState();
-      const { scale, offsetY, viewLatMin, viewLatMax, slices } =
-        getWrappedSlices(state, 2);
-      for (const { drawOffsetX, adjLonMin, adjLonMax } of slices) {
-        for (const f of landFeatures) {
-          if (
-            f.maxLon < adjLonMin ||
-            f.minLon > adjLonMax ||
-            f.maxLat < viewLatMin ||
-            f.minLat > viewLatMax
-          ) {
-            continue;
-          }
-          drawRings(
-            noopCtx,
-            f.packedXY,
-            f.ringLengths,
-            f.ringCount,
-            scale,
-            drawOffsetX,
-            offsetY,
-            1.0,
-            true,
-            maxScratchXY,
-            maxScratchLens
-          );
-        }
-      }
-    });
-
     bench('drawStaticDirect (WASM Arena zero-copy, zoom 1.5)', () => {
-      const state = cameraZoom1.getState();
+      const state = viewportZoom1.getState();
       const { scale, offsetY, viewLatMin, viewLatMax, slices } =
         getWrappedSlices(state, 2);
       for (const { drawOffsetX, adjLonMin, adjLonMax } of slices) {
@@ -315,7 +273,7 @@ describe.runIf(RUN_BENCH)(
     });
 
     bench('drawStaticDirect (WASM Arena zero-copy, zoom 4)', () => {
-      const state = cameraZoom4.getState();
+      const state = viewportZoom4.getState();
       const { scale, offsetY, viewLatMin, viewLatMax, slices } =
         getWrappedSlices(state, 2);
       for (const { drawOffsetX, adjLonMin, adjLonMax } of slices) {
@@ -334,7 +292,7 @@ describe.runIf(RUN_BENCH)(
     });
 
     bench('drawStaticU16Direct (WASM u16 Arena, zoom 1.5)', () => {
-      const state = cameraZoom1.getState();
+      const state = viewportZoom1.getState();
       const { scale, offsetY, viewLatMin, viewLatMax, slices } =
         getWrappedSlices(state, 2);
       for (const { drawOffsetX, adjLonMin, adjLonMax } of slices) {
@@ -353,7 +311,7 @@ describe.runIf(RUN_BENCH)(
     });
 
     bench('drawStaticU16Direct (WASM u16 Arena, zoom 4)', () => {
-      const state = cameraZoom4.getState();
+      const state = viewportZoom4.getState();
       const { scale, offsetY, viewLatMin, viewLatMax, slices } =
         getWrappedSlices(state, 2);
       for (const { drawOffsetX, adjLonMin, adjLonMax } of slices) {
@@ -373,43 +331,31 @@ describe.runIf(RUN_BENCH)(
   }
 );
 
-describe.runIf(RUN_BENCH)('3. Hit-Test & Batch Projection (JS vs WASM)', () => {
-  const projectIntoFn = (lat: number, lon: number, out: Point2D) =>
-    cameraZoom4.projectInto(lat, lon, out);
-
-  bench('findNearestPoint (JS) - 100 pts', () => {
-    findNearestPoint(960, 540, pts100, projectIntoFn, 16);
-  });
+describe.runIf(RUN_BENCH)('3. Hit-Test & Batch Projection (WASM)', () => {
   bench('hitTestPoints (WASM) - 100 pts', () => {
-    hitTestPoints(960, 540, pts100, cameraZoom4, 16);
+    hitTestPoints(960, 540, pts100, viewportZoom4, 16);
   });
 
-  bench('findNearestPoint (JS) - 1,000 pts', () => {
-    findNearestPoint(960, 540, pts1000, projectIntoFn, 16);
-  });
   bench('hitTestPoints (WASM) - 1,000 pts', () => {
-    hitTestPoints(960, 540, pts1000, cameraZoom4, 16);
+    hitTestPoints(960, 540, pts1000, viewportZoom4, 16);
   });
 
-  bench('findNearestPoint (JS) - 10,000 pts', () => {
-    findNearestPoint(960, 540, pts10000, projectIntoFn, 16);
-  });
   bench('hitTestPoints (WASM) - 10,000 pts', () => {
-    hitTestPoints(960, 540, pts10000, cameraZoom4, 16);
+    hitTestPoints(960, 540, pts10000, viewportZoom4, 16);
   });
   bench('hitTestStaticPoints (WASM Arena zero-copy) - 10,000 pts', () => {
     if (staticPts10k) {
-      hitTestPoints(960, 540, staticPts10k, cameraZoom4, 16);
+      hitTestPoints(960, 540, staticPts10k, viewportZoom4, 16);
     }
   });
   bench('hitTestPointsI16 (WASM i16) - 10,000 pts', () => {
-    hitTestPoints(960, 540, pts10000I16, cameraZoom4, 16);
+    hitTestPoints(960, 540, pts10000I16, viewportZoom4, 16);
   });
 
-  bench('Camera.projectInto loop (JS) - 50,000 pts', () => {
+  bench('Viewport.projectInto loop (JS) - 50,000 pts', () => {
     const out: Point2D = { x: 0, y: 0 };
     for (let i = 0; i < pts50000.count; i++) {
-      cameraZoom4.projectInto(pts50000.lats[i], pts50000.lons[i], out);
+      viewportZoom4.projectInto(pts50000.lats[i], pts50000.lons[i], out);
     }
   });
   bench('batchProjectPoints (WASM) - 50,000 pts', () => {
@@ -417,7 +363,7 @@ describe.runIf(RUN_BENCH)('3. Hit-Test & Batch Projection (JS vs WASM)', () => {
       pts50000.lats,
       pts50000.lons,
       pts50000.count,
-      cameraZoom4,
+      viewportZoom4,
       32,
       batchOutXY,
       batchOutIdx
@@ -427,7 +373,7 @@ describe.runIf(RUN_BENCH)('3. Hit-Test & Batch Projection (JS vs WASM)', () => {
     if (staticPts50k) {
       batchProjectPoints(
         staticPts50k,
-        cameraZoom4,
+        viewportZoom4,
         32,
         batchOutXY,
         batchOutIdx
@@ -435,21 +381,21 @@ describe.runIf(RUN_BENCH)('3. Hit-Test & Batch Projection (JS vs WASM)', () => {
     }
   });
   bench('batchProjectPointsI16 (WASM i16) - 50,000 pts', () => {
-    batchProjectPoints(pts50000I16, cameraZoom4, 32, batchOutXY, batchOutIdx);
+    batchProjectPoints(pts50000I16, viewportZoom4, 32, batchOutXY, batchOutIdx);
   });
 });
 
 describe.runIf(RUN_BENCH)('4. Projection & Bezier Curves', () => {
   const normOut: Point2D = { x: 0, y: 0 };
 
-  bench('latLngToNormInto x 1,000', () => {
+  bench('latLonToNormInto x 1,000', () => {
     for (let i = 0; i < 1000; i++) {
-      latLngToNormInto(pts1000.lats[i], pts1000.lons[i], normOut);
+      latLonToNormInto(pts1000.lats[i], pts1000.lons[i], normOut);
     }
   });
 
   bench('getWrappedSlices', () => {
-    getWrappedSlices(cameraZoom1.getState(), 2);
+    getWrappedSlices(viewportZoom1.getState(), 2);
   });
 
   const arcCount = 500;
@@ -458,12 +404,6 @@ describe.runIf(RUN_BENCH)('4. Projection & Bezier Curves', () => {
   const arcDstLats = new Float32Array(arcCount).fill(37.7749);
   const arcDstLons = new Float32Array(arcCount).fill(-122.4194);
   const arcOut = new Float32Array(arcCount * QUADRATIC_ARC_POINTS * 2);
-
-  bench('computeArc x 500 (JS tuples)', () => {
-    for (let i = 0; i < 500; i++) {
-      computeArc([25.033, 121.5654], [37.7749, -122.4194], false);
-    }
-  });
 
   bench('computeArcsBatch x 500 (zero-alloc Float32Array)', () => {
     computeArcsBatch(
@@ -488,7 +428,7 @@ describe.runIf(RUN_BENCH)('5. Trajectory, PointLayer & VectorLayer', () => {
   const projectedXY6500 = new Float32Array(ptCount6500 * 2);
   const tmpPt = { x: 0, y: 0 };
 
-  bench('JS camera.projectInto x 6,500 (500 arcs)', () => {
+  bench('JS viewport.projectInto x 6,500 (500 arcs)', () => {
     computeArcsBatch(
       srcLats500,
       srcLons500,
@@ -498,7 +438,7 @@ describe.runIf(RUN_BENCH)('5. Trajectory, PointLayer & VectorLayer', () => {
       arcLatLon500
     );
     for (let i = 0; i < ptCount6500; i++) {
-      cameraZoom1.projectInto(
+      viewportZoom1.projectInto(
         arcLatLon500[i * 2],
         arcLatLon500[i * 2 + 1],
         tmpPt
@@ -515,7 +455,7 @@ describe.runIf(RUN_BENCH)('5. Trajectory, PointLayer & VectorLayer', () => {
       arcCount500,
       arcLatLon500
     );
-    projectMercator(arcLatLon500, ptCount6500, cameraZoom1, projectedXY6500);
+    projectMercator(arcLatLon500, ptCount6500, viewportZoom1, projectedXY6500);
   });
 
   const makeSpecs = (n: number): TrajectoryItem[] =>
@@ -538,7 +478,7 @@ describe.runIf(RUN_BENCH)('5. Trajectory, PointLayer & VectorLayer', () => {
       projectMercator(
         batch.arcBuffer,
         batch.arcCount * QUADRATIC_ARC_POINTS,
-        cameraZoom1,
+        viewportZoom1,
         svgOutXY1000
       );
       const stride = QUADRATIC_ARC_POINTS * 2;
@@ -548,29 +488,13 @@ describe.runIf(RUN_BENCH)('5. Trajectory, PointLayer & VectorLayer', () => {
     }
   });
 
-  bench('Legacy JS (computeArc + projectInto + SVG paths) x 1,000', () => {
-    for (let i = 0; i < specs1000.length; i++) {
-      const s = specs1000[i];
-      const pts = computeArc(
-        [s.srcLat!, s.srcLon!],
-        [s.dstLat!, s.dstLon!],
-        false
-      );
-      let _d = '';
-      for (let j = 0; j < pts.length; j++) {
-        cameraZoom1.projectInto(pts[j][0], pts[j][1], tmpPt);
-        _d += `${j === 0 ? 'M' : 'L'}${tmpPt.x.toFixed(1)},${tmpPt.y.toFixed(1)}`;
-      }
-    }
-  });
-
-  bench('New WASM (prepareArcs + projectMercator + SVG paths) x 1,000', () => {
+  bench('WASM (prepareArcs + projectMercator + SVG paths) x 1,000', () => {
     const batch = prepareArcs(specs1000);
     if (batch.arcBuffer) {
       projectMercator(
         batch.arcBuffer,
         batch.arcCount * QUADRATIC_ARC_POINTS,
-        cameraZoom1,
+        viewportZoom1,
         svgOutXY1000
       );
       const stride = QUADRATIC_ARC_POINTS * 2;
@@ -614,7 +538,7 @@ describe.runIf(RUN_BENCH)('5. Trajectory, PointLayer & VectorLayer', () => {
   bench('drawBatchPoints x 5,000 (PointLayer)', () => {
     drawBatchPoints(
       noopCtx,
-      cameraZoom1,
+      viewportZoom1,
       pointItems5000,
       pointSpatial5000,
       ptOutXY5000,
@@ -622,13 +546,8 @@ describe.runIf(RUN_BENCH)('5. Trajectory, PointLayer & VectorLayer', () => {
     );
   });
 
-  const vectorScratch: VectorScratchBuffers = {
-    xy: new Float32Array(0),
-    lens: new Int32Array(0),
-  };
-
   bench('drawVectorLayers (WorldMap idle, WASM static rings)', () => {
-    const fillLayers: StyledVectorLayer[] = [
+    const fillLayers: PreparedLayer[] = [
       {
         name: 'land',
         style: { fillColor: '#2a2a2a', fillOpacity: 1 },
@@ -641,17 +560,16 @@ describe.runIf(RUN_BENCH)('5. Trajectory, PointLayer & VectorLayer', () => {
     }
     drawVectorLayers(
       noopCtx,
-      cameraZoom1.getState(),
+      viewportZoom1.getState(),
       fillLayers,
       [],
       handles,
-      vectorScratch,
       { isInteracting: false }
     );
   });
 });
 
-describe.runIf(RUN_BENCH)('6. Legacy vs New, Geometry & Camera', () => {
+describe.runIf(RUN_BENCH)('6. Legacy vs New, Geometry & Viewport', () => {
   const legacyPoints5000: PointItem[] = Array.from(
     { length: 5000 },
     (_, i) => ({
@@ -669,7 +587,7 @@ describe.runIf(RUN_BENCH)('6. Legacy vs New, Geometry & Camera', () => {
     () => {
       for (let i = 0; i < legacyPoints5000.length; i++) {
         const p = legacyPoints5000[i];
-        cameraZoom1.projectInto(p.lat, p.lon, legacyPt);
+        viewportZoom1.projectInto(p.lat, p.lon, legacyPt);
         noopCtx.beginPath();
         noopCtx.fillStyle = p.color;
         noopCtx.globalAlpha = p.alpha ?? 0.7;
@@ -679,13 +597,8 @@ describe.runIf(RUN_BENCH)('6. Legacy vs New, Geometry & Camera', () => {
     }
   );
 
-  const interactScratch: VectorScratchBuffers = {
-    xy: new Float32Array(0),
-    lens: new Int32Array(0),
-  };
-
   bench('drawVectorLayers (WorldMap interacting, LOD + culling)', () => {
-    const fillLayers: StyledVectorLayer[] = [
+    const fillLayers: PreparedLayer[] = [
       {
         name: 'land',
         style: { fillColor: '#2a2a2a', fillOpacity: 1 },
@@ -698,11 +611,10 @@ describe.runIf(RUN_BENCH)('6. Legacy vs New, Geometry & Camera', () => {
     }
     drawVectorLayers(
       noopCtx,
-      cameraZoom1.getState(),
+      viewportZoom1.getState(),
       fillLayers,
       [],
       handles,
-      interactScratch,
       { isInteracting: true }
     );
   });
@@ -717,15 +629,18 @@ describe.runIf(RUN_BENCH)('6. Legacy vs New, Geometry & Camera', () => {
   const seamOutSegLens = new Int32Array(2000);
   const seamOutBbox = new Float32Array(4);
 
-  bench('cleanSeamRing (WASM antimeridian split, 2,000 vertices)', () => {
-    cleanSeamRing(
-      seamInLonLat,
-      seamFloatLen,
-      seamOutLonLat,
-      seamOutSegLens,
-      seamOutBbox
-    );
-  });
+  bench(
+    'splitAntimeridianRing (WASM antimeridian split, 2,000 vertices)',
+    () => {
+      splitAntimeridianRing(
+        seamInLonLat,
+        seamFloatLen,
+        seamOutLonLat,
+        seamOutSegLens,
+        seamOutBbox
+      );
+    }
+  );
 
   const locCount = 5000;
   const locRawBytes = new Uint8Array(locCount * 6);
@@ -734,8 +649,8 @@ describe.runIf(RUN_BENCH)('6. Legacy vs New, Geometry & Camera', () => {
   const locMxsOut = new Float32Array(locCount);
   const locMysOut = new Float32Array(locCount);
 
-  bench('WASM decodeLocationDictBatch x 5,000', () => {
-    decodeLocationDictBatch(
+  bench('WASM decodeLocDict x 5,000', () => {
+    decodeLocDict(
       locRawBytes,
       locCount,
       locLatsOut,
@@ -745,14 +660,14 @@ describe.runIf(RUN_BENCH)('6. Legacy vs New, Geometry & Camera', () => {
     );
   });
 
-  const benchCam = new Camera({
+  const benchCam = new Viewport({
     center: [20, 10],
     zoom: 2,
     width: 1920,
     height: 1080,
   });
 
-  bench('Camera panBy + zoomAt + getBounds x 1,000', () => {
+  bench('Viewport panBy + zoomAt + getBounds x 1,000', () => {
     for (let i = 0; i < 1000; i++) {
       benchCam.panBy(1, -1);
       benchCam.zoomAt(960, 540, 0.01);

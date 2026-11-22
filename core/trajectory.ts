@@ -1,7 +1,7 @@
-import { type Camera } from './camera';
+import { type Viewport } from './viewport';
 import {
   QUADRATIC_ARC_POINTS,
-  latLngsToSvgPath,
+  latLonsToSvgPath,
   xyToSvgPath,
   computeArcsBatch,
   getArcTiming,
@@ -9,14 +9,14 @@ import {
   projectMercator,
   type TrajectoryTimingFn,
 } from './curves';
-import { type LatLng, MERCATOR_PROJECTION } from './projection';
+import { type LatLon, MERCATOR_PROJECTION } from './projection';
 
 export type TrajectoryCurveMode = 'arc' | 'straight' | 'none';
 
 export interface TrajectoryItem {
-  key: string;
-  src?: LatLng;
-  dst?: LatLng;
+  key?: string;
+  src?: LatLon;
+  dst?: LatLon;
   srcLat?: number;
   srcLon?: number;
   dstLat?: number;
@@ -31,8 +31,8 @@ export interface TrajectoryItem {
 
 export interface PreparedArc {
   key: string;
-  src: LatLng;
-  dst: LatLng;
+  src: LatLon;
+  dst: LatLon;
   isStraight: boolean;
   batchIndex: number;
   color: string;
@@ -117,8 +117,8 @@ export function prepareArcs(
 
   for (const item of items) {
     if (item.curve === 'none') continue;
-    const src: LatLng = item.src ?? [item.srcLat ?? 0, item.srcLon ?? 0];
-    const dst: LatLng = item.dst ?? [item.dstLat ?? 0, item.dstLon ?? 0];
+    const src: LatLon = item.src ?? [item.srcLat ?? 0, item.srcLon ?? 0];
+    const dst: LatLon = item.dst ?? [item.dstLat ?? 0, item.dstLon ?? 0];
     const isStraight = item.curve === 'straight';
     const dist = manhattanDeg(src, dst);
     const timing = timingFn(dist);
@@ -127,10 +127,15 @@ export function prepareArcs(
     if (!isStraight) {
       arcIndices.push(idx);
     }
+    const resolvedSrc: LatLon = item.isReversed ? dst : src;
+    const resolvedDst: LatLon = item.isReversed ? src : dst;
+    const key =
+      item.key ??
+      `${idx}:${resolvedSrc[0]},${resolvedSrc[1]}->${resolvedDst[0]},${resolvedDst[1]}`;
     result.push({
-      key: item.key,
-      src: item.isReversed ? dst : src,
-      dst: item.isReversed ? src : dst,
+      key,
+      src: resolvedSrc,
+      dst: resolvedDst,
       isStraight,
       batchIndex: -1,
       color: item.color ?? '#0ebf9c',
@@ -163,12 +168,12 @@ export function prepareArcs(
 }
 
 /**
- * Attaches a camera subscription to an SVG container: translates via `translate3d` on pan
+ * Attaches a viewport subscription to an SVG container: translates via `translate3d` on pan
  * and batch-projects via WASM on zoom/init.
  */
 export function attachSvgSync(
   svg: SVGSVGElement | null,
-  camera: Camera,
+  viewport: Viewport,
   batch: PreparedArcs,
   getPathEl: (key: string) => SVGPathElement | undefined,
   getBasePathEl: (key: string) => SVGPathElement | undefined,
@@ -188,20 +193,20 @@ export function attachSvgSync(
       : null;
 
   const rebuildPaths = () => {
-    const state = camera.getState();
-    const params = camera.getProjectionParams();
+    const state = viewport.getState();
+    const params = viewport.getProjectionParams();
     builtZoom = state.zoom;
     originNormX = params.centerNormX;
     originNormY = params.centerNormY;
 
     const isMercator =
-      camera.getProjection() === MERCATOR_PROJECTION &&
+      viewport.getProjection() === MERCATOR_PROJECTION &&
       batch.arcBuffer &&
       projectedXY &&
       projectMercator(
         batch.arcBuffer,
         batch.arcCount * QUADRATIC_ARC_POINTS,
-        camera,
+        viewport,
         projectedXY
       ) > 0;
 
@@ -220,15 +225,15 @@ export function attachSvgSync(
         for (let i = 0; i < QUADRATIC_ARC_POINTS; i++) {
           const lat = batch.arcBuffer[base + i * 2];
           const lon = batch.arcBuffer[base + i * 2 + 1];
-          camera.projectInto(lat, lon, tmpPt);
+          viewport.projectInto(lat, lon, tmpPt);
           nonMercatorTmpXY[i * 2] = tmpPt.x;
           nonMercatorTmpXY[i * 2 + 1] = tmpPt.y;
         }
         d = xyToSvgPath(nonMercatorTmpXY, 0, QUADRATIC_ARC_POINTS, smooth);
       } else {
-        d = latLngsToSvgPath(
+        d = latLonsToSvgPath(
           [item.src, item.dst],
-          (lat, lon, out) => camera.projectInto(lat, lon, out),
+          (lat, lon, out) => viewport.projectInto(lat, lon, out),
           tmpPt
         );
       }
@@ -249,18 +254,18 @@ export function attachSvgSync(
     }
   };
 
-  const syncCamera = () => {
-    const state = camera.getState();
+  const syncViewport = () => {
+    const state = viewport.getState();
     if (state.zoom !== builtZoom || !svg) {
       rebuildPaths();
       return;
     }
-    const params = camera.getProjectionParams();
+    const params = viewport.getProjectionParams();
     const dx = (originNormX - params.centerNormX) * params.worldSize;
     const dy = (originNormY - params.centerNormY) * params.worldSize;
     svg.style.transform = `translate3d(${Math.round(dx)}px, ${Math.round(dy)}px, 0)`;
   };
 
   rebuildPaths();
-  return camera.subscribe(syncCamera);
+  return viewport.subscribe(syncViewport);
 }

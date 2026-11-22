@@ -1,4 +1,4 @@
-import React, { memo, useEffect } from 'react';
+import React, { memo, useEffect, useState } from 'react';
 import {
   type MarkerPulse,
   type MarkerVariant,
@@ -6,14 +6,14 @@ import {
   normalizePulseMode,
   resolveMarkerGeometry,
 } from '../core/marker';
-import { type LatLng } from '../core/projection';
-import { Overlay } from './Overlay';
+import { type LatLon } from '../core/projection';
+import { Overlay, Popup } from './Overlay';
 
 export type { MarkerVariant, MarkerPulse };
 
 export interface MarkerProps {
   /** Geographic position as [lat, lon] tuple (or pass `lat` and `lon`). */
-  position?: LatLng;
+  position?: LatLon;
   lat?: number;
   lon?: number;
   variant?: MarkerVariant;
@@ -38,6 +38,9 @@ export interface MarkerProps {
   onClick?: (e: React.MouseEvent) => void;
   className?: string;
   title?: string;
+  /** Optional popup content toggled automatically when clicking the marker. */
+  popup?: React.ReactNode;
+  defaultPopupOpen?: boolean;
   children?: React.ReactNode;
 }
 
@@ -187,18 +190,18 @@ function buildMarkerStyleProps(
     position: 'relative',
     ...(fadeMs && !lowPower
       ? {
-          animation: `ll-marker-fade ${fadeMs}ms ${smooth ? 'linear' : 'steps(8, end)'} forwards`,
+          animation: `map-marker-fade ${fadeMs}ms ${smooth ? 'linear' : 'steps(8, end)'} forwards`,
         }
       : {}),
   };
 
   const pulseClassName = showPulse
-    ? `ll-marker-pulse ll-marker-pulse--${pulseMode}${pulseLoop ? ' ll-marker-pulse--loop' : ''}${smooth ? ' ll-marker-pulse--smooth' : ''}`
+    ? `map-marker-pulse map-marker-pulse--${pulseMode}${pulseLoop ? ' map-marker-pulse--loop' : ''}${smooth ? ' map-marker-pulse--smooth' : ''}`
     : '';
   const pulseCssVars = showPulse
     ? ({
-        '--ll-pulse-color': pulseColor ?? resolvedColor,
-        '--ll-pulse-delay': `${delayMs}ms`,
+        '--map-pulse-color': pulseColor ?? resolvedColor,
+        '--map-pulse-delay': `${delayMs}ms`,
       } as React.CSSProperties)
     : undefined;
 
@@ -212,120 +215,173 @@ function buildMarkerStyleProps(
   };
 }
 
+function renderMarkerCore(
+  isPin: boolean,
+  variant: MarkerVariant,
+  resolvedSize: number,
+  resolvedColor: string,
+  resolvedBorder: string,
+  iconColor: string,
+  isInteractive: boolean,
+  glow: boolean,
+  quantizedIntensity: number,
+  pulseClassName: string,
+  pulseCssVars: React.CSSProperties | undefined,
+  children: React.ReactNode
+): React.ReactNode {
+  if (isPin) {
+    return renderPinMarker(
+      resolvedSize,
+      resolvedColor,
+      resolvedBorder,
+      iconColor,
+      isInteractive,
+      glow,
+      quantizedIntensity,
+      pulseClassName,
+      pulseCssVars,
+      children
+    );
+  }
+  return renderCircleMarker(
+    variant,
+    resolvedSize,
+    resolvedColor,
+    resolvedBorder,
+    isInteractive,
+    glow,
+    quantizedIntensity,
+    pulseClassName,
+    pulseCssVars
+  );
+}
+
+function renderMarkerWrapper(
+  dropIn: boolean,
+  lowPower: boolean,
+  smooth: boolean,
+  coreNode: React.ReactNode
+): React.ReactNode {
+  if (!dropIn || lowPower) return coreNode;
+  return (
+    <div
+      style={{
+        animation: smooth
+          ? 'map-marker-drop 0.8s cubic-bezier(0.3, 0, 0.2, 1) forwards'
+          : 'map-marker-drop 0.8s steps(12, end) forwards',
+      }}
+    >
+      {coreNode}
+    </div>
+  );
+}
+
+function resolveMarkerDefaults(props: MarkerProps) {
+  const variant = props.variant ?? 'pin';
+  const resolvedLat = props.position?.[0] ?? props.lat ?? Number.NaN;
+  const resolvedLon = props.position?.[1] ?? props.lon ?? Number.NaN;
+  const geom = resolveMarkerGeometry(variant, props.size);
+  const quantizedIntensity = Math.max(
+    0.5,
+    Math.round((props.intensity ?? 1) * 10) / 10
+  );
+  const styleProps = buildMarkerStyleProps(
+    variant,
+    geom,
+    props.color,
+    props.borderColor,
+    props.pulse ?? false,
+    props.pulseColor,
+    props.pulseLoop ?? false,
+    props.delayMs ?? 0,
+    props.fadeMs,
+    props.lowPower ?? false,
+    props.smooth ?? false
+  );
+  return {
+    variant,
+    resolvedLat,
+    resolvedLon,
+    geom,
+    quantizedIntensity,
+    iconColor: props.iconColor ?? '#ffffff',
+    dropIn: props.dropIn ?? false,
+    lowPower: props.lowPower ?? false,
+    smooth: props.smooth ?? false,
+    zIndex: props.zIndex ?? 500,
+    isInteractive: Boolean(props.interactive) || props.popup !== undefined,
+    ...styleProps,
+  };
+}
+
 /**
  * React wrapper around core marker geometry and Overlay.
  */
-export const Marker: React.FC<MarkerProps> = memo(
-  ({
-    position,
-    lat,
-    lon,
-    variant = 'pin',
-    size,
-    color,
-    borderColor,
-    iconColor = '#ffffff',
-    pulse = false,
-    pulseColor,
-    pulseLoop = false,
-    glow = false,
-    intensity = 1,
-    delayMs = 0,
-    fadeMs,
-    dropIn = false,
-    lowPower = false,
-    smooth = false,
-    zIndex = 500,
-    interactive = false,
+export const Marker: React.FC<MarkerProps> = memo((props) => {
+  const {
     onClick,
     className,
     title,
+    popup,
+    defaultPopupOpen = false,
     children,
-  }) => {
-    useEffect(() => {
-      ensureMarkerStyles();
-    }, []);
+  } = props;
+  const [popupOpen, setPopupOpen] = useState(defaultPopupOpen);
+  useEffect(() => {
+    ensureMarkerStyles();
+  }, []);
 
-    const resolvedLat = position?.[0] ?? lat ?? Number.NaN;
-    const resolvedLon = position?.[1] ?? lon ?? Number.NaN;
-    const geom = resolveMarkerGeometry(variant, size);
-    const resolvedSize = geom.size;
-    const quantizedIntensity = Math.max(0.5, Math.round(intensity * 10) / 10);
-    const {
-      isPin,
-      resolvedColor,
-      resolvedBorder,
-      wrapperStyle,
-      pulseClassName,
-      pulseCssVars,
-    } = buildMarkerStyleProps(
-      variant,
-      geom,
-      color,
-      borderColor,
-      pulse,
-      pulseColor,
-      pulseLoop,
-      delayMs,
-      fadeMs,
-      lowPower,
-      smooth
-    );
+  const hasPopup = popup !== undefined;
+  const m = resolveMarkerDefaults(props);
+  const handleClick =
+    onClick || hasPopup
+      ? (e: React.MouseEvent<HTMLDivElement>) => {
+          if (hasPopup) setPopupOpen((prev) => !prev);
+          onClick?.(e);
+        }
+      : undefined;
 
-    const renderCore = () =>
-      isPin
-        ? renderPinMarker(
-            resolvedSize,
-            resolvedColor,
-            resolvedBorder,
-            iconColor,
-            interactive,
-            glow,
-            quantizedIntensity,
-            pulseClassName,
-            pulseCssVars,
-            children
-          )
-        : renderCircleMarker(
-            variant,
-            resolvedSize,
-            resolvedColor,
-            resolvedBorder,
-            interactive,
-            glow,
-            quantizedIntensity,
-            pulseClassName,
-            pulseCssVars
-          );
+  const coreNode = renderMarkerCore(
+    m.isPin,
+    m.variant,
+    m.geom.size,
+    m.resolvedColor,
+    m.resolvedBorder,
+    m.iconColor,
+    m.isInteractive,
+    props.glow ?? false,
+    m.quantizedIntensity,
+    m.pulseClassName,
+    m.pulseCssVars,
+    children
+  );
 
-    return (
+  return (
+    <>
       <Overlay
-        lat={resolvedLat}
-        lon={resolvedLon}
-        zIndex={zIndex}
-        anchor={geom.anchor}
-        fixedSize={[geom.boxSize, geom.boxSize]}
-        interactive={interactive}
+        lat={m.resolvedLat}
+        lon={m.resolvedLon}
+        zIndex={m.zIndex}
+        anchor={m.geom.anchor}
+        fixedSize={[m.geom.boxSize, m.geom.boxSize]}
+        interactive={m.isInteractive}
         {...(className ? { className } : {})}
-        {...(onClick ? { onClick } : {})}
+        {...(handleClick ? { onClick: handleClick } : {})}
       >
-        <div style={wrapperStyle} title={title}>
-          {dropIn && !lowPower ? (
-            <div
-              style={{
-                animation: smooth
-                  ? 'll-marker-drop 0.8s cubic-bezier(0.3, 0, 0.2, 1) forwards'
-                  : 'll-marker-drop 0.8s steps(12, end) forwards',
-              }}
-            >
-              {renderCore()}
-            </div>
-          ) : (
-            renderCore()
-          )}
+        <div style={m.wrapperStyle} title={title}>
+          {renderMarkerWrapper(m.dropIn, m.lowPower, m.smooth, coreNode)}
         </div>
       </Overlay>
-    );
-  }
-);
+      {hasPopup && popupOpen && (
+        <Popup
+          lat={m.resolvedLat}
+          lon={m.resolvedLon}
+          onClose={() => setPopupOpen(false)}
+        >
+          {popup}
+        </Popup>
+      )}
+    </>
+  );
+});
 Marker.displayName = 'Marker';

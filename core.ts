@@ -1,23 +1,24 @@
 export {
-  type LatLng,
+  type LatLon,
   type Point2D,
-  type LatLngBounds,
+  type LatLonBounds,
+  type BoundsExtent,
   type ProjectionState,
   type ProjectionType,
-  type BoundsSpec,
+  type GeoBounds,
   type Projection,
   MERCATOR_PROJECTION,
   createEquirectangular,
   TILE_SIZE,
   MAX_MERCATOR_LAT,
   latToMercatorY,
-  latLngToNorm,
-  latLngToNormInto,
-  normToLatLng,
-  latLngToWorld,
-  worldToLatLng,
-  latLngToPx,
-  pxToLatLng,
+  latLonToNorm,
+  latLonToNormInto,
+  normToLatLon,
+  latLonToMapPx,
+  mapPxToLatLon,
+  latLonToPx,
+  pxToLatLon,
   getViewportBounds,
   getWrappedSlices,
   type WrappedSlice,
@@ -28,9 +29,8 @@ export {
   clampCenterToBounds,
 } from './core/projection';
 export {
-  computeArc,
   computeArcsBatch,
-  latLngsToSvgPath,
+  latLonsToSvgPath,
   xyToSvgPath,
   projectMercator,
   traceArc,
@@ -54,41 +54,51 @@ export {
   drawVectorLayers,
   type UploadVectorOptions,
   type VectorLayerStyle,
-  type StyledVectorLayer,
-  type VectorScratchBuffers,
   type DrawVectorOptions,
 } from './core/vectorLayer';
 export { type PreparedFeature, type PreparedLayer } from './formats/types';
-export { parseGeobuf } from './formats/geobuf';
+export {
+  parseGeobuf,
+  loadGeobuf,
+  type ParsedGeobuf,
+  type LoadGeobufOptions,
+} from './formats/geobuf';
+export { MapError, type MapErrorCode } from './core/errors';
+export {
+  createMap,
+  type CreateMapOptions,
+  type MapInstance,
+  type ZoomControlPosition,
+  type ZoomControlsConfig,
+  type AddVectorLayerOptions,
+  type AddPointLayerOptions,
+  type AddImageLayerOptions,
+  type AddTrajectoryLayerOptions,
+  type AddOverlayOptions,
+} from './core/map';
 
 export {
-  Camera,
+  Viewport,
   type ViewportState,
-  type CameraConstraints,
+  type ViewportConstraints,
   type ViewportListener,
   type ProjectionParams,
-} from './core/camera';
+} from './core/viewport';
 
-export {
-  findNearestPoint,
-  hitTestPoints,
-  encodePoints16,
-  type SpatialPoints,
-} from './core/hitTest';
+export { hitTestPoints, encodePoints16, type PointData } from './core/hitTest';
 
 export {
   type CoordPrecision,
   batchProjectPoints,
   uploadStaticPoints,
   type StaticPointsHandle,
-  decimatePackedRings,
   uploadStaticRings,
   encodeRings16,
-  decodeLocationDictBatch,
+  decodeLocDict,
   type StaticGeometryHandle,
-  cleanSeamRing,
+  splitAntimeridianRing,
 } from './core/batch';
-export { type ZoomControlPosition, drawRings } from './core/vectorLod';
+export { drawRings } from './core/vectorLod';
 
 export {
   initWasm,
@@ -108,10 +118,5 @@ export {
   type CanvasRendererOptions,
   type CanvasDrawCallback,
 } from './core/canvasRenderer';
-export {
-  loadImage,
-  drawImage,
-  type ImageBounds,
-  type DrawImageOptions,
-} from './core/imageLayer';
+export { loadImage, drawImage, type DrawImageOptions } from './core/imageLayer';
 export { type MapLayerRenderer } from './core/renderer';

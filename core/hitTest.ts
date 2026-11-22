@@ -1,6 +1,5 @@
-import { Camera } from './camera';
+import { Viewport } from './viewport';
 import { type StaticPointsHandle } from './batch';
-import { Point2D } from './projection';
 import {
   LUT_OFFSET_BYTES,
   getWasmRuntime,
@@ -8,45 +7,10 @@ import {
   type HitTestKernelFn,
 } from '../wasm/bridge';
 
-export interface SpatialPoints {
+export interface PointData {
   count: number;
   lats: ArrayLike<number>;
   lons: ArrayLike<number>;
-}
-
-/**
- * Finds the index of the nearest point within radiusPx of (clickX, clickY), or -1 if none.
- */
-export function findNearestPoint(
-  clickX: number,
-  clickY: number,
-  points: SpatialPoints | null,
-  projectFn: (lat: number, lon: number, out: Point2D) => Point2D,
-  radiusPx = 14
-): number {
-  if (!points || points.count <= 0) return -1;
-
-  let bestIdx = -1;
-  let bestDistSq = radiusPx * radiusPx;
-  const tmpPt: Point2D = { x: 0, y: 0 };
-
-  for (let i = 0; i < points.count; i++) {
-    const lat = points.lats[i];
-    const lon = points.lons[i];
-    if (lat === undefined || lon === undefined) continue;
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
-
-    const pt = projectFn(lat, lon, tmpPt);
-    const dx = pt.x - clickX;
-    const dy = pt.y - clickY;
-    const distSq = dx * dx + dy * dy;
-    if (distSq <= bestDistSq) {
-      bestDistSq = distSq;
-      bestIdx = i;
-    }
-  }
-
-  return bestIdx;
 }
 
 function runHitTestKernel<T extends Float32Array | Int16Array>(
@@ -55,7 +19,7 @@ function runHitTestKernel<T extends Float32Array | Int16Array>(
   lats: T,
   lons: T,
   count: number,
-  camera: Camera,
+  viewport: Viewport,
   radiusPx: number,
   elemShift: 1 | 2,
   getView: (rt: NonNullable<ReturnType<typeof getWasmRuntime>>) => T,
@@ -84,7 +48,7 @@ function runHitTestKernel<T extends Float32Array | Int16Array>(
     elemShift
   );
 
-  const p = camera.getProjectionParams();
+  const p = viewport.getProjectionParams();
   return kernel(
     clickX,
     clickY,
@@ -105,7 +69,7 @@ function hitTestStaticPointsHandle(
   clickX: number,
   clickY: number,
   handle: StaticPointsHandle,
-  camera: Camera,
+  viewport: Viewport,
   radiusPx: number
 ): number {
   if (handle.count <= 0) return -1;
@@ -117,7 +81,7 @@ function hitTestStaticPointsHandle(
       : rt.exports.findNearestPointBatch;
   if (!kernel) return -1;
 
-  const p = camera.getProjectionParams();
+  const p = viewport.getProjectionParams();
   return kernel(
     clickX,
     clickY,
@@ -141,13 +105,19 @@ function hitTestStaticPointsHandle(
 export function hitTestPoints(
   clickX: number,
   clickY: number,
-  points: SpatialPoints | StaticPointsHandle | null,
-  camera: Camera,
+  points: PointData | StaticPointsHandle | null,
+  viewport: Viewport,
   radiusPx = 14
 ): number {
   if (!points) return -1;
   if ('latsOffset' in points) {
-    return hitTestStaticPointsHandle(clickX, clickY, points, camera, radiusPx);
+    return hitTestStaticPointsHandle(
+      clickX,
+      clickY,
+      points,
+      viewport,
+      radiusPx
+    );
   }
   if (points.lats instanceof Int16Array && points.lons instanceof Int16Array) {
     return runHitTestKernel(
@@ -156,7 +126,7 @@ export function hitTestPoints(
       points.lats,
       points.lons,
       points.count,
-      camera,
+      viewport,
       radiusPx,
       1,
       (rt) => rt.i16,
@@ -173,7 +143,7 @@ export function hitTestPoints(
       points.lats,
       points.lons,
       points.count,
-      camera,
+      viewport,
       radiusPx,
       2,
       (rt) => rt.f32,
@@ -184,7 +154,7 @@ export function hitTestPoints(
 }
 
 /**
- * Encodes (lat, lon) arrays into 16-bit fixed-point SpatialPoints buffers.
+ * Encodes (lat, lon) arrays into 16-bit fixed-point PointData buffers.
  */
 export function encodePoints16(
   lats: ArrayLike<number>,

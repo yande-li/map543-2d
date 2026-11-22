@@ -1,8 +1,8 @@
-import { Camera } from './camera';
-import { LatLng } from './projection';
+import { Viewport } from './viewport';
+import { LatLon } from './projection';
 
 export interface MapClickEvent {
-  latLng: LatLng;
+  latLon: LatLon;
   x: number;
   y: number;
 }
@@ -20,7 +20,7 @@ export interface InteractionOptions {
   observeResize?: boolean;
   /** Callback invoked on pointerup when movement stayed within the 5px click threshold. */
   onClick?: (event: MapClickEvent) => void;
-  /** Debounced callback invoked after camera movement settles. */
+  /** Debounced callback invoked after viewport movement settles. */
   onMoveEnd?: () => void;
   /** Debounce delay in ms for onMoveEnd (default: 120). */
   moveEndDelayMs?: number;
@@ -41,7 +41,7 @@ const CLICK_SLOP_SQ = 25; // 5px
  */
 export function attachInteractions(
   el: HTMLElement,
-  camera: Camera,
+  viewport: Viewport,
   options: InteractionOptions = {}
 ): () => void {
   const {
@@ -65,7 +65,7 @@ export function attachInteractions(
     rectLeft = rect.left;
     rectTop = rect.top;
     if (observeResize && rect.width > 0 && rect.height > 0) {
-      camera.setSize(rect.width, rect.height);
+      viewport.setSize(rect.width, rect.height);
     }
   };
 
@@ -89,7 +89,7 @@ export function attachInteractions(
 
   if (onMoveEnd) {
     let moveEndTimer: ReturnType<typeof setTimeout> | null = null;
-    const unsubscribe = camera.subscribe(() => {
+    const unsubscribe = viewport.subscribe(() => {
       if (moveEndTimer !== null) clearTimeout(moveEndTimer);
       moveEndTimer = setTimeout(() => {
         moveEndTimer = null;
@@ -125,13 +125,13 @@ export function attachInteractions(
         const dy = pendingPanY;
         pendingPanX = 0;
         pendingPanY = 0;
-        camera.panBy(dx, dy);
+        viewport.panBy(dx, dy);
       }
       if (pendingWheelDelta !== 0) {
         const delta = pendingWheelDelta;
         pendingWheelDelta = 0;
-        camera.zoomAt(
-          camera.getState().zoom + delta,
+        viewport.zoomAt(
+          viewport.getState().zoom + delta,
           wheelAnchorX,
           wheelAnchorY
         );
@@ -155,7 +155,7 @@ export function attachInteractions(
         wheelAnchorY = anchorY;
         scheduleFlush();
       } else {
-        camera.zoomAt(camera.getState().zoom + step, anchorX, anchorY);
+        viewport.zoomAt(viewport.getState().zoom + step, anchorX, anchorY);
       }
     };
 
@@ -205,7 +205,7 @@ export function attachInteractions(
             pendingPanY += dy;
             scheduleFlush();
           } else {
-            camera.panBy(dx, dy);
+            viewport.panBy(dx, dy);
           }
         }
       } else if (pointers.size === 2) {
@@ -223,7 +223,7 @@ export function attachInteractions(
             const midX = (p0.x + p1.x) * 0.5 - rectLeft;
             const midY = (p0.y + p1.y) * 0.5 - rectTop;
             const zoomDiff = Math.log2(dist / lastPinchDist);
-            camera.zoomAt(camera.getState().zoom + zoomDiff, midX, midY);
+            viewport.zoomAt(viewport.getState().zoom + zoomDiff, midX, midY);
           }
           lastPinchDist = dist;
         }
@@ -247,7 +247,7 @@ export function attachInteractions(
       ) {
         const px = e.clientX - rectLeft;
         const py = e.clientY - rectTop;
-        onClick({ latLng: camera.unproject(px, py), x: px, y: py });
+        onClick({ latLon: viewport.unproject(px, py), x: px, y: py });
       }
 
       if (pointers.size === 0) {
@@ -271,13 +271,13 @@ export function attachInteractions(
     };
 
     const zoomCenter = (delta: number) => {
-      const s = camera.getState();
-      camera.zoomAt(s.zoom + delta, s.width * 0.5, s.height * 0.5);
+      const s = viewport.getState();
+      viewport.zoomAt(s.zoom + delta, s.width * 0.5, s.height * 0.5);
     };
 
     const handleDoubleClick = (e: MouseEvent) => {
-      camera.zoomAt(
-        camera.getState().zoom + zoomDelta * 2,
+      viewport.zoomAt(
+        viewport.getState().zoom + zoomDelta * 2,
         e.clientX - rectLeft,
         e.clientY - rectTop
       );
@@ -298,19 +298,19 @@ export function attachInteractions(
       switch (e.key) {
         case 'ArrowUp':
           e.preventDefault();
-          camera.panBy(0, keyboardPanStepPx);
+          viewport.panBy(0, keyboardPanStepPx);
           break;
         case 'ArrowDown':
           e.preventDefault();
-          camera.panBy(0, -keyboardPanStepPx);
+          viewport.panBy(0, -keyboardPanStepPx);
           break;
         case 'ArrowLeft':
           e.preventDefault();
-          camera.panBy(keyboardPanStepPx, 0);
+          viewport.panBy(keyboardPanStepPx, 0);
           break;
         case 'ArrowRight':
           e.preventDefault();
-          camera.panBy(-keyboardPanStepPx, 0);
+          viewport.panBy(-keyboardPanStepPx, 0);
           break;
         case '+':
         case '=':

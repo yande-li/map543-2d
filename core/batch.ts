@@ -1,5 +1,5 @@
-import { Camera } from './camera';
-import { type SpatialPoints } from './hitTest';
+import { Viewport } from './viewport';
+import { type PointData } from './hitTest';
 import {
   LUT_OFFSET_BYTES,
   getWasmRuntime,
@@ -26,13 +26,13 @@ function invokeProjectKernel(
   lonsOffset: number,
   outXYOffset: number,
   outIdxOffset: number,
-  camera: Camera,
+  viewport: Viewport,
   margin: number,
   outXY: Float32Array,
   outIndices: Int32Array
 ): number {
-  const state = camera.getState();
-  const p = camera.getProjectionParams();
+  const state = viewport.getState();
+  const p = viewport.getProjectionParams();
   const visible = kernel(
     count,
     LUT_OFFSET_BYTES,
@@ -66,7 +66,7 @@ function runBatchProjectKernel<T extends Float32Array | Int16Array>(
   lats: T,
   lons: T,
   count: number,
-  camera: Camera,
+  viewport: Viewport,
   margin: number,
   outXY: Float32Array,
   outIndices: Int32Array,
@@ -111,7 +111,7 @@ function runBatchProjectKernel<T extends Float32Array | Int16Array>(
     lonsOffset,
     outXYOffset,
     outIdxOffset,
-    camera,
+    viewport,
     margin,
     outXY,
     outIndices
@@ -120,7 +120,7 @@ function runBatchProjectKernel<T extends Float32Array | Int16Array>(
 
 function projectStaticPointsHandle(
   handle: StaticPointsHandle,
-  camera: Camera,
+  viewport: Viewport,
   margin: number,
   outXY: Float32Array,
   outIndices: Int32Array
@@ -153,7 +153,7 @@ function projectStaticPointsHandle(
     handle.lonsOffset,
     outXYOffset,
     outIdxOffset,
-    camera,
+    viewport,
     margin,
     outXY,
     outIndices
@@ -164,7 +164,7 @@ function projectTypedArrays(
   lats: ArrayLike<number>,
   lons: ArrayLike<number>,
   count: number,
-  camera: Camera,
+  viewport: Viewport,
   margin: number,
   outXY: Float32Array,
   outIndices: Int32Array
@@ -174,7 +174,7 @@ function projectTypedArrays(
       lats,
       lons,
       count,
-      camera,
+      viewport,
       margin,
       outXY,
       outIndices,
@@ -188,7 +188,7 @@ function projectTypedArrays(
       lats,
       lons,
       count,
-      camera,
+      viewport,
       margin,
       outXY,
       outIndices,
@@ -212,15 +212,15 @@ export interface WasmProjectedPointsResult {
  * Callers must consume `rt.f32` / `rt.i32` before any subsequent WASM call that may grow memory.
  */
 export function projectPointsToScratch(
-  pointsOrHandle: StaticPointsHandle | SpatialPoints,
-  camera: Camera,
+  pointsOrHandle: StaticPointsHandle | PointData,
+  viewport: Viewport,
   margin: number
 ): WasmProjectedPointsResult | null {
   const rt = getWasmRuntime();
   if (rt === null) return null;
 
-  const state = camera.getState();
-  const p = camera.getProjectionParams();
+  const state = viewport.getState();
+  const p = viewport.getProjectionParams();
 
   if ('latsOffset' in pointsOrHandle) {
     if (pointsOrHandle.count <= 0 || pointsOrHandle.epoch !== rt.arenaEpoch) {
@@ -313,12 +313,12 @@ export function projectPointsToScratch(
 }
 
 /**
- * Batch-projects points (from a StaticPointsHandle, SpatialPoints object, or Float32/Int16 arrays)
+ * Batch-projects points (from a StaticPointsHandle, PointData object, or Float32/Int16 arrays)
  * into screen coordinates with viewport AABB culling.
  */
 export function batchProjectPoints(
-  pointsOrHandle: StaticPointsHandle | SpatialPoints,
-  camera: Camera,
+  pointsOrHandle: StaticPointsHandle | PointData,
+  viewport: Viewport,
   margin: number,
   outXY: Float32Array,
   outIndices: Int32Array
@@ -327,16 +327,16 @@ export function batchProjectPoints(
   lats: Float32Array | Int16Array,
   lons: Float32Array | Int16Array,
   count: number,
-  camera: Camera,
+  viewport: Viewport,
   margin: number,
   outXY: Float32Array,
   outIndices: Int32Array
 ): number;
 export function batchProjectPoints(
-  arg1: StaticPointsHandle | SpatialPoints | Float32Array | Int16Array,
-  arg2: Camera | Float32Array | Int16Array,
+  arg1: StaticPointsHandle | PointData | Float32Array | Int16Array,
+  arg2: Viewport | Float32Array | Int16Array,
   arg3: number,
-  arg4: Float32Array | Camera,
+  arg4: Float32Array | Viewport,
   arg5: Int32Array | number,
   arg6?: Float32Array,
   arg7?: Int32Array
@@ -344,7 +344,7 @@ export function batchProjectPoints(
   if ('latsOffset' in arg1) {
     return projectStaticPointsHandle(
       arg1,
-      arg2 as Camera,
+      arg2 as Viewport,
       arg3,
       arg4 as Float32Array,
       arg5 as Int32Array
@@ -355,7 +355,7 @@ export function batchProjectPoints(
       arg1.lats,
       arg1.lons,
       arg1.count,
-      arg2 as Camera,
+      arg2 as Viewport,
       arg3,
       arg4 as Float32Array,
       arg5 as Int32Array
@@ -365,7 +365,7 @@ export function batchProjectPoints(
     arg1,
     arg2 as Float32Array | Int16Array,
     arg3,
-    arg4 as Camera,
+    arg4 as Viewport,
     arg5 as number,
     arg6!,
     arg7!
@@ -424,90 +424,6 @@ export function uploadStaticPoints(
     return uploadStaticPointsTyped(lats, lons, count, 2, 32, (rt) => rt.f32);
   }
   return null;
-}
-
-/**
- * Batch-transforms and decimates packed normalized rings [nx, ny, ...] via WASM.
- */
-export function decimatePackedRings(
-  packedXY: Float32Array,
-  ringLengths: Int32Array,
-  ringCount: number,
-  scale: number,
-  offsetX: number,
-  offsetY: number,
-  pixelStep: number,
-  outXY: Float32Array,
-  outRingLengths: Int32Array
-): number {
-  if (
-    ringCount <= 0 ||
-    ringCount > ringLengths.length ||
-    outRingLengths.length < ringCount ||
-    outXY.length < packedXY.length
-  ) {
-    return 0;
-  }
-
-  let expectedFloats = 0;
-  for (let r = 0; r < ringCount; r++) {
-    const len = ringLengths[r];
-    if (len < 0 || (len & 1) !== 0) {
-      return 0;
-    }
-    expectedFloats += len;
-    if (expectedFloats > packedXY.length) {
-      return 0;
-    }
-  }
-  if (expectedFloats === 0) {
-    outRingLengths.fill(0, 0, ringCount);
-    return 0;
-  }
-
-  const rt = getWasmRuntime();
-  if (rt === null) return 0;
-
-  const totalInFloats = packedXY.length;
-  const xyBytes = totalInFloats * 4;
-  const lenBytes = ringCount * 4;
-  const inXYOffset = rt.getScratchBase();
-  const ringLenOffset = inXYOffset + xyBytes;
-  const outXYOffset = ringLenOffset + lenBytes;
-  const outLenOffset = outXYOffset + xyBytes;
-  const totalBytes = outLenOffset + lenBytes;
-
-  if (!rt.ensureCapacity(totalBytes)) return 0;
-
-  rt.f32.set(packedXY, inXYOffset >> 2);
-  rt.i32.set(
-    ringCount === ringLengths.length
-      ? ringLengths
-      : ringLengths.subarray(0, ringCount),
-    ringLenOffset >> 2
-  );
-
-  const outFloats = rt.exports.decimateRingsBatch(
-    ringCount,
-    inXYOffset,
-    ringLenOffset,
-    outXYOffset,
-    outLenOffset,
-    scale,
-    offsetX,
-    offsetY,
-    pixelStep
-  );
-
-  if (outFloats > 0 && outFloats <= outXY.length) {
-    outXY.set(
-      rt.f32.subarray(outXYOffset >> 2, (outXYOffset >> 2) + outFloats)
-    );
-  }
-  outRingLengths.set(
-    rt.i32.subarray(outLenOffset >> 2, (outLenOffset >> 2) + ringCount)
-  );
-  return outFloats;
 }
 
 export interface StaticGeometryHandle {
@@ -611,7 +527,7 @@ export function encodeRings16(packedXY: Float32Array): Uint16Array {
  * Batch-decodes 6-byte packed location dictionary entries into Float32 latitude,
  * longitude, and optional Mercator X/Y arrays.
  */
-export function decodeLocationDictBatch(
+export function decodeLocDict(
   rawBytes: Uint8Array,
   locCount: number,
   outLats: Float32Array,
@@ -672,7 +588,7 @@ export function decodeLocationDictBatch(
  * Cleans antimeridian jumps and vertical seams from a flat [lon, lat, ...] ring
  * while computing its [minLon, minLat, maxLon, maxLat] bounding box via WASM.
  */
-export function cleanSeamRing(
+export function splitAntimeridianRing(
   inLonLat: Float32Array,
   floatLen: number,
   outLonLat: Float32Array,

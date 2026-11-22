@@ -1,4 +1,4 @@
-import { Camera } from './camera';
+import { Viewport } from './viewport';
 
 export interface GamepadOptions {
   /** Maximum pan speed in CSS px/sec at full stick deflection (default: 700). */
@@ -21,10 +21,10 @@ function applyDeadzoneCurve(raw: number, deadzone: number): number {
 }
 
 /**
- * Attaches Gamepad API navigation to a Camera while at least one gamepad is connected.
+ * Attaches Gamepad API navigation to a Viewport while at least one gamepad is connected.
  */
 export function attachGamepad(
-  camera: Camera,
+  viewport: Viewport,
   options: GamepadOptions = {}
 ): () => void {
   if (
@@ -128,13 +128,13 @@ export function attachGamepad(
     const panDx = readPanX(activePad, dt);
     const panDy = readPanY(activePad, dt);
     if (panDx !== 0 || panDy !== 0) {
-      camera.panBy(panDx, panDy);
+      viewport.panBy(panDx, panDy);
     }
 
     const totalZoomDelta = readZoomDelta(activePad, dt);
     if (totalZoomDelta !== 0) {
-      const s = camera.getState();
-      camera.zoomAt(s.zoom + totalZoomDelta, s.width * 0.5, s.height * 0.5);
+      const s = viewport.getState();
+      viewport.zoomAt(s.zoom + totalZoomDelta, s.width * 0.5, s.height * 0.5);
     }
 
     wasActive = panDx !== 0 || panDy !== 0 || totalZoomDelta !== 0;

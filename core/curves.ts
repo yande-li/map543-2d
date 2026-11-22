@@ -1,60 +1,8 @@
-import { type Camera } from './camera';
-import { LatLng } from './projection';
+import { type Viewport } from './viewport';
+import { LatLon } from './projection';
 import { LUT_OFFSET_BYTES, getWasmRuntime } from '../wasm/bridge';
 
 const BEZIER_STEPS = 18;
-const BEZIER_LOOKUP = new Float32Array((BEZIER_STEPS + 1) * 3);
-
-for (let i = 0; i <= BEZIER_STEPS; i++) {
-  const t = i / BEZIER_STEPS;
-  const invT = 1 - t;
-  const idx = i * 3;
-  BEZIER_LOOKUP[idx] = invT * invT;
-  BEZIER_LOOKUP[idx + 1] = 2 * invT * t;
-  BEZIER_LOOKUP[idx + 2] = t * t;
-}
-
-/**
- * Generates a 19-point quadratic Bezier arc between two [lat, lon] points,
- * wrapping output longitudes into [-180, 180].
- */
-export function computeArc(
-  src: LatLng,
-  dst: LatLng,
-  isShort = false
-): LatLng[] {
-  if (isShort) return [src, dst];
-
-  const dLon = dst[1] - src[1];
-  const dLat = src[0] - dst[0];
-  const midLat = (src[0] + dst[0]) * 0.5;
-  const dist = (dLat < 0 ? -dLat : dLat) + (dLon < 0 ? -dLon : dLon);
-  const controlLat = midLat + dist * 0.2;
-  const controlLon = src[1] + dLon * 0.5;
-
-  const s0 = src[0];
-  const s1 = src[1];
-  const d0 = dst[0];
-  const d1 = src[1] + dLon;
-  const points: LatLng[] = new Array<LatLng>(BEZIER_STEPS + 1);
-
-  for (let i = 0; i <= BEZIER_STEPS; i++) {
-    const idx = i * 3;
-    const invT2 = BEZIER_LOOKUP[idx];
-    const twoInvTT = BEZIER_LOOKUP[idx + 1];
-    const t2 = BEZIER_LOOKUP[idx + 2];
-
-    const lat = invT2 * s0 + twoInvTT * controlLat + t2 * d0;
-    const lon = invT2 * s1 + twoInvTT * controlLon + t2 * d1;
-    let wrappedLon = lon;
-    if (wrappedLon > 180) wrappedLon -= 360;
-    else if (wrappedLon < -180) wrappedLon += 360;
-
-    points[i] = [lat, wrappedLon];
-  }
-  return points;
-}
-
 export const QUADRATIC_ARC_POINTS = BEZIER_STEPS + 1;
 
 function writeF32Arg(
@@ -127,7 +75,7 @@ export function computeArcsBatch(
 /**
  * Returns the Manhattan distance in degrees between two [lat, lon] coordinates.
  */
-export function manhattanDeg(src: LatLng, dst: LatLng): number {
+export function manhattanDeg(src: LatLon, dst: LatLon): number {
   const dLat = src[0] - dst[0];
   const dLon = src[1] - dst[1];
   return (dLat < 0 ? -dLat : dLat) + (dLon < 0 ? -dLon : dLon);
@@ -156,8 +104,8 @@ export function getArcTiming(dist: number): {
 /**
  * Projects an array of [lat, lon] points into an SVG `M...L...` path string.
  */
-export function latLngsToSvgPath(
-  points: readonly LatLng[],
+export function latLonsToSvgPath(
+  points: readonly LatLon[],
   projectInto: (
     lat: number,
     lon: number,
@@ -209,7 +157,7 @@ export function traceArc(
 export function projectMercator(
   inLatLon: Float32Array,
   ptCount: number,
-  camera: Camera,
+  viewport: Viewport,
   outXY: Float32Array
 ): number {
   const needed = ptCount * 2;
@@ -230,7 +178,7 @@ export function projectMercator(
     inLatLon.length === needed ? inLatLon : inLatLon.subarray(0, needed),
     inOff >> 2
   );
-  const p = camera.getProjectionParams();
+  const p = viewport.getProjectionParams();
   const written = rt.exports.projectMercator(
     ptCount,
     LUT_OFFSET_BYTES,

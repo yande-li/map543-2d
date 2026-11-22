@@ -1,8 +1,5 @@
-import { decimatePackedRings, StaticGeometryHandle } from './batch';
+import { type StaticGeometryHandle } from './batch';
 import { getWasmRuntime } from '../wasm/bridge';
-
-export type ZoomControlPosition =
-  'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 
 /**
  * Computes the effective decimation step in CSS pixels for the current frame.
@@ -71,40 +68,10 @@ function traceCanvasRings(
   }
 }
 
-export function drawDecimatedRings(
-  ctx: CanvasRenderingContext2D,
-  packedXY: Float32Array,
-  ringLengths: Int32Array,
-  ringCount: number,
-  scale: number,
-  offsetX: number,
-  offsetY: number,
-  pixelStep: number,
-  closePath: boolean,
-  scratchXY: Float32Array,
-  scratchLens: Int32Array
-): boolean {
-  const outFloats = decimatePackedRings(
-    packedXY,
-    ringLengths,
-    ringCount,
-    scale,
-    offsetX,
-    offsetY,
-    pixelStep,
-    scratchXY,
-    scratchLens
-  );
-  if (outFloats === 0) return false;
-
-  traceCanvasRings(ctx, scratchXY, scratchLens, ringCount, 0, 0, closePath);
-  return true;
-}
-
 /**
  * Decimates and traces static arena rings using an existing WasmRuntime instance.
  */
-export function drawStaticWithRuntime(
+export function simplifyRings(
   ctx: CanvasRenderingContext2D,
   rt: NonNullable<ReturnType<typeof getWasmRuntime>>,
   outXYOffset: number,
@@ -151,7 +118,7 @@ export function drawStaticWithRuntime(
 }
 
 /**
- * Decimates and traces rings (from a StaticGeometryHandle or packed Float32Array) onto a 2D canvas.
+ * Decimates and traces static arena rings onto a 2D canvas via WASM.
  */
 export function drawRings(
   ctx: CanvasRenderingContext2D,
@@ -161,59 +128,18 @@ export function drawRings(
   offsetY: number,
   pixelStep: number,
   closePath: boolean
-): boolean;
-export function drawRings(
-  ctx: CanvasRenderingContext2D,
-  packedXY: Float32Array,
-  ringLengths: Int32Array,
-  ringCount: number,
-  scale: number,
-  offsetX: number,
-  offsetY: number,
-  pixelStep: number,
-  closePath: boolean,
-  scratchXY: Float32Array,
-  scratchLens: Int32Array
-): boolean;
-export function drawRings(
-  ctx: CanvasRenderingContext2D,
-  arg2: StaticGeometryHandle | Float32Array,
-  arg3: number | Int32Array,
-  arg4: number,
-  arg5: number,
-  arg6: number,
-  arg7: boolean | number,
-  arg8?: number,
-  arg9?: boolean,
-  arg10?: Float32Array,
-  arg11?: Int32Array
 ): boolean {
-  if (typeof arg3 === 'number') {
-    const rt = getWasmRuntime();
-    if (rt === null) return false;
-    return drawStaticWithRuntime(
-      ctx,
-      rt,
-      rt.getScratchBase(),
-      arg2 as StaticGeometryHandle,
-      arg3,
-      arg4,
-      arg5,
-      arg6,
-      arg7 as boolean
-    );
-  }
-  return drawDecimatedRings(
+  const rt = getWasmRuntime();
+  if (rt === null) return false;
+  return simplifyRings(
     ctx,
-    arg2 as Float32Array,
-    arg3,
-    arg4,
-    arg5,
-    arg6,
-    arg7 as number,
-    arg8!,
-    arg9!,
-    arg10!,
-    arg11!
+    rt,
+    rt.getScratchBase(),
+    handle,
+    scale,
+    offsetX,
+    offsetY,
+    pixelStep,
+    closePath
   );
 }

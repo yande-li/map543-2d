@@ -96,7 +96,7 @@ const TrajectoryStroke: React.FC<TrajectoryStrokeProps> = memo(
 TrajectoryStroke.displayName = 'TrajectoryStroke';
 
 /**
- * React wrapper around core/trajectory batching and camera sync.
+ * React wrapper around core/trajectory batching and viewport sync.
  */
 export const TrajectoryLayer: React.FC<TrajectoryLayerProps> = memo(
   ({
@@ -110,7 +110,7 @@ export const TrajectoryLayer: React.FC<TrajectoryLayerProps> = memo(
     lowPower = false,
     smooth = false,
   }) => {
-    const { camera } = useMap();
+    const { viewport } = useMap();
     const svgRef = useRef<SVGSVGElement | null>(null);
     const pathRefs = useRef<Map<string, SVGPathElement>>(new Map());
     const basePathRefs = useRef<Map<string, SVGPathElement>>(new Map());
@@ -131,13 +131,13 @@ export const TrajectoryLayer: React.FC<TrajectoryLayerProps> = memo(
     useEffect(() => {
       return attachSvgSync(
         svgRef.current,
-        camera,
+        viewport,
         prepared,
         (key) => pathRefs.current.get(key),
         (key) => basePathRefs.current.get(key),
         smooth
       );
-    }, [camera, prepared, smooth]);
+    }, [viewport, prepared, smooth]);
 
     return (
       <svg

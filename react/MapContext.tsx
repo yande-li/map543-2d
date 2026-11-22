@@ -1,11 +1,11 @@
 import React, { createContext, useContext } from 'react';
-import { Camera } from '../core/camera';
+import { Viewport } from '../core/viewport';
 import { type MapClickEvent } from '../core/interactions';
 
 export type MapClickListener = (event: MapClickEvent) => void;
 
 export interface MapContextValue {
-  camera: Camera;
+  viewport: Viewport;
   getContainer: () => HTMLDivElement | null;
   subscribeClick: (listener: MapClickListener) => () => void;
 }

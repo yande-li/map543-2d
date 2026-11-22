@@ -1,7 +1,7 @@
 import {
   Projection,
-  LatLng,
-  LatLngBounds,
+  LatLon,
+  LatLonBounds,
   NormalizedBounds,
   Point2D,
   ProjectionType,
@@ -13,27 +13,27 @@ import {
   computeZoomForBounds,
   getViewportBounds,
   resolveProjection,
-  pxToLatLng,
+  pxToLatLon,
 } from './projection';
 
 export interface ViewportState {
-  center: LatLng;
+  center: LatLon;
   zoom: number;
   width: number;
   height: number;
   minZoom: number;
   maxZoom: number;
-  maxBounds?: [LatLng, LatLng];
+  maxBounds?: [LatLon, LatLon];
   referenceWidth?: number;
   preserveViewportSpan?: boolean;
   projection?: ProjectionType | Projection;
   smooth?: boolean;
 }
 
-export interface CameraConstraints {
+export interface ViewportConstraints {
   minZoom?: number;
   maxZoom?: number;
-  maxBounds?: [LatLng, LatLng];
+  maxBounds?: [LatLon, LatLon];
   referenceWidth?: number;
   preserveViewportSpan?: boolean;
   projection?: ProjectionType | Projection;
@@ -51,9 +51,9 @@ export interface ProjectionParams {
 }
 
 /**
- * Framework-agnostic viewport camera controller managing pan, zoom, bounds clamping, and flyTo.
+ * Framework-agnostic viewport viewport controller managing pan, zoom, bounds clamping, and flyTo.
  */
-export class Camera {
+export class Viewport {
   private state: ViewportState;
   private listeners = new Set<ViewportListener>();
   private flyRafId = 0;
@@ -110,7 +110,7 @@ export class Camera {
     this.updateProjectionCache();
   }
 
-  private clampStateCenter(center: LatLng, zoom: number): LatLng {
+  private clampStateCenter(center: LatLon, zoom: number): LatLon {
     return clampCenterToBounds(
       center,
       zoom,
@@ -132,7 +132,7 @@ export class Camera {
 
   private updateProjectionCache(): void {
     this.cachedWorldSize = TILE_SIZE * Math.pow(2, this.state.zoom);
-    this.projectionObj.latLngToNorm(
+    this.projectionObj.latLonToNorm(
       this.state.center[0],
       this.state.center[1],
       this.tmpNorm
@@ -231,7 +231,7 @@ export class Camera {
     return baseZoom;
   }
 
-  fitBounds(bounds: [LatLng, LatLng], paddingPx = 0, durationMs = 0): void {
+  fitBounds(bounds: [LatLon, LatLon], paddingPx = 0, durationMs = 0): void {
     const { center, zoom } = computeZoomForBounds(
       bounds,
       this.state.width,
@@ -246,7 +246,7 @@ export class Camera {
     }
   }
 
-  setConstraints(constraints: CameraConstraints): void {
+  setConstraints(constraints: ViewportConstraints): void {
     const nextMinZoom = constraints.minZoom ?? this.state.minZoom;
     const nextMaxZoom = constraints.maxZoom ?? this.state.maxZoom;
     const nextMaxBounds =
@@ -311,7 +311,7 @@ export class Camera {
   }
 
   private commitClampedView(
-    center: LatLng,
+    center: LatLon,
     zoom: number,
     interactive: boolean
   ): void {
@@ -326,7 +326,7 @@ export class Camera {
     this.emit();
   }
 
-  setView(center: LatLng, zoom = this.state.zoom): void {
+  setView(center: LatLon, zoom = this.state.zoom): void {
     this.cancelAnimation();
     this.commitClampedView(center, zoom, false);
   }
@@ -335,12 +335,12 @@ export class Camera {
     if (dx === 0 && dy === 0) return;
     this.cancelAnimation();
     const worldSize = TILE_SIZE * Math.pow(2, this.state.zoom);
-    const centerNorm = this.projectionObj.latLngToNorm(
+    const centerNorm = this.projectionObj.latLonToNorm(
       this.state.center[0],
       this.state.center[1],
       this.tmpNorm
     );
-    const nextCenter = this.projectionObj.normToLatLng(
+    const nextCenter = this.projectionObj.normToLatLon(
       centerNorm.x - dx / worldSize,
       centerNorm.y - dy / worldSize
     );
@@ -355,16 +355,16 @@ export class Camera {
     const nextZoom = this.clampZoom(targetZoom);
     if (Math.abs(nextZoom - this.state.zoom) < 1e-5) return;
 
-    const anchorLatLng = pxToLatLng(
+    const anchorLatLon = pxToLatLon(
       anchorX,
       anchorY,
       this.state,
       this.projectionObj
     );
     const nextWorldSize = TILE_SIZE * Math.pow(2, nextZoom);
-    const anchorNorm = this.projectionObj.latLngToNorm(
-      anchorLatLng[0],
-      anchorLatLng[1],
+    const anchorNorm = this.projectionObj.latLonToNorm(
+      anchorLatLon[0],
+      anchorLatLon[1],
       this.tmpNorm
     );
     const nextCenterNormX =
@@ -372,7 +372,7 @@ export class Camera {
     const nextCenterNormY =
       anchorNorm.y - (anchorY - this.state.height * 0.5) / nextWorldSize;
 
-    const rawCenter = this.projectionObj.normToLatLng(
+    const rawCenter = this.projectionObj.normToLatLon(
       nextCenterNormX,
       nextCenterNormY
     );
@@ -383,7 +383,7 @@ export class Camera {
   }
 
   flyTo(
-    targetCenter: LatLng,
+    targetCenter: LatLon,
     targetZoom = this.state.zoom,
     durationMs = 1500
   ): void {
@@ -401,7 +401,7 @@ export class Camera {
     const startTime = performance.now();
     let lastEmitTime = 0;
     const FLY_FRAME_INTERVAL_MS = 50; // Cap flyTo updates to 20 FPS unless unlocked
-    const tmpFlyCenter: LatLng = [0, 0];
+    const tmpFlyCenter: LatLon = [0, 0];
     const tick = (now: number) => {
       const elapsed = now - startTime;
       const t = Math.min(1, elapsed / durationMs);
@@ -447,7 +447,7 @@ export class Camera {
    * Zero-allocation projection using cached center/worldSize state.
    */
   projectInto(lat: number, lon: number, out: Point2D): Point2D {
-    this.projectionObj.latLngToNorm(lat, lon, this.tmpNorm);
+    this.projectionObj.latLonToNorm(lat, lon, this.tmpNorm);
     out.x =
       this.cachedHalfW +
       (this.tmpNorm.x - this.cachedCenterNormX) * this.cachedWorldSize;
@@ -457,11 +457,11 @@ export class Camera {
     return out;
   }
 
-  unproject(px: number, py: number): LatLng {
-    return pxToLatLng(px, py, this.state, this.projectionObj);
+  unproject(px: number, py: number): LatLon {
+    return pxToLatLon(px, py, this.state, this.projectionObj);
   }
 
-  getBounds(): LatLngBounds {
+  getBounds(): LatLonBounds {
     return getViewportBounds(this.state, this.projectionObj);
   }
 

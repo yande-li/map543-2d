@@ -8,9 +8,9 @@ import { useMap } from './MapContext';
 export interface CanvasLayerProps {
   zIndex?: number;
   maxDpr?: number;
-  /** Optional reduced maxDpr applied during active camera interaction. */
+  /** Optional reduced maxDpr applied during active viewport interaction. */
   interactionMaxDpr?: number;
-  /** Delay in ms after camera interaction stops before restoring full detail. */
+  /** Delay in ms after viewport interaction stops before restoring full detail. */
   interactionIdleDelayMs?: number;
   className?: string;
   onDraw: CanvasDrawCallback;
@@ -19,7 +19,7 @@ export interface CanvasLayerProps {
 const IDLE_DELAY_MS = 140;
 
 /**
- * DPR-aware canvas layer synchronized with camera viewport changes via CanvasRenderer.
+ * DPR-aware canvas layer synchronized with viewport viewport changes via CanvasRenderer.
  */
 export const CanvasLayer: React.FC<CanvasLayerProps> = ({
   zIndex = 100,
@@ -29,7 +29,7 @@ export const CanvasLayer: React.FC<CanvasLayerProps> = ({
   className = '',
   onDraw,
 }) => {
-  const { camera } = useMap();
+  const { viewport } = useMap();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const layerRef = useRef<CanvasRenderer | null>(null);
   const latestOptionsRef = useRef({
@@ -63,13 +63,13 @@ export const CanvasLayer: React.FC<CanvasLayerProps> = ({
       onDraw: opts.onDraw,
     });
     layerRef.current = layer;
-    layer.attachCanvas(canvas, camera);
+    layer.attachCanvas(canvas, viewport);
 
     return () => {
       layer.onDetach();
       layerRef.current = null;
     };
-  }, [camera]);
+  }, [viewport]);
 
   useEffect(() => {
     layerRef.current?.setOptions({

@@ -7,7 +7,7 @@ const SEAM_DELTA_EPS = 0.000003; // ~0.001 deg in [0, 1] Mercator X
  * Splits polygon stroke rings that touch or wrap across the ±180° antimeridian
  * so border strokes do not draw horizontal artifacts across the map.
  */
-export function cleanSeamFeature(
+export function splitAntimeridianFeature(
   feature: PreparedFeature
 ): PreparedFeature | null {
   const { packedXY, ringLengths, ringCount } = feature;

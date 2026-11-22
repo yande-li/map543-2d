@@ -1,4 +1,4 @@
-import { type Camera } from './camera';
+import { type Viewport } from './viewport';
 import {
   type CoordPrecision,
   type StaticPointsHandle,
@@ -144,7 +144,7 @@ function fillCircles(
  */
 export function drawBatchPoints(
   ctx: CanvasRenderingContext2D,
-  camera: Camera,
+  viewport: Viewport,
   points: readonly PointItem[],
   spatial: PointBuffers,
   _outXY: Float32Array,
@@ -156,7 +156,7 @@ export function drawBatchPoints(
   const staticHandle = getValidStaticHandle(spatial);
   const projected = projectPointsToScratch(
     staticHandle ?? spatial,
-    camera,
+    viewport,
     margin
   );
   if (!projected || projected.visible === 0) return;
@@ -229,9 +229,10 @@ export function drawBatchPoints(
  */
 export function attachPointHover(
   container: HTMLElement | null,
-  camera: Camera,
+  viewport: Viewport,
   spatial: PointBuffers,
-  hitRadiusPx = 18
+  hitRadiusPx = 18,
+  onHover?: (index: number) => void
 ): () => void {
   if (!container || spatial.count === 0) return () => {};
 
@@ -240,6 +241,7 @@ export function attachPointHover(
   let lastY = 0;
   let rectLeft = 0;
   let rectTop = 0;
+  let lastHoverIdx = -1;
 
   const syncRect = () => {
     const rect = container.getBoundingClientRect();
@@ -267,10 +269,14 @@ export function attachPointHover(
       x,
       y,
       staticHandle ?? spatial,
-      camera,
+      viewport,
       hitRadiusPx
     );
     container.style.cursor = idx >= 0 ? 'pointer' : '';
+    if (idx !== lastHoverIdx) {
+      lastHoverIdx = idx;
+      onHover?.(idx);
+    }
   };
 
   const onPointerMove = (e: PointerEvent) => {
@@ -288,6 +294,10 @@ export function attachPointHover(
       rafId = 0;
     }
     container.style.cursor = '';
+    if (lastHoverIdx !== -1) {
+      lastHoverIdx = -1;
+      onHover?.(-1);
+    }
   };
 
   container.addEventListener('pointermove', onPointerMove);

@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { type LatLng } from '../core/projection';
+import { type LatLon } from '../core/projection';
 import { useMap } from './MapContext';
 
 export interface OverlayProps {
   /** Geographic position as [lat, lon] tuple (or pass `lat` and `lon`). */
-  position?: LatLng;
+  position?: LatLon;
   lat?: number;
   lon?: number;
   zIndex?: number;
@@ -22,7 +22,7 @@ export interface OverlayProps {
 }
 
 /**
- * Positions React UI at [lat, lon] using CSS transforms synchronized with Camera.
+ * Positions React UI at [lat, lon] using CSS transforms synchronized with Viewport.
  */
 export const Overlay: React.FC<OverlayProps> = ({
   position,
@@ -38,7 +38,7 @@ export const Overlay: React.FC<OverlayProps> = ({
   onClick,
   children,
 }) => {
-  const { camera } = useMap();
+  const { viewport } = useMap();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const resolvedLat = position?.[0] ?? lat ?? Number.NaN;
   const resolvedLon = position?.[1] ?? lon ?? Number.NaN;
@@ -71,13 +71,13 @@ export const Overlay: React.FC<OverlayProps> = ({
         setHidden();
         return;
       }
-      camera.projectInto(resolvedLat, resolvedLon, pt);
+      viewport.projectInto(resolvedLat, resolvedLon, pt);
       const ox = Math.round(-anchorX * cachedWidth);
       const oy = Math.round(-anchorY * cachedHeight);
       const x = Math.round(pt.x) + ox;
       const y = Math.round(pt.y) + oy;
       if (cullOffscreen) {
-        const s = camera.getState();
+        const s = viewport.getState();
         if (
           s.width > 0 &&
           s.height > 0 &&
@@ -102,7 +102,7 @@ export const Overlay: React.FC<OverlayProps> = ({
     };
 
     updatePosition();
-    const unsubscribe = camera.subscribe(updatePosition);
+    const unsubscribe = viewport.subscribe(updatePosition);
     const resizeObserver =
       !hasFixedSize && typeof ResizeObserver !== 'undefined'
         ? new ResizeObserver(() => {
@@ -120,7 +120,7 @@ export const Overlay: React.FC<OverlayProps> = ({
       resizeObserver?.disconnect();
     };
   }, [
-    camera,
+    viewport,
     resolvedLat,
     resolvedLon,
     anchorX,
@@ -156,7 +156,7 @@ export const Overlay: React.FC<OverlayProps> = ({
 
 export interface PopupProps {
   /** Geographic position as [lat, lon] tuple (or pass `lat` and `lon`). */
-  position?: LatLng;
+  position?: LatLon;
   lat?: number;
   lon?: number;
   maxWidth?: number;
@@ -181,7 +181,7 @@ export const Popup: React.FC<PopupProps> = ({
   onClose,
   children,
 }) => {
-  const { camera } = useMap();
+  const { viewport } = useMap();
   const [flipped, setFlipped] = useState(false);
   const resolvedLat = position?.[0] ?? lat ?? Number.NaN;
   const resolvedLon = position?.[1] ?? lon ?? Number.NaN;
@@ -205,16 +205,16 @@ export const Popup: React.FC<PopupProps> = ({
       if (!Number.isFinite(resolvedLat) || !Number.isFinite(resolvedLon)) {
         return;
       }
-      const state = camera.getState();
+      const state = viewport.getState();
       if (state.height <= 0) return;
-      camera.projectInto(resolvedLat, resolvedLon, pt);
+      viewport.projectInto(resolvedLat, resolvedLon, pt);
       const shouldFlip = pt.y < 140 && state.height - pt.y > pt.y;
       setFlipped((prev) => (prev === shouldFlip ? prev : shouldFlip));
     };
 
     checkFlip();
-    return camera.subscribe(checkFlip);
-  }, [camera, resolvedLat, resolvedLon]);
+    return viewport.subscribe(checkFlip);
+  }, [viewport, resolvedLat, resolvedLon]);
 
   return (
     <Overlay
@@ -225,14 +225,14 @@ export const Popup: React.FC<PopupProps> = ({
       interactive={true}
     >
       <div
-        className={`geo-popup-wrapper ${flipped ? 'is-flipped' : ''}`}
+        className={`map-popup-wrapper ${flipped ? 'is-flipped' : ''}`}
         style={{
           position: 'relative',
           ...(flipped ? { paddingTop: '7px' } : { paddingBottom: '7px' }),
         }}
       >
         <div
-          className={`geo-popup ${className}`.trim()}
+          className={`map-popup ${className}`.trim()}
           style={{
             width: 'max-content',
             minWidth: `${Math.min(180, maxWidth)}px`,
@@ -256,7 +256,7 @@ export const Popup: React.FC<PopupProps> = ({
           {children}
         </div>
         <div
-          className="geo-popup-tip"
+          className="map-popup-tip"
           aria-hidden="true"
           style={{
             position: 'absolute',

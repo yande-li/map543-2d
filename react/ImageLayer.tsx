@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Camera, ViewportState } from '../core/camera';
-import { drawImage, ImageBounds, loadImage } from '../core/imageLayer';
+import { Viewport, ViewportState } from '../core/viewport';
+import { drawImage, loadImage } from '../core/imageLayer';
+import { type GeoBounds } from '../core/projection';
 import { CanvasLayer } from './CanvasLayer';
 
 export interface ImageLayerProps {
@@ -9,7 +10,7 @@ export interface ImageLayerProps {
   /** Pre-loaded image source (takes precedence over `src` when provided). */
   image?: CanvasImageSource;
   /** Geographic bounds [[minLat, minLon], [maxLat, maxLon]] (default: [[-90, -180], [90, 180]]). */
-  bounds?: ImageBounds;
+  bounds?: GeoBounds;
   zIndex?: number;
   opacity?: number;
   maxDpr?: number;
@@ -17,13 +18,13 @@ export interface ImageLayerProps {
   className?: string;
 }
 
-const DEFAULT_WORLD_BOUNDS: ImageBounds = [
+const DEFAULT_WORLD_BOUNDS: GeoBounds = [
   [-90, -180],
   [90, 180],
 ];
 
 /**
- * Renders a georeferenced raster or vector image (PNG, WebP, SVG) synchronized with Camera.
+ * Renders a georeferenced raster or vector image (PNG, WebP, SVG) synchronized with Viewport.
  */
 export const ImageLayer: React.FC<ImageLayerProps> = ({
   src,
@@ -62,7 +63,7 @@ export const ImageLayer: React.FC<ImageLayerProps> = ({
   const activeImg = image ?? loadedImg;
 
   const onDraw = useCallback(
-    (ctx: CanvasRenderingContext2D, _state: ViewportState, cam: Camera) => {
+    (ctx: CanvasRenderingContext2D, _state: ViewportState, cam: Viewport) => {
       if (!activeImg) return;
       drawImage(
         ctx,

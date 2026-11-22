@@ -1,10 +1,10 @@
-import { Camera, ViewportState } from './camera';
+import { Viewport, ViewportState } from './viewport';
 import { MapLayerRenderer } from './renderer';
 
 export type CanvasDrawCallback = (
   ctx: CanvasRenderingContext2D,
   state: ViewportState,
-  camera: Camera,
+  viewport: Viewport,
   isInteracting: boolean
 ) => void;
 
@@ -37,7 +37,7 @@ function syncCanvasSize(
 export class CanvasRenderer implements MapLayerRenderer {
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
-  private camera: Camera | null = null;
+  private viewport: Viewport | null = null;
   private unsubscribe: (() => void) | null = null;
   private ownsCanvas = false;
 
@@ -69,18 +69,18 @@ export class CanvasRenderer implements MapLayerRenderer {
   /**
    * Attaches the renderer to an existing `<canvas>` element.
    */
-  attachCanvas(canvas: HTMLCanvasElement, camera: Camera): void {
+  attachCanvas(canvas: HTMLCanvasElement, viewport: Viewport): void {
     this.onDetach();
     this.canvas = canvas;
     this.ownsCanvas = false;
     this.ctx = canvas.getContext('2d', { alpha: true });
-    this.onAttach(camera);
+    this.onAttach(viewport);
   }
 
   /**
    * Creates and mounts a managed `<canvas>` into a container element.
    */
-  mount(container: HTMLElement, camera: Camera): () => void {
+  mount(container: HTMLElement, viewport: Viewport): () => void {
     this.onDetach();
     const canvas = document.createElement('canvas');
     canvas.style.position = 'absolute';
@@ -96,13 +96,13 @@ export class CanvasRenderer implements MapLayerRenderer {
     this.canvas = canvas;
     this.ownsCanvas = true;
     this.ctx = canvas.getContext('2d', { alpha: true });
-    this.onAttach(camera);
+    this.onAttach(viewport);
     return () => this.onDetach();
   }
 
-  onAttach(camera: Camera): void {
-    this.camera = camera;
-    this.unsubscribe = camera.subscribe(() => this.onCameraChange());
+  onAttach(viewport: Viewport): void {
+    this.viewport = viewport;
+    this.unsubscribe = viewport.subscribe(() => this.onViewportChange());
     this.scheduleRedraw();
   }
 
@@ -163,7 +163,7 @@ export class CanvasRenderer implements MapLayerRenderer {
       this.canvas = null;
     }
     this.ctx = null;
-    this.camera = null;
+    this.viewport = null;
     this.ownsCanvas = false;
     this.isInteracting = false;
     this.renderedDuringInteraction = false;
@@ -178,9 +178,9 @@ export class CanvasRenderer implements MapLayerRenderer {
     }
   }
 
-  private onCameraChange(): void {
-    if (!this.camera) return;
-    if (!this.camera.isLastChangeInteractive()) {
+  private onViewportChange(): void {
+    if (!this.viewport) return;
+    if (!this.viewport.isLastChangeInteractive()) {
       if (this.idleTimer !== null) {
         clearTimeout(this.idleTimer);
         this.idleTimer = null;
@@ -222,18 +222,18 @@ export class CanvasRenderer implements MapLayerRenderer {
     state: ViewportState,
     isInteracting: boolean
   ): void {
-    if (!this.camera) return;
+    if (!this.viewport) return;
     ctx.save();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, state.width, state.height);
-    this.onDraw(ctx, state, this.camera, isInteracting);
+    this.onDraw(ctx, state, this.viewport, isInteracting);
     ctx.restore();
   }
 
   private renderFrame(): void {
     this.rafId = 0;
-    if (!this.canvas || !this.ctx || !this.camera) return;
-    const state = this.camera.getState();
+    if (!this.canvas || !this.ctx || !this.viewport) return;
+    const state = this.viewport.getState();
     if (state.width <= 0 || state.height <= 0) return;
 
     const deviceDpr =
