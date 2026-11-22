@@ -5,18 +5,37 @@
 使用降精度等方法的 2D 地圖繪圖函式庫，以減少記憶體佔用與資源消耗。設計用於處理我另一個玩具專案的地圖渲染及相關功能。
 
 - **支援格式**：Mapbox Geobuf（`.geobuf`、`.pbf`）及瀏覽器支援的圖片格式（PNG、WebP、AVIF、SVG、JPEG 等）
-- **地理座標系（GCS）**：**WGS 84**（`EPSG:4326`，`[lat, lon]`）
+- **地理座標系（GCS）**：**WGS 84**（`EPSG:4326`）
 - **投影座標系（PCS）**：
-  - **Web Mercator**（`EPSG:3857`，預設，緯度範圍 `±85.051129°`）
-  - **Equirectangular / 等距圓柱投影**（`projection="equirectangular"` 或 `createEquirectangular(bounds)`）
+  - **Web Mercator**（`EPSG:3857`，預設）
+  - **Equirectangular / Plate Carrée**
 - **最低環境要求（ES2022 + WebAssembly 2.0）**
 
 ## 使用範例
 
 ```tsx
-import { MapView, VectorLayer, PointLayer, Marker } from 'map543-2d';
+import { useEffect, useState } from 'react';
+import {
+  MapView,
+  VectorLayer,
+  PointLayer,
+  Marker,
+  parseGeobuf,
+  type PreparedLayer,
+} from 'map543-2d';
 
-export function App({ layers, points }) {
+export function App({ points }) {
+  const [layers, setLayers] = useState<{
+    fillLayers: PreparedLayer[];
+    strokeLayers: PreparedLayer[];
+  } | null>(null);
+
+  useEffect(() => {
+    fetch('/world.geobuf')
+      .then((res) => res.arrayBuffer())
+      .then((buf) => setLayers(parseGeobuf(buf)));
+  }, []);
+
   return (
     <MapView
       center={[25, 121]}
@@ -24,11 +43,13 @@ export function App({ layers, points }) {
       showZoomControls
       onClick={({ latLng }) => console.log(latLng)}
     >
-      <VectorLayer
-        fillLayers={layers.fillLayers}
-        strokeLayers={layers.strokeLayers}
-        precision={16}
-      />
+      {layers && (
+        <VectorLayer
+          fillLayers={layers.fillLayers}
+          strokeLayers={layers.strokeLayers}
+          precision={16}
+        />
+      )}
       <PointLayer points={points} precision={16} />
       <Marker position={[25.033, 121.565]} pulse="radar" />
     </MapView>
@@ -61,6 +82,6 @@ export function App({ layers, points }) {
 ```bash
 npm run build   # 編譯 WASM、產生 .d.ts 並打包 dist/
 npm test        # 執行單元測試
-npm run bench   # 執行效能與記憶體 benchmark
+npm run bench   # 執行 benchmark
 npm run size    # 檢查 dist/ 體積預算
 ```

@@ -5,18 +5,37 @@ English | [繁體中文](./README.zh-TW.md)
 A 2D map rendering library using lower-precision techniques to reduce memory footprint and resource overhead. It is designed to handle map rendering and related features for another toy project of mine.
 
 - **Supported formats**: Mapbox Geobuf (`.geobuf`, `.pbf`), and browser-supported image formats (PNG, WebP, AVIF, SVG, JPEG, etc.)
-- **Geographic Coordinate System (GCS)**: **WGS 84** (`EPSG:4326`, `[lat, lon]`)
+- **Geographic Coordinate System (GCS)**: **WGS 84** (`EPSG:4326`)
 - **Projected Coordinate Systems (PCS)**:
-  - **Web Mercator** (`EPSG:3857`, default, `±85.051129°`)
-  - **Equirectangular / Plate Carrée** (`projection="equirectangular"` or `createEquirectangular(bounds)`)
+  - **Web Mercator** (`EPSG:3857`, default)
+  - **Equirectangular / Plate Carrée**
 - **Minimum Requirements (ES2022 + WebAssembly 2.0)**
 
 ## Usage
 
 ```tsx
-import { MapView, VectorLayer, PointLayer, Marker } from 'map543-2d';
+import { useEffect, useState } from 'react';
+import {
+  MapView,
+  VectorLayer,
+  PointLayer,
+  Marker,
+  parseGeobuf,
+  type PreparedLayer,
+} from 'map543-2d';
 
-export function App({ layers, points }) {
+export function App({ points }) {
+  const [layers, setLayers] = useState<{
+    fillLayers: PreparedLayer[];
+    strokeLayers: PreparedLayer[];
+  } | null>(null);
+
+  useEffect(() => {
+    fetch('/world.geobuf')
+      .then((res) => res.arrayBuffer())
+      .then((buf) => setLayers(parseGeobuf(buf)));
+  }, []);
+
   return (
     <MapView
       center={[25, 121]}
@@ -24,11 +43,13 @@ export function App({ layers, points }) {
       showZoomControls
       onClick={({ latLng }) => console.log(latLng)}
     >
-      <VectorLayer
-        fillLayers={layers.fillLayers}
-        strokeLayers={layers.strokeLayers}
-        precision={16}
-      />
+      {layers && (
+        <VectorLayer
+          fillLayers={layers.fillLayers}
+          strokeLayers={layers.strokeLayers}
+          precision={16}
+        />
+      )}
       <PointLayer points={points} precision={16} />
       <Marker position={[25.033, 121.565]} pulse="radar" />
     </MapView>
@@ -61,6 +82,6 @@ Full prop types and JSDoc are included in TypeScript declarations (`.d.ts`).
 ```bash
 npm run build   # Compile WASM, emit .d.ts, and bundle dist/
 npm test        # Run unit tests
-npm run bench   # Run performance & memory benchmarks
+npm run bench   # Run benchmarks
 npm run size    # Verify dist/ bundle size budgets
 ```

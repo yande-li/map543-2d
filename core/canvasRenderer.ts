@@ -19,6 +19,17 @@ export interface CanvasRendererOptions {
 
 const IDLE_DELAY_MS = 140;
 
+function syncCanvasSize(
+  canvas: HTMLCanvasElement,
+  width: number,
+  height: number
+): void {
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+}
+
 /**
  * 2D canvas layer renderer managing a DPR-aware `<canvas>`, rAF redraw coalescing,
  * and optional interaction downsampling.
@@ -205,6 +216,20 @@ export class CanvasRenderer implements MapLayerRenderer {
     }
   }
 
+  private drawLayerPass(
+    ctx: CanvasRenderingContext2D,
+    dpr: number,
+    state: ViewportState,
+    isInteracting: boolean
+  ): void {
+    if (!this.camera) return;
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, state.width, state.height);
+    this.onDraw(ctx, state, this.camera, isInteracting);
+    ctx.restore();
+  }
+
   private renderFrame(): void {
     this.rafId = 0;
     if (!this.canvas || !this.ctx || !this.camera) return;
@@ -216,11 +241,7 @@ export class CanvasRenderer implements MapLayerRenderer {
     const fullDpr = Math.min(deviceDpr, this.maxDpr);
     const targetW = Math.max(1, Math.round(state.width * fullDpr));
     const targetH = Math.max(1, Math.round(state.height * fullDpr));
-
-    if (this.canvas.width !== targetW || this.canvas.height !== targetH) {
-      this.canvas.width = targetW;
-      this.canvas.height = targetH;
-    }
+    syncCanvasSize(this.canvas, targetW, targetH);
 
     const useLowResBuffer =
       this.isInteracting &&
@@ -236,18 +257,8 @@ export class CanvasRenderer implements MapLayerRenderer {
         this.lowResCtx = this.lowResCanvas.getContext('2d', { alpha: true });
       }
       if (this.lowResCanvas && this.lowResCtx) {
-        if (
-          this.lowResCanvas.width !== lowW ||
-          this.lowResCanvas.height !== lowH
-        ) {
-          this.lowResCanvas.width = lowW;
-          this.lowResCanvas.height = lowH;
-        }
-        this.lowResCtx.save();
-        this.lowResCtx.setTransform(lowDpr, 0, 0, lowDpr, 0, 0);
-        this.lowResCtx.clearRect(0, 0, state.width, state.height);
-        this.onDraw(this.lowResCtx, state, this.camera, true);
-        this.lowResCtx.restore();
+        syncCanvasSize(this.lowResCanvas, lowW, lowH);
+        this.drawLayerPass(this.lowResCtx, lowDpr, state, true);
 
         this.ctx.save();
         this.ctx.setTransform(fullDpr, 0, 0, fullDpr, 0, 0);
@@ -259,11 +270,7 @@ export class CanvasRenderer implements MapLayerRenderer {
       }
     }
 
-    this.ctx.save();
-    this.ctx.setTransform(fullDpr, 0, 0, fullDpr, 0, 0);
-    this.ctx.clearRect(0, 0, state.width, state.height);
-    this.onDraw(this.ctx, state, this.camera, this.isInteracting);
-    this.ctx.restore();
+    this.drawLayerPass(this.ctx, fullDpr, state, this.isInteracting);
     this.renderedDuringInteraction = this.isInteracting;
   }
 }

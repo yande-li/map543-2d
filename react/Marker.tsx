@@ -41,6 +41,23 @@ export interface MarkerProps {
   children?: React.ReactNode;
 }
 
+const FLEX_CENTER: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+};
+
+function makeGlowShadow(
+  glow: boolean,
+  quantizedIntensity: number,
+  resolvedColor: string,
+  fallback?: string
+): string | undefined {
+  return glow
+    ? `0 0 ${Math.round(5 * quantizedIntensity)}px ${Math.round(2 * quantizedIntensity)}px ${resolvedColor}`
+    : fallback;
+}
+
 function renderPinMarker(
   resolvedSize: number,
   resolvedColor: string,
@@ -58,20 +75,21 @@ function renderPinMarker(
     <div
       className={pulseClassName || undefined}
       style={{
+        ...FLEX_CENTER,
         width: `${resolvedSize}px`,
         height: `${resolvedSize}px`,
         boxSizing: 'border-box',
         pointerEvents: interactive ? 'auto' : 'none',
         background: resolvedColor,
         border: `2px solid ${resolvedBorder}`,
-        boxShadow: glow
-          ? `0 0 ${Math.round(5 * quantizedIntensity)}px ${Math.round(2 * quantizedIntensity)}px ${resolvedColor}`
-          : '0 2px 6px rgba(0, 0, 0, 0.35)',
+        boxShadow: makeGlowShadow(
+          glow,
+          quantizedIntensity,
+          resolvedColor,
+          '0 2px 6px rgba(0, 0, 0, 0.35)'
+        ),
         borderRadius: '50% 50% 50% 0',
         transform: 'rotate(-45deg)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
         color: iconColor,
         zIndex: 2,
         ...pulseCssVars,
@@ -79,10 +97,8 @@ function renderPinMarker(
     >
       <div
         style={{
+          ...FLEX_CENTER,
           transform: 'rotate(45deg)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
           backfaceVisibility: 'hidden',
         }}
       >
@@ -129,9 +145,7 @@ function renderCircleMarker(
         boxSizing: 'border-box',
         background: variant === 'ring' ? 'transparent' : resolvedColor,
         border,
-        boxShadow: glow
-          ? `0 0 ${Math.round(5 * quantizedIntensity)}px ${Math.round(2 * quantizedIntensity)}px ${resolvedColor}`
-          : undefined,
+        boxShadow: makeGlowShadow(glow, quantizedIntensity, resolvedColor),
         transform:
           quantizedIntensity !== 1 ? `scale(${quantizedIntensity})` : undefined,
         pointerEvents: interactive ? 'auto' : 'none',

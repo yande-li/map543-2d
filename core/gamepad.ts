@@ -76,17 +76,20 @@ export function attachGamepad(
     prevRb = false;
   };
 
-  const readPanDelta = (pad: Gamepad, dt: number): [number, number] => {
+  const readPanX = (pad: Gamepad, dt: number): number => {
     const axisX = applyDeadzoneCurve(pad.axes[0] ?? 0, deadzone);
+    let dx = -axisX * panSpeedPxPerSec * dt;
+    if (pad.buttons[14]?.pressed) dx += dpadStepPx;
+    if (pad.buttons[15]?.pressed) dx -= dpadStepPx;
+    return dx;
+  };
+
+  const readPanY = (pad: Gamepad, dt: number): number => {
     const axisY = applyDeadzoneCurve(pad.axes[1] ?? 0, deadzone);
-    let panDx = -axisX * panSpeedPxPerSec * dt;
-    let panDy = -axisY * panSpeedPxPerSec * dt;
-    // D-pad (standard mapping: 12=Up, 13=Down, 14=Left, 15=Right)
-    if (pad.buttons[12]?.pressed) panDy += dpadStepPx;
-    if (pad.buttons[13]?.pressed) panDy -= dpadStepPx;
-    if (pad.buttons[14]?.pressed) panDx += dpadStepPx;
-    if (pad.buttons[15]?.pressed) panDx -= dpadStepPx;
-    return [panDx, panDy];
+    let dy = -axisY * panSpeedPxPerSec * dt;
+    if (pad.buttons[12]?.pressed) dy += dpadStepPx;
+    if (pad.buttons[13]?.pressed) dy -= dpadStepPx;
+    return dy;
   };
 
   const readZoomDelta = (pad: Gamepad, dt: number): number => {
@@ -122,7 +125,8 @@ export function attachGamepad(
     const dt = lastTime > 0 ? Math.min(0.1, (now - lastTime) / 1000) : 1 / 30;
     lastTime = now;
 
-    const [panDx, panDy] = readPanDelta(activePad, dt);
+    const panDx = readPanX(activePad, dt);
+    const panDy = readPanY(activePad, dt);
     if (panDx !== 0 || panDy !== 0) {
       camera.panBy(panDx, panDy);
     }

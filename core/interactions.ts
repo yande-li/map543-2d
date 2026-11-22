@@ -261,10 +261,26 @@ export function attachInteractions(
       lastPinchDist = null;
     };
 
+    const bind = <K extends keyof HTMLElementEventMap>(
+      type: K,
+      fn: (ev: HTMLElementEventMap[K]) => void,
+      opts?: AddEventListenerOptions
+    ) => {
+      el.addEventListener(type, fn, opts);
+      cleanups.push(() => el.removeEventListener(type, fn, opts));
+    };
+
+    const zoomCenter = (delta: number) => {
+      const s = camera.getState();
+      camera.zoomAt(s.zoom + delta, s.width * 0.5, s.height * 0.5);
+    };
+
     const handleDoubleClick = (e: MouseEvent) => {
-      const anchorX = e.clientX - rectLeft;
-      const anchorY = e.clientY - rectTop;
-      camera.zoomAt(camera.getState().zoom + zoomDelta * 2, anchorX, anchorY);
+      camera.zoomAt(
+        camera.getState().zoom + zoomDelta * 2,
+        e.clientX - rectLeft,
+        e.clientY - rectTop
+      );
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -297,34 +313,31 @@ export function attachInteractions(
           camera.panBy(-keyboardPanStepPx, 0);
           break;
         case '+':
-        case '=': {
+        case '=':
           e.preventDefault();
-          const s = camera.getState();
-          camera.zoomAt(s.zoom + zoomDelta, s.width * 0.5, s.height * 0.5);
+          zoomCenter(zoomDelta);
           break;
-        }
         case '-':
-        case '_': {
+        case '_':
           e.preventDefault();
-          const s = camera.getState();
-          camera.zoomAt(s.zoom - zoomDelta, s.width * 0.5, s.height * 0.5);
+          zoomCenter(-zoomDelta);
           break;
-        }
       }
     };
 
-    el.addEventListener('wheel', handleWheel, { passive: false });
-    el.addEventListener('pointerdown', handlePointerDown);
-    el.addEventListener('pointermove', handlePointerMove);
-    el.addEventListener('pointerup', endPointer);
-    el.addEventListener('pointercancel', endPointer);
-    el.addEventListener('lostpointercapture', endPointer);
-    el.addEventListener('dblclick', handleDoubleClick);
+    bind('wheel', handleWheel, { passive: false });
+    bind('pointerdown', handlePointerDown);
+    bind('pointermove', handlePointerMove);
+    bind('pointerup', endPointer);
+    bind('pointercancel', endPointer);
+    bind('lostpointercapture', endPointer);
+    bind('dblclick', handleDoubleClick);
     if (keyboard) {
-      el.addEventListener('keydown', handleKeyDown);
+      bind('keydown', handleKeyDown);
     }
     if (typeof window !== 'undefined') {
       window.addEventListener('blur', clearPointers);
+      cleanups.push(() => window.removeEventListener('blur', clearPointers));
     }
 
     cleanups.push(() => {
@@ -332,19 +345,6 @@ export function attachInteractions(
       if (rafId !== 0 && typeof cancelAnimationFrame === 'function') {
         cancelAnimationFrame(rafId);
         rafId = 0;
-      }
-      el.removeEventListener('wheel', handleWheel);
-      el.removeEventListener('pointerdown', handlePointerDown);
-      el.removeEventListener('pointermove', handlePointerMove);
-      el.removeEventListener('pointerup', endPointer);
-      el.removeEventListener('pointercancel', endPointer);
-      el.removeEventListener('lostpointercapture', endPointer);
-      el.removeEventListener('dblclick', handleDoubleClick);
-      if (keyboard) {
-        el.removeEventListener('keydown', handleKeyDown);
-      }
-      if (typeof window !== 'undefined') {
-        window.removeEventListener('blur', clearPointers);
       }
     });
   }

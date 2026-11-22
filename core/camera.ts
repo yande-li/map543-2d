@@ -310,8 +310,11 @@ export class Camera {
     this.emit();
   }
 
-  setView(center: LatLng, zoom = this.state.zoom): void {
-    this.cancelAnimation();
+  private commitClampedView(
+    center: LatLng,
+    zoom: number,
+    interactive: boolean
+  ): void {
     const clampedZoom = this.clampZoom(zoom);
     const clampedCenter = this.clampStateCenter(center, clampedZoom);
     this.state = {
@@ -319,8 +322,13 @@ export class Camera {
       center: clampedCenter,
       zoom: clampedZoom,
     };
-    this.lastChangeInteractive = false;
+    this.lastChangeInteractive = interactive;
     this.emit();
+  }
+
+  setView(center: LatLng, zoom = this.state.zoom): void {
+    this.cancelAnimation();
+    this.commitClampedView(center, zoom, false);
   }
 
   panBy(dx: number, dy: number): void {

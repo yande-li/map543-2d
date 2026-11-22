@@ -18,7 +18,7 @@ export interface MapViewProps {
   maxZoom?: number;
   maxBounds?: [LatLng, LatLng];
   interactive?: boolean;
-  /** Enable keyboard pan/zoom when map container is focused (default: true). */
+  /** Enable keyboard pan/zoom when map container is focused (default: false). */
   keyboard?: boolean;
   /** Enable Gamepad API pan/zoom controls when a controller is connected (default: false). */
   gamepad?: boolean;
@@ -166,7 +166,7 @@ export const MapView: React.FC<MapViewProps> = ({
   maxZoom = 10,
   maxBounds,
   interactive = true,
-  keyboard = true,
+  keyboard = false,
   gamepad = false,
   smooth = false,
   ariaLabel = 'Interactive map',

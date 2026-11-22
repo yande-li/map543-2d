@@ -81,9 +81,7 @@ const SEAM_LAYERS: ReadonlySet<string> = new Set(['land', 'lakes']);
 
 function assertRange(r: PbReader, needed: number): void {
   if (needed < 0 || r.pos + needed > r.end) {
-    throw new Error(
-      `Geobuf binary out of bounds: pos=${r.pos}, needed=${needed}, end=${r.end}`
-    );
+    throw new Error('GEOBUF_DECODE_ERROR: out of bounds');
   }
 }
 
@@ -99,7 +97,7 @@ function readVarintBig(r: PbReader): bigint {
     }
     shift += 7n;
   }
-  throw new Error('Geobuf varint exceeds 64-bit limit');
+  throw new Error('GEOBUF_DECODE_ERROR: varint overflow');
 }
 
 function readVarintNum(r: PbReader): number {
@@ -118,13 +116,13 @@ function readVarintNum(r: PbReader): number {
     result += (b & 0x7f) * factor;
     if (b < 0x80) {
       if (result > Number.MAX_SAFE_INTEGER) {
-        throw new Error('Geobuf integer exceeds safe JS range');
+        throw new Error('GEOBUF_DECODE_ERROR: unsafe int');
       }
       return result;
     }
     factor *= 128;
   }
-  throw new Error('Geobuf varint exceeds 64-bit limit');
+  throw new Error('GEOBUF_DECODE_ERROR: varint overflow');
 }
 
 function readZigZagNum(r: PbReader): number {
@@ -177,7 +175,7 @@ function skipVarint(r: PbReader): void {
     assertRange(r, 1);
     if ((r.bytes[r.pos++] & 0x80) === 0) return;
   }
-  throw new Error('Geobuf varint exceeds 64-bit limit');
+  throw new Error('GEOBUF_DECODE_ERROR: varint overflow');
 }
 
 function skipField(r: PbReader, wireType: number): void {
@@ -200,7 +198,7 @@ function skipField(r: PbReader, wireType: number): void {
       r.pos += 4;
       return;
     default:
-      throw new Error(`Unsupported Protobuf wire type: ${wireType}`);
+      throw new Error(`GEOBUF_DECODE_ERROR: wire ${wireType}`);
   }
 }
 
@@ -461,7 +459,7 @@ function prepareGeometry(
 
   const rt = getWasmRuntime();
   if (rt === null) {
-    throw new Error('WASM runtime is not initialized');
+    throw new Error('WASM_MEMORY_ERROR');
   }
 
   let maxRingPts = 0;
@@ -480,9 +478,7 @@ function prepareGeometry(
   const inOff = boundsOff + 16;
   const outOff = inOff + totalInputFloats * 8;
   if (!rt.ensureCapacity(outOff + maxRingPts * 8)) {
-    throw new Error(
-      'WASM linear memory capacity exceeded during Geobuf decode'
-    );
+    throw new Error('WASM_MEMORY_ERROR');
   }
 
   rt.f64[accOff >> 3] = 0;
@@ -588,10 +584,10 @@ function parseGeobufHeader(r: PbReader): GeobufHeader {
   }
 
   if (dimensions < 2 || dimensions > 4) {
-    throw new Error(`Invalid Geobuf dimensions: ${dimensions}`);
+    throw new Error('GEOBUF_DECODE_ERROR: dimensions');
   }
   if (precision > 12) {
-    throw new Error(`Invalid Geobuf precision: ${precision}`);
+    throw new Error('GEOBUF_DECODE_ERROR: precision');
   }
 
   return {
@@ -617,7 +613,7 @@ export function parseGeobuf(
   const scratch = new GeobufScratch();
   const bytes = new Uint8Array(rawBuffer);
   if (bytes.length === 0) {
-    throw new Error('Geobuf binary buffer is empty');
+    throw new Error('GEOBUF_DECODE_ERROR: empty');
   }
 
   const {
