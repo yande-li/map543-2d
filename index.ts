@@ -15,26 +15,15 @@ export {
   latLonToNorm,
   latLonToNormInto,
   normToLatLon,
-  latLonToMapPx,
-  mapPxToLatLon,
-  latLonToPx,
   pxToLatLon,
-  getViewportBounds,
   getWrappedSlices,
   type WrappedSlice,
   type WrappedSlices,
   getMinZoom,
-  getResponsiveZoom,
   computeZoomForBounds,
   clampCenterToBounds,
+  boundsIntersects,
 } from './core/projection';
-export {
-  computeArcsBatch,
-  latLonsToSvgPath,
-  xyToSvgPath,
-  projectMercator,
-  traceArc,
-} from './core/curves';
 export { type PreparedFeature, type PreparedLayer } from './formats/types';
 export {
   parseGeobuf,
@@ -55,14 +44,11 @@ export {
 export { hitTestPoints, encodePoints16, type PointData } from './core/hitTest';
 export {
   type CoordPrecision,
-  batchProjectPoints,
   uploadStaticPoints,
   type StaticPointsHandle,
   uploadStaticRings,
   encodeRings16,
-  decodeLocDict,
   type StaticGeometryHandle,
-  splitAntimeridianRing,
 } from './core/batch';
 export { type ZoomControlPosition, type ZoomControlsConfig } from './core/map';
 export {
@@ -76,13 +62,7 @@ export {
   type ControlPosition,
   type ControlSlots,
 } from './core/controls';
-export {
-  createLayerGroup,
-  type LayerHandle,
-  type LayerGroup,
-} from './core/layers';
 export { type ViewportEventMap } from './core/viewport';
-export { drawRings } from './core/vectorLod';
 export {
   initWasm,
   resetWasmArena,
@@ -93,7 +73,7 @@ export {
 export {
   attachInteractions,
   type InteractionOptions,
-  type MapClickEvent,
+  type MapPointerEvent,
 } from './core/interactions';
 export { attachGamepad, type GamepadOptions } from './core/gamepad';
 export {
@@ -111,7 +91,13 @@ export {
   type MapContextValue,
   type MapClickListener,
 } from './react/MapContext';
-export { useViewport, useViewportSelector, useMapClick } from './react/hooks';
+export {
+  useViewport,
+  useViewportSelector,
+  useViewportEffect,
+  useViewportEvent,
+  useMapClick,
+} from './react/hooks';
 export { useGeobuf, type UseGeobufResult } from './react/useGeobuf';
 
 export {
@@ -160,6 +146,19 @@ export {
 } from './core/pointLayer';
 
 export { PointLayer, type PointLayerProps } from './react/PointLayer';
+export {
+  packHeatmapPoints,
+  packHeatmapArrays,
+  sliceHeatmapByTime,
+  buildHeatmapPalette,
+  drawHeatmap,
+  type HeatmapPoint,
+  type HeatmapColorStop,
+  type HeatmapBuffers,
+  type HeatmapOptions,
+  type HeatmapScratch,
+} from './core/heatmapLayer';
+export { HeatmapLayer, type HeatmapLayerProps } from './react/HeatmapLayer';
 
 export {
   uploadVectorLayers,

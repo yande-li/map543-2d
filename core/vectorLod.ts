@@ -116,30 +116,3 @@ export function simplifyRings(
   );
   return true;
 }
-
-/**
- * Decimates and traces static arena rings onto a 2D canvas via WASM.
- */
-export function drawRings(
-  ctx: CanvasRenderingContext2D,
-  handle: StaticGeometryHandle,
-  scale: number,
-  offsetX: number,
-  offsetY: number,
-  pixelStep: number,
-  closePath: boolean
-): boolean {
-  const rt = getWasmRuntime();
-  if (rt === null) return false;
-  return simplifyRings(
-    ctx,
-    rt,
-    rt.getScratchBase(),
-    handle,
-    scale,
-    offsetX,
-    offsetY,
-    pixelStep,
-    closePath
-  );
-}

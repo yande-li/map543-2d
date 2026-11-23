@@ -61,25 +61,23 @@ import {
   resetWasmArena,
   uploadStaticRings,
   encodeRings16,
-  drawRings,
   hitTestPoints,
   encodePoints16,
-  batchProjectPoints,
   uploadStaticPoints,
   latLonToNormInto,
   getWrappedSlices,
-  computeArcsBatch,
-  projectMercator,
-  xyToSvgPath,
   prepareArcs,
   drawTrajectories,
   packPoints,
   drawBatchPoints,
   drawVectorLayers,
-  splitAntimeridianRing,
-  decodeLocDict,
   getWasmMemoryStats,
   parseGeobuf,
+  boundsIntersects,
+  packHeatmapPoints,
+  drawHeatmap,
+  buildHeatmapPalette,
+  type HeatmapScratch,
   type StaticGeometryHandle,
   type StaticPointsHandle,
   type PreparedFeature,
@@ -88,7 +86,13 @@ import {
   type PointItem,
   type PreparedLayer,
 } from 'map543-2d';
-import { QUADRATIC_ARC_POINTS } from '../core/curves';
+import {
+  QUADRATIC_ARC_POINTS,
+  computeArcsBatch,
+  projectMercator,
+  xyToSvgPath,
+} from '../core/curves';
+import { projectPointsToScratch } from '../core/batch';
 
 const defaultGzPath = resolve(
   import.meta.dirname,
@@ -196,9 +200,6 @@ const pts50000 = createPointDataset(50000);
 const pts10000I16 = encodePoints16(pts10000.lats, pts10000.lons);
 const pts50000I16 = encodePoints16(pts50000.lats, pts50000.lons);
 
-const batchOutXY = new Float32Array(50000 * 2);
-const batchOutIdx = new Int32Array(50000);
-
 const RUN_BENCH = process.env.RUN_BENCH === '1';
 
 beforeAll(() => {
@@ -250,88 +251,7 @@ describe.runIf(RUN_BENCH)('1. Geobuf parsing (WorldMap-all)', () => {
   });
 });
 
-describe.runIf(RUN_BENCH)(
-  '2. Vector LOD & Static Arena (WorldMap-all land layer)',
-  () => {
-    bench('drawStaticDirect (WASM Arena zero-copy, zoom 1.5)', () => {
-      const state = viewportZoom1.getState();
-      const { scale, offsetY, viewLatMin, viewLatMax, slices } =
-        getWrappedSlices(state, 2);
-      for (const { drawOffsetX, adjLonMin, adjLonMax } of slices) {
-        for (const { feature: f, handle } of landHandles) {
-          if (
-            f.maxLon < adjLonMin ||
-            f.minLon > adjLonMax ||
-            f.maxLat < viewLatMin ||
-            f.minLat > viewLatMax
-          ) {
-            continue;
-          }
-          drawRings(noopCtx, handle, scale, drawOffsetX, offsetY, 1.0, true);
-        }
-      }
-    });
-
-    bench('drawStaticDirect (WASM Arena zero-copy, zoom 4)', () => {
-      const state = viewportZoom4.getState();
-      const { scale, offsetY, viewLatMin, viewLatMax, slices } =
-        getWrappedSlices(state, 2);
-      for (const { drawOffsetX, adjLonMin, adjLonMax } of slices) {
-        for (const { feature: f, handle } of landHandles) {
-          if (
-            f.maxLon < adjLonMin ||
-            f.minLon > adjLonMax ||
-            f.maxLat < viewLatMin ||
-            f.minLat > viewLatMax
-          ) {
-            continue;
-          }
-          drawRings(noopCtx, handle, scale, drawOffsetX, offsetY, 1.0, true);
-        }
-      }
-    });
-
-    bench('drawStaticU16Direct (WASM u16 Arena, zoom 1.5)', () => {
-      const state = viewportZoom1.getState();
-      const { scale, offsetY, viewLatMin, viewLatMax, slices } =
-        getWrappedSlices(state, 2);
-      for (const { drawOffsetX, adjLonMin, adjLonMax } of slices) {
-        for (const { feature: f, handle } of landHandlesU16) {
-          if (
-            f.maxLon < adjLonMin ||
-            f.minLon > adjLonMax ||
-            f.maxLat < viewLatMin ||
-            f.minLat > viewLatMax
-          ) {
-            continue;
-          }
-          drawRings(noopCtx, handle, scale, drawOffsetX, offsetY, 1.0, true);
-        }
-      }
-    });
-
-    bench('drawStaticU16Direct (WASM u16 Arena, zoom 4)', () => {
-      const state = viewportZoom4.getState();
-      const { scale, offsetY, viewLatMin, viewLatMax, slices } =
-        getWrappedSlices(state, 2);
-      for (const { drawOffsetX, adjLonMin, adjLonMax } of slices) {
-        for (const { feature: f, handle } of landHandlesU16) {
-          if (
-            f.maxLon < adjLonMin ||
-            f.minLon > adjLonMax ||
-            f.maxLat < viewLatMin ||
-            f.minLat > viewLatMax
-          ) {
-            continue;
-          }
-          drawRings(noopCtx, handle, scale, drawOffsetX, offsetY, 1.0, true);
-        }
-      }
-    });
-  }
-);
-
-describe.runIf(RUN_BENCH)('3. Hit-Test & Batch Projection (WASM)', () => {
+describe.runIf(RUN_BENCH)('3. Hit-Test (WASM)', () => {
   bench('hitTestPoints (WASM) - 100 pts', () => {
     hitTestPoints(960, 540, pts100, viewportZoom4, 16);
   });
@@ -358,30 +278,16 @@ describe.runIf(RUN_BENCH)('3. Hit-Test & Batch Projection (WASM)', () => {
       viewportZoom4.projectInto(pts50000.lats[i], pts50000.lons[i], out);
     }
   });
-  bench('batchProjectPoints (WASM) - 50,000 pts', () => {
-    batchProjectPoints(
-      pts50000.lats,
-      pts50000.lons,
-      pts50000.count,
-      viewportZoom4,
-      32,
-      batchOutXY,
-      batchOutIdx
-    );
+  bench('projectPointsToScratch (WASM f32) - 50,000 pts', () => {
+    projectPointsToScratch(pts50000, viewportZoom4, 32);
   });
-  bench('batchProjectStaticPoints (WASM Arena zero-copy) - 50,000 pts', () => {
+  bench('projectPointsToScratch (WASM static arena) - 50,000 pts', () => {
     if (staticPts50k) {
-      batchProjectPoints(
-        staticPts50k,
-        viewportZoom4,
-        32,
-        batchOutXY,
-        batchOutIdx
-      );
+      projectPointsToScratch(staticPts50k, viewportZoom4, 32);
     }
   });
-  bench('batchProjectPointsI16 (WASM i16) - 50,000 pts', () => {
-    batchProjectPoints(pts50000I16, viewportZoom4, 32, batchOutXY, batchOutIdx);
+  bench('projectPointsToScratch (WASM i16) - 50,000 pts', () => {
+    projectPointsToScratch(pts50000I16, viewportZoom4, 32);
   });
 });
 
@@ -532,18 +438,9 @@ describe.runIf(RUN_BENCH)('5. Trajectory, PointLayer & VectorLayer', () => {
     alpha: 0.35 + (i % 4) * 0.15,
   }));
   const pointSpatial5000 = packPoints(pointItems5000);
-  const ptOutXY5000 = new Float32Array(5000 * 2);
-  const ptOutIdx5000 = new Int32Array(5000);
 
   bench('drawBatchPoints x 5,000 (PointLayer)', () => {
-    drawBatchPoints(
-      noopCtx,
-      viewportZoom1,
-      pointItems5000,
-      pointSpatial5000,
-      ptOutXY5000,
-      ptOutIdx5000
-    );
+    drawBatchPoints(noopCtx, viewportZoom1, pointItems5000, pointSpatial5000);
   });
 
   bench('drawVectorLayers (WorldMap idle, WASM static rings)', () => {
@@ -619,47 +516,6 @@ describe.runIf(RUN_BENCH)('6. Legacy vs New, Geometry & Viewport', () => {
     );
   });
 
-  const seamFloatLen = 2000 * 2;
-  const seamInLonLat = new Float32Array(seamFloatLen);
-  for (let i = 0; i < 2000; i++) {
-    seamInLonLat[i * 2] = i % 2 === 0 ? 179.5 : -179.5;
-    seamInLonLat[i * 2 + 1] = ((i * 19) % 140) - 70;
-  }
-  const seamOutLonLat = new Float32Array(seamFloatLen);
-  const seamOutSegLens = new Int32Array(2000);
-  const seamOutBbox = new Float32Array(4);
-
-  bench(
-    'splitAntimeridianRing (WASM antimeridian split, 2,000 vertices)',
-    () => {
-      splitAntimeridianRing(
-        seamInLonLat,
-        seamFloatLen,
-        seamOutLonLat,
-        seamOutSegLens,
-        seamOutBbox
-      );
-    }
-  );
-
-  const locCount = 5000;
-  const locRawBytes = new Uint8Array(locCount * 6);
-  const locLatsOut = new Float32Array(locCount);
-  const locLonsOut = new Float32Array(locCount);
-  const locMxsOut = new Float32Array(locCount);
-  const locMysOut = new Float32Array(locCount);
-
-  bench('WASM decodeLocDict x 5,000', () => {
-    decodeLocDict(
-      locRawBytes,
-      locCount,
-      locLatsOut,
-      locLonsOut,
-      locMxsOut,
-      locMysOut
-    );
-  });
-
   const benchCam = new Viewport({
     center: [20, 10],
     zoom: 2,
@@ -719,6 +575,197 @@ describe.runIf(RUN_BENCH)(
         `[MEM] 50k Points: f32=${(f32Bytes / 1024).toFixed(1)} KiB | i16=${(i16Bytes / 1024).toFixed(1)} KiB | heapUsed=${(mem.heapUsed / 1048576).toFixed(1)} MiB`
       );
       expect(i16Bytes).toBe(f32Bytes / 2);
+    });
+  }
+);
+
+describe.skipIf(!RUN_BENCH)(
+  '8. Trajectory Bounds Culling (100 vs 1,000 Arcs)',
+  () => {
+    const zoomedView = new Viewport({
+      center: [30, 125],
+      zoom: 5,
+      width: 1280,
+      height: 720,
+    });
+    const viewBounds = zoomedView.getBounds();
+
+    const makeGlobalArcs = (n: number) => {
+      const srcXY = new Float32Array(n * 2);
+      const dstXY = new Float32Array(n * 2);
+      const items: TrajectoryItem[] = [];
+      const arcBounds: Array<[[number, number], [number, number]]> = [];
+      for (let i = 0; i < n; i++) {
+        const inRegion = i % 5 === 0; // ~20% intersect East Asia viewport
+        const sLat = inRegion ? 22 + (i % 12) : -35 + ((i * 17) % 70);
+        const sLon = inRegion ? 115 + (i % 15) : -100 + ((i * 29) % 120);
+        const dLat = inRegion ? 25 + (i % 10) : -30 + ((i * 13) % 60);
+        const dLon = inRegion ? 120 + (i % 12) : -90 + ((i * 23) % 110);
+        items.push({ src: [sLat, sLon], dst: [dLat, dLon] });
+        arcBounds.push([
+          [Math.min(sLat, dLat), Math.min(sLon, dLon)],
+          [Math.max(sLat, dLat), Math.max(sLon, dLon)],
+        ]);
+        const sp = zoomedView.project(sLat, sLon);
+        const dp = zoomedView.project(dLat, dLon);
+        srcXY[i * 2] = sp.x;
+        srcXY[i * 2 + 1] = sp.y;
+        dstXY[i * 2] = dp.x;
+        dstXY[i * 2 + 1] = dp.y;
+      }
+      return { srcXY, dstXY, items, arcBounds };
+    };
+
+    const g100 = makeGlobalArcs(100);
+    const g1000 = makeGlobalArcs(1000);
+    const culledSrc100 = new Float32Array(100 * 2);
+    const culledDst100 = new Float32Array(100 * 2);
+    const culledSrc1000 = new Float32Array(1000 * 2);
+    const culledDst1000 = new Float32Array(1000 * 2);
+
+    bench('100 arcs: drawTrajectories (no bounds culling)', () => {
+      drawTrajectories(noopCtx, g100.srcXY, 100, g100.dstXY, 1280, 720);
+    });
+
+    bench(
+      '100 arcs: boundsIntersects + drawTrajectories (~20% visible)',
+      () => {
+        let k = 0;
+        for (let i = 0; i < 100; i++) {
+          if (!boundsIntersects(g100.arcBounds[i], viewBounds)) continue;
+          culledSrc100[k * 2] = g100.srcXY[i * 2];
+          culledSrc100[k * 2 + 1] = g100.srcXY[i * 2 + 1];
+          culledDst100[k * 2] = g100.dstXY[i * 2];
+          culledDst100[k * 2 + 1] = g100.dstXY[i * 2 + 1];
+          k++;
+        }
+        drawTrajectories(noopCtx, culledSrc100, k, culledDst100, 1280, 720);
+      }
+    );
+
+    bench('1,000 arcs: drawTrajectories (no bounds culling)', () => {
+      drawTrajectories(noopCtx, g1000.srcXY, 1000, g1000.dstXY, 1280, 720);
+    });
+
+    bench(
+      '1,000 arcs: boundsIntersects + drawTrajectories (~20% visible)',
+      () => {
+        let k = 0;
+        for (let i = 0; i < 1000; i++) {
+          if (!boundsIntersects(g1000.arcBounds[i], viewBounds)) continue;
+          culledSrc1000[k * 2] = g1000.srcXY[i * 2];
+          culledSrc1000[k * 2 + 1] = g1000.srcXY[i * 2 + 1];
+          culledDst1000[k * 2] = g1000.dstXY[i * 2];
+          culledDst1000[k * 2 + 1] = g1000.dstXY[i * 2 + 1];
+          k++;
+        }
+        drawTrajectories(noopCtx, culledSrc1000, k, culledDst1000, 1280, 720);
+      }
+    );
+
+    bench('1,000 arcs: prepareArcs (no bounds culling)', () => {
+      prepareArcs(g1000.items);
+    });
+
+    bench('1,000 arcs: boundsIntersects + prepareArcs (~20% visible)', () => {
+      const visible = g1000.items.filter((_, i) =>
+        boundsIntersects(g1000.arcBounds[i], viewBounds)
+      );
+      prepareArcs(visible);
+    });
+  }
+);
+
+describe.skipIf(!RUN_BENCH)(
+  '9. WASM Heatmap (f32 vs i16 vs Canvas 2D) & Memory Footprint',
+  () => {
+    const heatView = new Viewport({
+      center: [25, 121],
+      zoom: 4,
+      width: 1280,
+      height: 720,
+    });
+    const pts10k = Array.from({ length: 10000 }, (_, i) => ({
+      lat: 10 + ((i * 37) % 35),
+      lon: 100 + ((i * 73) % 45),
+      weight: 1 + (i % 3) * 0.5,
+    }));
+    const palette = buildHeatmapPalette();
+    resetWasmArena();
+    const hm32 = packHeatmapPoints(pts10k, 32);
+    const hm16 = packHeatmapPoints(pts10k, 16);
+    const pt2d = { x: 0, y: 0 };
+
+    const heatCtx = {
+      ...noopCtx,
+      createRadialGradient: () => ({ addColorStop: () => {} }),
+      fillStyle: '',
+    } as unknown as CanvasRenderingContext2D;
+
+    const makeHeatScratch = (): HeatmapScratch => ({
+      offscreen: { width: 0, height: 0 } as unknown as HTMLCanvasElement,
+      offCtx: {
+        createImageData: (w: number, h: number) =>
+          ({
+            width: w,
+            height: h,
+            data: new Uint8ClampedArray(w * h * 4),
+          }) as unknown as ImageData,
+        putImageData: () => {},
+      } as unknown as CanvasRenderingContext2D,
+    });
+    const scratch32 = makeHeatScratch();
+    const scratch16 = makeHeatScratch();
+
+    bench('10k pts Heatmap: drawHeatmap WASM f32 (1280x720 @ 0.25x)', () => {
+      drawHeatmap(
+        noopCtx,
+        hm32,
+        heatView,
+        { gridScale: 0.25, radiusPx: 24, palette },
+        scratch32
+      );
+    });
+
+    bench('10k pts Heatmap: drawHeatmap WASM i16 (1280x720 @ 0.25x)', () => {
+      drawHeatmap(
+        noopCtx,
+        hm16,
+        heatView,
+        { gridScale: 0.25, radiusPx: 24, palette },
+        scratch16
+      );
+    });
+
+    bench('10k pts Heatmap: Legacy JS projectInto + Canvas arc loop', () => {
+      for (let i = 0; i < pts10k.length; i++) {
+        heatView.projectInto(pts10k[i].lat, pts10k[i].lon, pt2d);
+        if (pt2d.x < -24 || pt2d.x > 1304 || pt2d.y < -24 || pt2d.y > 744) {
+          continue;
+        }
+        heatCtx.beginPath();
+        heatCtx.arc(pt2d.x, pt2d.y, 24, 0, Math.PI * 2);
+        heatCtx.fill();
+      }
+    });
+
+    it('reports memory footprint: f32 vs i16 buffers and 0.25x vs 1x grid', () => {
+      const f32Bytes =
+        hm32.lats.byteLength +
+        hm32.lons.byteLength +
+        (hm32.weights?.byteLength ?? 0);
+      const i16Bytes =
+        hm16.lats.byteLength +
+        hm16.lons.byteLength +
+        (hm16.weights?.byteLength ?? 0);
+      const gridQuarterBytes = 320 * 180 * 4;
+      const gridFullBytes = 1280 * 720 * 4;
+
+      console.log(
+        `[MEM] 10k Heatmap Points: f32=${(f32Bytes / 1024).toFixed(1)} KiB | i16=${(i16Bytes / 1024).toFixed(1)} KiB | RGBA grid: 0.25x=${(gridQuarterBytes / 1024).toFixed(1)} KiB vs 1x=${(gridFullBytes / 1024).toFixed(1)} KiB`
+      );
+      expect(i16Bytes).toBeLessThan(f32Bytes);
+      expect(gridQuarterBytes).toBe(gridFullBytes / 16);
     });
   }
 );

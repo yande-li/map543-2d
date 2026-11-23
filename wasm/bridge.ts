@@ -26,7 +26,7 @@ export type HitTestKernelFn = (
   halfH: number
 ) => number;
 
-export type BatchProjectKernelFn = (
+type BatchProjectKernelFn = (
   count: number,
   lutOffset: number,
   latsOffset: number,
@@ -82,13 +82,6 @@ interface WasmKernelExports {
     offsetY: number,
     pixelStep: number
   ) => number;
-  cleanSeamRingBatch: (
-    floatLen: number,
-    inLonLatOffset: number,
-    outLonLatOffset: number,
-    outSegLengthsOffset: number,
-    outBboxOffset: number
-  ) => number;
   computeArcsBatch: (
     count: number,
     srcLatsOff: number,
@@ -106,15 +99,6 @@ interface WasmKernelExports {
     boundsOff: number,
     invScale: number,
     accOff: number
-  ) => number;
-  decodeLocationDictBatch: (
-    locCount: number,
-    lutOff: number,
-    inRawOff: number,
-    latsOff: number,
-    lonsOff: number,
-    mxsOff: number,
-    mysOff: number
   ) => number;
   projectMercator: (
     ptCount: number,
@@ -140,6 +124,19 @@ interface WasmKernelExports {
   ) => number;
   batchProjectMercatorI16?: BatchProjectKernelFn;
   findNearestPointBatchI16?: HitTestKernelFn;
+  renderHeatmapGrid?: (
+    ptCount: number,
+    xyOff: number,
+    weightsOff: number,
+    gridW: number,
+    gridH: number,
+    gridScale: number,
+    radiusGrid: number,
+    invMaxIntensity: number,
+    densityOff: number,
+    lutOff: number,
+    outRgbaOff: number
+  ) => number;
 }
 
 export interface WasmRuntime {
@@ -176,10 +173,8 @@ function isValidWasmExports(
     typeof raw.findNearestPointBatch === 'function' &&
     typeof raw.batchProjectMercator === 'function' &&
     typeof raw.decimateRingsBatch === 'function' &&
-    typeof raw.cleanSeamRingBatch === 'function' &&
     typeof raw.computeArcsBatch === 'function' &&
-    typeof raw.decodeGeobufRingMercator === 'function' &&
-    typeof raw.decodeLocationDictBatch === 'function'
+    typeof raw.decodeGeobufRingMercator === 'function'
   );
 }
 

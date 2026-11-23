@@ -15,26 +15,15 @@ export {
   latLonToNorm,
   latLonToNormInto,
   normToLatLon,
-  latLonToMapPx,
-  mapPxToLatLon,
-  latLonToPx,
   pxToLatLon,
-  getViewportBounds,
   getWrappedSlices,
   type WrappedSlice,
   type WrappedSlices,
   getMinZoom,
-  getResponsiveZoom,
   computeZoomForBounds,
   clampCenterToBounds,
+  boundsIntersects,
 } from './core/projection';
-export {
-  computeArcsBatch,
-  latLonsToSvgPath,
-  xyToSvgPath,
-  projectMercator,
-  traceArc,
-} from './core/curves';
 export { type MarkerVariant, type MarkerPulse } from './core/marker';
 export {
   prepareArcs,
@@ -76,8 +65,21 @@ export {
   type AddPointLayerOptions,
   type AddImageLayerOptions,
   type AddTrajectoryLayerOptions,
+  type AddHeatmapLayerOptions,
   type AddOverlayOptions,
 } from './core/map';
+export {
+  packHeatmapPoints,
+  packHeatmapArrays,
+  sliceHeatmapByTime,
+  buildHeatmapPalette,
+  drawHeatmap,
+  type HeatmapPoint,
+  type HeatmapColorStop,
+  type HeatmapBuffers,
+  type HeatmapOptions,
+  type HeatmapScratch,
+} from './core/heatmapLayer';
 
 export {
   createEmitter,
@@ -95,11 +97,6 @@ export {
   type PointHitResult,
   type PointLayerHandle,
 } from './core/pointLayer';
-export {
-  createLayerGroup,
-  type LayerHandle,
-  type LayerGroup,
-} from './core/layers';
 
 export {
   Viewport,
@@ -114,16 +111,12 @@ export { hitTestPoints, encodePoints16, type PointData } from './core/hitTest';
 
 export {
   type CoordPrecision,
-  batchProjectPoints,
   uploadStaticPoints,
   type StaticPointsHandle,
   uploadStaticRings,
   encodeRings16,
-  decodeLocDict,
   type StaticGeometryHandle,
-  splitAntimeridianRing,
 } from './core/batch';
-export { drawRings } from './core/vectorLod';
 
 export {
   initWasm,
@@ -135,7 +128,7 @@ export {
 export {
   attachInteractions,
   type InteractionOptions,
-  type MapClickEvent,
+  type MapPointerEvent,
 } from './core/interactions';
 export { attachGamepad, type GamepadOptions } from './core/gamepad';
 export {

@@ -3,10 +3,11 @@ export type ControlPosition =
 
 export const MAP_Z_INDEX = {
   base: 0,
-  vector: 10,
-  trajectory: 30,
   image: 50,
+  vector: 100,
+  heatmap: 250,
   point: 300,
+  trajectory: 350,
   overlay: 500,
   control: 800,
   tooltip: 2000,

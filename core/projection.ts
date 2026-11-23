@@ -113,55 +113,6 @@ export function normToLatLon(nx: number, ny: number): LatLon {
 }
 
 /**
- * Projects [lat, lon] to pixel coordinates in world space at a given zoom level.
- */
-export function latLonToMapPx(
-  lat: number,
-  lon: number,
-  zoom: number,
-  projection: Projection = MERCATOR_PROJECTION
-): Point2D {
-  const worldSize = TILE_SIZE * Math.pow(2, zoom);
-  const norm = projection.latLonToNorm(lat, lon);
-  return { x: norm.x * worldSize, y: norm.y * worldSize };
-}
-
-/**
- * Unprojects world pixel coordinates at a given zoom level back to [lat, lon].
- */
-export function mapPxToLatLon(
-  wx: number,
-  wy: number,
-  zoom: number,
-  projection: Projection = MERCATOR_PROJECTION
-): LatLon {
-  const worldSize = TILE_SIZE * Math.pow(2, zoom);
-  return projection.normToLatLon(wx / worldSize, wy / worldSize);
-}
-
-/**
- * Projects [lat, lon] into container pixel coordinates relative to top-left of the viewport.
- */
-export function latLonToPx(
-  lat: number,
-  lon: number,
-  state: ProjectionState,
-  projection: Projection = MERCATOR_PROJECTION
-): Point2D {
-  const worldSize = TILE_SIZE * Math.pow(2, state.zoom);
-  const centerNorm = projection.latLonToNorm(
-    state.center[0],
-    state.center[1],
-    TMP_NORM
-  );
-  const ptNorm = projection.latLonToNorm(lat, lon, TMP_NORM_2);
-  return {
-    x: state.width * 0.5 + (ptNorm.x - centerNorm.x) * worldSize,
-    y: state.height * 0.5 + (ptNorm.y - centerNorm.y) * worldSize,
-  };
-}
-
-/**
  * Unprojects container pixel coordinates back to [lat, lon].
  */
 export function pxToLatLon(
@@ -483,4 +434,42 @@ export function clampCenterToBounds(
       : Math.max(minY, Math.min(maxY, norm.y));
 
   return projection.normToLatLon(clampedX, clampedY);
+}
+
+const TMP_EXTENT_2: BoundsExtent = {
+  minLat: 0,
+  maxLat: 0,
+  minLon: 0,
+  maxLon: 0,
+};
+
+function toExtent(
+  bounds: GeoBounds | LatLonBounds,
+  out: BoundsExtent
+): BoundsExtent {
+  if (Array.isArray(bounds)) {
+    return getBoundsExtent(bounds, out);
+  }
+  out.minLat = bounds.south;
+  out.maxLat = bounds.north;
+  out.minLon = bounds.west;
+  out.maxLon = bounds.east;
+  return out;
+}
+
+/**
+ * Checks whether two geographic bounding boxes intersect.
+ */
+export function boundsIntersects(
+  a: GeoBounds | LatLonBounds,
+  b: GeoBounds | LatLonBounds
+): boolean {
+  const ea = toExtent(a, TMP_EXTENT);
+  const eb = toExtent(b, TMP_EXTENT_2);
+  return (
+    ea.minLat <= eb.maxLat &&
+    ea.maxLat >= eb.minLat &&
+    ea.minLon <= eb.maxLon &&
+    ea.maxLon >= eb.minLon
+  );
 }

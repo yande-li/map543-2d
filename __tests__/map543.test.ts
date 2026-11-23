@@ -18,13 +18,9 @@ import {
   attachGamepad,
   hitTestPoints,
   encodePoints16,
-  batchProjectPoints,
   uploadStaticPoints,
   uploadStaticRings,
   encodeRings16,
-  decodeLocDict,
-  drawRings,
-  splitAntimeridianRing,
   prepareArcs,
   drawTrajectories,
   createGlowDotSprite,
@@ -43,28 +39,23 @@ import {
   latLonToNorm,
   latLonToNormInto,
   normToLatLon,
-  latLonToMapPx,
-  mapPxToLatLon,
-  latLonToPx,
   pxToLatLon,
-  getViewportBounds,
   getMinZoom,
-  getResponsiveZoom,
   computeZoomForBounds,
   clampCenterToBounds,
   createEquirectangular,
-  computeArcsBatch,
-  latLonsToSvgPath,
-  xyToSvgPath,
-  projectMercator,
-  traceArc,
   getWrappedSlices,
   type LatLon,
 } from 'map543-2d';
 import {
   QUADRATIC_ARC_POINTS,
+  computeArcsBatch,
   getArcTiming,
+  latLonsToSvgPath,
   manhattanDeg,
+  projectMercator,
+  traceArc,
+  xyToSvgPath,
 } from '../core/curves';
 import { normalizePulseMode, resolveMarkerGeometry } from '../core/marker';
 import { attachSvgSync, scheduleAnimation } from '../core/trajectory';
@@ -73,7 +64,11 @@ import {
   shouldCullFeature,
   shouldSkipLayer,
 } from '../core/vectorLod';
-import { resolveProjection } from '../core/projection';
+import {
+  getResponsiveZoom,
+  getViewportBounds,
+  resolveProjection,
+} from '../core/projection';
 
 describe('map543-2d projection', () => {
   it('round-trips normalized Mercator coordinates', () => {
@@ -262,86 +257,6 @@ describe('WebAssembly batch kernels', () => {
     expect(hitTestPoints(-9999, -9999, points, viewport, 18)).toBe(-1);
   });
 
-  it('batchProjectPoints matches Viewport.project within sub-pixel precision', async () => {
-    expect(initWasm()).toBe(true);
-    const viewport = new Viewport({
-      center: [0, 0],
-      zoom: 2,
-      width: 1000,
-      height: 600,
-    });
-
-    const count = 2200;
-    const lats = new Float32Array(count);
-    const lons = new Float32Array(count);
-    for (let i = 0; i < count; i++) {
-      lats[i] = ((i * 19) % 120) - 60;
-      lons[i] = ((i * 41) % 320) - 160;
-    }
-
-    const outXY = new Float32Array(count * 2);
-    const outIdx = new Int32Array(count);
-    const visible = batchProjectPoints(
-      lats,
-      lons,
-      count,
-      viewport,
-      20,
-      outXY,
-      outIdx
-    );
-
-    expect(visible).toBeGreaterThan(0);
-    for (let k = 0; k < Math.min(visible, 50); k++) {
-      const idx = outIdx[k];
-      const expected = viewport.project(lats[idx], lons[idx]);
-      expect(Math.abs(outXY[k * 2] - expected.x)).toBeLessThan(1e-2);
-      expect(Math.abs(outXY[k * 2 + 1] - expected.y)).toBeLessThan(1e-2);
-    }
-  });
-
-  it('splitAntimeridianRing splits antimeridian jumps and computes bbox in WASM', async () => {
-    expect(initWasm()).toBe(true);
-    const vertexCount = 140; // 280 floats >= 256 threshold
-    const inLonLat = new Float32Array(vertexCount * 2);
-    for (let i = 0; i < vertexCount; i++) {
-      inLonLat[i * 2] = i < 70 ? 10 + i * 2 : -175 + (i - 70);
-      inLonLat[i * 2 + 1] = -20 + (i % 40);
-    }
-    inLonLat[69 * 2] = 179;
-    inLonLat[70 * 2] = -179; // Antimeridian jump (> 180 deg)
-
-    const outLonLat = new Float32Array(vertexCount * 2);
-    const outSegLens = new Int32Array(vertexCount);
-    const outBbox = new Float32Array(4);
-
-    const segCount = splitAntimeridianRing(
-      inLonLat,
-      vertexCount * 2,
-      outLonLat,
-      outSegLens,
-      outBbox
-    );
-
-    expect(segCount).toBe(2);
-    expect(outBbox[0]).toBe(-179);
-    expect(outBbox[2]).toBe(179);
-  });
-
-  it('rejects odd-aligned inputs in splitAntimeridianRing', async () => {
-    expect(initWasm()).toBe(true);
-
-    // Odd floatLen in splitAntimeridianRing
-    const oddIn = new Float32Array([10, 20, 30, 40, 50]);
-    const outLonLat = new Float32Array(6);
-    const outSegLens = new Int32Array(3);
-    const outBbox = new Float32Array(4);
-    expect(
-      splitAntimeridianRing(oddIn, 5, outLonLat, outSegLens, outBbox)
-    ).toBe(0);
-    expect(outBbox[0]).toBe(Infinity);
-  });
-
   it('uploads static rings to WASM arena, invalidates on resetWasmArena, and supports disposeWasm/re-init', async () => {
     expect(initWasm()).toBe(true);
     resetWasmArena();
@@ -354,19 +269,9 @@ describe('WebAssembly batch kernels', () => {
     expect(handle).not.toBeNull();
     expect(getWasmMemoryStats().arenaUsedBytes).toBeGreaterThan(0);
 
-    const ops: Array<[string, ...number[]]> = [];
-    const ctx = {
-      moveTo: (x: number, y: number) => ops.push(['M', x, y]),
-      lineTo: (x: number, y: number) => ops.push(['L', x, y]),
-      closePath: () => ops.push(['Z']),
-    } as unknown as CanvasRenderingContext2D;
-    expect(drawRings(ctx, handle!, 1024, 0, 0, 2.0, true)).toBe(true);
-    expect(ops.length).toBeGreaterThan(0);
-
     // Epoch invalidation on resetWasmArena
     resetWasmArena();
     expect(getWasmMemoryStats().arenaUsedBytes).toBe(0);
-    expect(drawRings(ctx, handle!, 1024, 0, 0, 2.0, true)).toBe(false);
 
     // Full WASM disposal and re-initialization
     disposeWasm();
@@ -406,57 +311,6 @@ describe('WebAssembly batch kernels', () => {
       new MouseEvent('dblclick', { clientX: 400, clientY: 300, bubbles: true })
     );
     expect(viewport.getState().zoom).toBeCloseTo(4, 3);
-  });
-
-  it('traces static rings directly from WASM linear memory', async () => {
-    expect(initWasm()).toBe(true);
-    resetWasmArena();
-
-    const packedXY = new Float32Array([
-      0.1, 0.1, 0.1001, 0.1001, 0.2, 0.2, 0.3, 0.3, 0.1, 0.1,
-    ]);
-    const ringLengths = new Int32Array([10]);
-    const handle = uploadStaticRings(packedXY, ringLengths, 1);
-    expect(handle).not.toBeNull();
-
-    const ops: Array<[string, ...number[]]> = [];
-    const ctx = {
-      moveTo: (x: number, y: number) => ops.push(['M', x, y]),
-      lineTo: (x: number, y: number) => ops.push(['L', x, y]),
-      closePath: () => ops.push(['Z']),
-    } as unknown as CanvasRenderingContext2D;
-
-    expect(drawRings(ctx, handle!, 1024, 0, 0, 2.0, true)).toBe(true);
-    expect(ops.length).toBeGreaterThan(0);
-  });
-
-  it('decodes packed 6-byte location dictionary entries via decodeLocDict', async () => {
-    expect(initWasm()).toBe(true);
-    const raw = new Uint8Array(12);
-    const dv = new DataView(raw.buffer);
-    // Entry 0: lat ~ 25.033 (round(25.033 * 32767 / 90) = 9114), lon ~ 121.565 (round(121.565 * 32767 / 180) = 22129)
-    dv.setInt16(0, 9114, true);
-    dv.setInt16(2, 22129, true);
-    // Entry 1: [0, 0]
-    dv.setInt16(6, 0, true);
-    dv.setInt16(8, 0, true);
-
-    const outLats = new Float32Array(2);
-    const outLons = new Float32Array(2);
-    const outMxs = new Float32Array(2);
-    const outMys = new Float32Array(2);
-    const count = decodeLocDict(raw, 2, outLats, outLons, outMxs, outMys);
-    expect(count).toBe(2);
-    expect(outLats[0]).toBeCloseTo(25.033, 2);
-    expect(outLons[0]).toBeCloseTo(121.565, 2);
-    expect(outLats[1]).toBe(0);
-    expect(outLons[1]).toBe(0);
-    expect(outMys[1]).toBe(0);
-
-    // Also works synchronously right after disposeWasm without calling initWasm()
-    disposeWasm();
-    expect(decodeLocDict(raw, 2, outLats, outLons)).toBe(2);
-    expect(outLats[0]).toBeCloseTo(25.033, 2);
   });
 
   it('supports equirectangular projection round-trips and 2:1 image bounds fitting', () => {
@@ -675,7 +529,7 @@ describe('WebAssembly batch kernels', () => {
     expect(initWasm()).toBe(true);
     resetWasmArena();
 
-    // 1. 16-bit quantized rings via unified uploadStaticRings & drawRings
+    // 1. 16-bit quantized rings via unified uploadStaticRings
     const packedF32 = new Float32Array([
       0.2, 0.3, 0.25, 0.3, 0.25, 0.35, 0.2, 0.35, 0.2, 0.3,
     ]);
@@ -687,26 +541,7 @@ describe('WebAssembly batch kernels', () => {
     expect(handle).not.toBeNull();
     expect(handle?.precision).toBe(16);
 
-    const moves: Array<[number, number]> = [];
-    const lines: Array<[number, number]> = [];
-    let closed = false;
-    const mockCtx = {
-      moveTo: (x: number, y: number) => moves.push([x, y]),
-      lineTo: (x: number, y: number) => lines.push([x, y]),
-      closePath: () => {
-        closed = true;
-      },
-    } as unknown as CanvasRenderingContext2D;
-
-    const ok = drawRings(mockCtx, handle!, 1024, 0, 0, 1.0, true);
-    expect(ok).toBe(true);
-    expect(closed).toBe(true);
-    expect(moves.length).toBe(1);
-    expect(moves[0][0]).toBeCloseTo(0.2 * 1024, 0);
-    expect(moves[0][1]).toBeCloseTo(0.3 * 1024, 0);
-    expect(lines.length).toBeGreaterThan(0);
-
-    // 2. 16-bit points via unified encodePoints16, batchProjectPoints, and hitTestPoints
+    // 2. 16-bit points via unified encodePoints16 and hitTestPoints
     const cam = new Viewport({
       center: [25.033, 121.5654],
       zoom: 4,
@@ -722,21 +557,10 @@ describe('WebAssembly batch kernels', () => {
     expect(encoded.lats[3]).toBe(32767);
     expect(encoded.lons[3]).toBe(-32767);
 
-    const outXY = new Float32Array(8);
-    const outIdx = new Int32Array(4);
-    const visible = batchProjectPoints(encoded, cam, 32, outXY, outIdx);
-    expect(visible).toBeGreaterThanOrEqual(1);
-    expect(outIdx[0]).toBe(0);
-    expect(outXY[0]).toBeCloseTo(400, 0);
-    expect(outXY[1]).toBeCloseTo(300, 0);
-
     const hitIdx = hitTestPoints(400, 300, encoded, cam, 16);
     expect(hitIdx).toBe(0);
 
     // Defensive bounds checks
-    expect(
-      batchProjectPoints(encoded.lats, encoded.lons, 0, cam, 32, outXY, outIdx)
-    ).toBe(0);
     expect(
       hitTestPoints(
         400,
@@ -764,9 +588,6 @@ describe('WebAssembly batch kernels', () => {
     const handle = uploadStaticPoints(lats, lons, 2);
     expect(handle).not.toBeNull();
 
-    const outXY = new Float32Array(4);
-    const outIdx = new Int32Array(2);
-    expect(batchProjectPoints(handle!, cam, 20, outXY, outIdx)).toBe(2);
     expect(hitTestPoints(400, 300, handle!, cam, 16)).toBe(0);
 
     // TrajectoryItem tuple coordinates
@@ -820,21 +641,12 @@ describe('Extended projection, Viewport, curves, and trajectories', () => {
     expect(out.x).toBeCloseTo(norm.x, 6);
     expect(out.y).toBeCloseTo(norm.y, 6);
 
-    const world = latLonToMapPx(25.033, 121.5654, 4);
-    const [wLat, wLon] = mapPxToLatLon(world.x, world.y, 4);
-    expect(wLat).toBeCloseTo(25.033, 3);
-    expect(wLon).toBeCloseTo(121.5654, 3);
-
     const state = {
       center: [25.033, 121.5654] as LatLon,
       zoom: 4,
       width: 800,
       height: 600,
     };
-    const px = latLonToPx(25.033, 121.5654, state);
-    expect(px.x).toBeCloseTo(400, 3);
-    expect(px.y).toBeCloseTo(300, 3);
-
     const [pLat, pLon] = pxToLatLon(400, 300, state);
     expect(pLat).toBeCloseTo(25.033, 3);
     expect(pLon).toBeCloseTo(121.5654, 3);
@@ -1063,15 +875,13 @@ describe('PointLayer, VectorLayer, VectorLod, and ImageLayer core helpers', () =
       },
     } as unknown as CanvasRenderingContext2D;
 
-    const outXY = new Float32Array(6);
-    const outIdx = new Int32Array(3);
-    drawBatchPoints(mockCtx, cam, pts, buf32, outXY, outIdx);
+    drawBatchPoints(mockCtx, cam, pts, buf32);
     expect(arcCount).toBe(3);
     expect(fillCount).toBe(2); // 2 distinct color|alpha buckets
 
     // Auto re-uploads static handle after disposeWasm
     disposeWasm();
-    drawBatchPoints(mockCtx, cam, pts, buf16, outXY, outIdx);
+    drawBatchPoints(mockCtx, cam, pts, buf16);
     expect(arcCount).toBe(6);
 
     // attachPointHover updates cursor on pointermove / pointerleave
@@ -1379,7 +1189,7 @@ describe('DOM interactions (drag, click, pinch, gamepad) and React layers', () =
         {
           center: [25, 121],
           zoom: 4,
-          showZoomControls: true,
+          zoomControls: true,
           syncViewOnPropsChange: true,
           onClick: onMapClick,
         },

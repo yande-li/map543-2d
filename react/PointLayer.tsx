@@ -53,19 +53,10 @@ export const PointLayer = memo(
       ref
     ) => {
       const { viewport, getContainer, subscribeClick } = useMap();
-      const outXYRef = useRef<Float32Array>(new Float32Array(0));
-      const outIdxRef = useRef<Int32Array>(new Int32Array(0));
       const onPointClickRef = useRef(onPointClick);
       const onPointHoverRef = useRef(onPointHover);
       onPointClickRef.current = onPointClick;
       onPointHoverRef.current = onPointHover;
-
-      useEffect(() => {
-        return () => {
-          outXYRef.current = new Float32Array(0);
-          outIdxRef.current = new Int32Array(0);
-        };
-      }, []);
 
       const spatial = useMemo(
         () => packPoints(points, precision),
@@ -140,19 +131,7 @@ export const PointLayer = memo(
           cam: Viewport
         ) => {
           if (spatial.count === 0) return;
-          if (outIdxRef.current.length < spatial.count) {
-            outIdxRef.current = new Int32Array(spatial.count);
-            outXYRef.current = new Float32Array(spatial.count * 2);
-          }
-          drawBatchPoints(
-            ctx,
-            cam,
-            points,
-            spatial,
-            outXYRef.current,
-            outIdxRef.current,
-            marginPx
-          );
+          drawBatchPoints(ctx, cam, points, spatial, marginPx);
         },
         [points, spatial, marginPx]
       );

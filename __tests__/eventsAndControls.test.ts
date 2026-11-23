@@ -1,19 +1,27 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 import {
   createEmitter,
   Viewport,
   createControlSlots,
-  createLayerGroup,
   MAP_Z_INDEX,
   hitTestPointBuffers,
   packPoints,
   attachInteractions,
   attachGamepad,
-  type LayerHandle,
+  boundsIntersects,
 } from '../core';
-import { MapView, PointLayer, type PointLayerHandle } from '../index';
+import {
+  MapView,
+  PointLayer,
+  TrajectoryLayer,
+  CanvasRenderer,
+  useViewportEffect,
+  useViewportEvent,
+  type MapViewHandle,
+  type PointLayerHandle,
+} from '../index';
 
 describe('createEmitter', () => {
   it('supports on, once, hasListeners, and disposers', () => {
@@ -141,39 +149,6 @@ describe('createControlSlots', () => {
     expect(container.querySelector('.map-control-slot.top-right')).toBeNull();
 
     slots.destroy();
-  });
-});
-
-describe('createLayerGroup', () => {
-  it('propagates visibility, opacity, zIndex, and clear to member handles', () => {
-    const h1: LayerHandle = {
-      remove: vi.fn(),
-      setVisible: vi.fn(),
-      setOpacity: vi.fn(),
-      setZIndex: vi.fn(),
-    };
-    const h2: LayerHandle = {
-      remove: vi.fn(),
-      setVisible: vi.fn(),
-    };
-    const group = createLayerGroup([h1]);
-    group.add(h2);
-    expect(group.size()).toBe(2);
-
-    group.setVisible(false);
-    expect(h1.setVisible).toHaveBeenCalledWith(false);
-    expect(h2.setVisible).toHaveBeenCalledWith(false);
-
-    group.setOpacity(0.5);
-    expect(h1.setOpacity).toHaveBeenCalledWith(0.5);
-
-    group.setZIndex(42);
-    expect(h1.setZIndex).toHaveBeenCalledWith(42);
-
-    group.clear();
-    expect(group.size()).toBe(0);
-    expect(h1.remove).toHaveBeenCalledTimes(1);
-    expect(h2.remove).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -319,6 +294,52 @@ describe('Input device gesture lifecycle alignment', () => {
   });
 });
 
+describe('Geo bounds utilities', () => {
+  it('evaluates boundsIntersects for GeoBounds and LatLonBounds', () => {
+    const taiwan: [[number, number], [number, number]] = [
+      [21.8, 120.0],
+      [25.4, 122.1],
+    ];
+    const eastAsia = { north: 45, south: 15, east: 145, west: 105 };
+    const europe = { north: 60, south: 35, east: 30, west: -10 };
+    expect(boundsIntersects(taiwan, eastAsia)).toBe(true);
+    expect(boundsIntersects(taiwan, europe)).toBe(false);
+  });
+});
+
+describe('useViewportEffect and useViewportEvent', () => {
+  it('fires on viewport updates without triggering React re-renders', () => {
+    const mapRef = React.createRef<MapViewHandle>();
+    let renders = 0;
+    const effectCalls: number[] = [];
+    const moveEndCalls: number[] = [];
+
+    const Probe: React.FC = () => {
+      renders += 1;
+      useViewportEffect((s) => effectCalls.push(s.zoom));
+      useViewportEvent('moveend', (s) => moveEndCalls.push(s.zoom));
+      return null;
+    };
+
+    render(
+      React.createElement(
+        MapView,
+        { ref: mapRef, center: [25, 121], zoom: 4 },
+        React.createElement(Probe)
+      )
+    );
+
+    expect(renders).toBe(1);
+    expect(effectCalls).toEqual([4]);
+    expect(moveEndCalls).toEqual([]);
+
+    mapRef.current?.setView([26, 122], 6);
+    expect(renders).toBe(1);
+    expect(effectCalls).toEqual([4, 6]);
+    expect(moveEndCalls).toEqual([6]);
+  });
+});
+
 describe('Input device gesture lifecycle alignment', () => {
   it('coalesces repeated keyboard pan keys into one movestart -> moveend pair', () => {
     const el = document.createElement('div');
@@ -417,5 +438,144 @@ describe('Input device gesture lifecycle alignment', () => {
       globalThis.requestAnimationFrame = origRaf;
       globalThis.cancelAnimationFrame = origCancelRaf;
     }
+  });
+});
+
+describe('Geo bounds utilities', () => {
+  it('evaluates boundsIntersects for GeoBounds and LatLonBounds', () => {
+    const taiwan: [[number, number], [number, number]] = [
+      [21.8, 120.0],
+      [25.4, 122.1],
+    ];
+    const eastAsia = { north: 45, south: 15, east: 145, west: 105 };
+    const europe = { north: 60, south: 35, east: 30, west: -10 };
+    expect(boundsIntersects(taiwan, eastAsia)).toBe(true);
+    expect(boundsIntersects(taiwan, europe)).toBe(false);
+  });
+});
+
+describe('useViewportEffect and useViewportEvent', () => {
+  it('fires on viewport updates without triggering React re-renders', () => {
+    const mapRef = React.createRef<MapViewHandle>();
+    let renders = 0;
+    const effectCalls: number[] = [];
+    const moveEndCalls: number[] = [];
+
+    const Probe: React.FC = () => {
+      renders += 1;
+      useViewportEffect((s) => effectCalls.push(s.zoom));
+      useViewportEvent('moveend', (s) => moveEndCalls.push(s.zoom));
+      return null;
+    };
+
+    render(
+      React.createElement(
+        MapView,
+        { ref: mapRef, center: [25, 121], zoom: 4 },
+        React.createElement(Probe)
+      )
+    );
+
+    expect(renders).toBe(1);
+    expect(effectCalls).toEqual([4]);
+    expect(moveEndCalls).toEqual([]);
+
+    mapRef.current?.setView([26, 122], 6);
+    expect(renders).toBe(1);
+    expect(effectCalls).toEqual([4, 6]);
+    expect(moveEndCalls).toEqual([6]);
+  });
+});
+
+describe('CanvasRenderer debounce & TrajectoryLayer culling', () => {
+  it('cancels pending crisp restore if a new movestart occurs within idle delay', () => {
+    vi.useFakeTimers();
+    const origRaf = globalThis.requestAnimationFrame;
+    const origCancelRaf = globalThis.cancelAnimationFrame;
+    let nextId = 1;
+    globalThis.requestAnimationFrame = (cb) => {
+      const id = nextId++;
+      setTimeout(() => cb(performance.now()), 0);
+      return id;
+    };
+    globalThis.cancelAnimationFrame = () => {};
+
+    try {
+      const vp = new Viewport({
+        center: [0, 0],
+        zoom: 4,
+        width: 400,
+        height: 300,
+      });
+      const interactingFlags: boolean[] = [];
+      const renderer = new CanvasRenderer({
+        interactionMaxDpr: 0.5,
+        interactionIdleDelayMs: 140,
+        onDraw: (_ctx, _s, _v, isInteracting) => {
+          interactingFlags.push(isInteracting);
+        },
+      });
+      const container = document.createElement('div');
+      const unmount = renderer.mount(container, vp);
+      vi.advanceTimersByTime(16);
+
+      vp.beginGesture(false);
+      vp.panBy(10, 0);
+      vi.advanceTimersByTime(16);
+      vp.endGesture();
+
+      // Within 50ms, start a second drag -> should cancel crisp restore timer
+      vi.advanceTimersByTime(50);
+      vp.beginGesture(false);
+      vp.panBy(10, 0);
+      vi.advanceTimersByTime(100);
+      // Still interacting (not yet restored to crisp)
+      expect(interactingFlags[interactingFlags.length - 1]).toBe(true);
+
+      vp.endGesture();
+      vi.advanceTimersByTime(160);
+      expect(interactingFlags[interactingFlags.length - 1]).toBe(false);
+
+      unmount();
+    } finally {
+      vi.useRealTimers();
+      globalThis.requestAnimationFrame = origRaf;
+      globalThis.cancelAnimationFrame = origCancelRaf;
+    }
+  });
+
+  it('culls offscreen trajectories in <TrajectoryLayer /> when viewport has non-zero bounds', () => {
+    const mapRef = React.createRef<MapViewHandle>();
+    const items = [
+      {
+        key: 'in-view',
+        src: [25, 121] as [number, number],
+        dst: [26, 122] as [number, number],
+      },
+      {
+        key: 'off-view',
+        src: [-60, -150] as [number, number],
+        dst: [-65, -155] as [number, number],
+      },
+    ];
+    const { container } = render(
+      React.createElement(
+        MapView,
+        { ref: mapRef, center: [25, 121], zoom: 6 },
+        React.createElement(TrajectoryLayer, {
+          items,
+          lowPower: true,
+          showBasePath: false,
+        })
+      )
+    );
+    // Simulate non-zero container dimensions so viewport bounds culling activates
+    act(() => {
+      mapRef.current?.getViewport().setSize(800, 600);
+      mapRef.current?.setView([25, 121], 6);
+    });
+
+    const paths = container.querySelectorAll('svg path');
+    expect(paths.length).toBe(1);
   });
 });

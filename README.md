@@ -60,19 +60,17 @@ map.addOverlay(markerEl, [25.033, 121.565]);
 
 Full prop types and JSDoc are included in TypeScript declarations (`.d.ts`).
 
-- `<MapView>` — Viewport container with `ref` (`MapViewHandle`: `flyTo`, `setView`, `fitBounds`), `bounds`, drag/pinch/wheel/double-click zoom, keyboard/gamepad, `onClick`, `onMove`/`onMoveEnd`, `smooth`, and `zoomControls`.
-- `<CanvasLayer>` — DPR-aware canvas synchronized via `requestAnimationFrame` (supports `interactionMaxDpr`).
-- `<VectorLayer>` — WASM-accelerated Geobuf fill/stroke rendering (`src`, `data`, or `fillLayers`), LOD, `styles`, `className`, and `precision` (`32 | 16`).
-- `<PointLayer>` — Batch-projected canvas points with nearest-point `onPointClick`/`onPointHover` hit-testing, `className`, and `precision` (`32 | 16`).
-- `<TrajectoryLayer>` — SVG animated trajectory arcs (`src`, `dst`) synced with `Viewport`.
-- `<ImageLayer>` — Georeferenced image overlay (`src` or pre-loaded `image`; core also exports `loadImage`, `drawImage`).
-- `<Marker>`, `<Overlay>`, `<Popup>` — GPU-positioned DOM overlays (`translate3d`, `position={[lat, lon]}`, and `Marker` `popup`).
-- `useViewport()`, `useViewportSelector()`, `useMapClick()`, `useGeobuf()`, `useMap()` — Declarative React hooks without manual `useEffect` wiring.
+- `<MapView>` — Interactive map container with `ref` controls (`flyTo`, `setView`, `fitBounds`).
+- `<CanvasLayer>`, `<VectorLayer>`, `<PointLayer>`, `<HeatmapLayer>`, `<ImageLayer>`, `<TrajectoryLayer>` — Map rendering layers.
+- `<Marker>`, `<Overlay>`, `<Popup>`, `<MapControl>` — DOM overlays and corner UI controls.
+- `useViewport`, `useViewportSelector`, `useViewportEffect`, `useViewportEvent`, `useMapClick`, `useGeobuf`, `useMap` — React hooks.
 
-## Core API (`map543-2d/core`, React-free, Web Worker compatible)
+## Core API (`map543-2d/core`)
 
-- **High-Level Facade**: `createMap` (unified viewport, interactions, zoom controls, `addVectorLayer`, `addPointLayer`, `addImageLayer`, `addTrajectoryLayer`, `addOverlay`, `destroy`).
-- **Viewport & Projections**: `Viewport` (`setView` / `flyTo` with optional `zoom`, `fitBounds`), `MERCATOR_PROJECTION`, `createEquirectangular`, `latLonToNorm` / `normToLatLon`, `getViewportBounds`, `getWrappedSlices`.
-- **Formats, Curves & Errors**: `loadGeobuf`, `parseGeobuf`, `computeArcsBatch`, `prepareArcs`, `drawTrajectories`, `MapError`.
-- **WASM & Reduced-Precision (`32 | 16`)**: WASM auto-initializes synchronously on first use (`decodeLocDict`, `uploadStaticRings`, `drawRings`, `uploadStaticPoints`, `batchProjectPoints`, `hitTestPoints`, `encodeRings16`, `encodePoints16`, `resetWasmArena`, `disposeWasm`).
-- **Controllers & Custom Layers**: `attachInteractions`, `attachGamepad`, `CanvasRenderer`, `MapLayerRenderer`.
+React-free and Web Worker compatible:
+
+- `createMap` — Map instance factory (`addVectorLayer`, `addPointLayer`, `addHeatmapLayer`, `addImageLayer`, `addTrajectoryLayer`, `addOverlay`, `destroy`).
+- `Viewport`, `MERCATOR_PROJECTION`, `createEquirectangular` — Viewport state and projections.
+- `loadGeobuf`, `parseGeobuf`, `loadImage`, `drawImage` — Data and image loaders.
+- `initWasm`, `resetWasmArena`, `disposeWasm` — WASM lifecycle (auto-initializes on first use).
+- `attachInteractions`, `attachGamepad`, `CanvasRenderer`, `MapError` — Input controllers, custom canvas renderer, and error type.

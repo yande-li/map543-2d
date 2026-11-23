@@ -1,7 +1,7 @@
 import { Viewport } from './viewport';
 import { LatLon } from './projection';
 
-export interface MapClickEvent {
+export interface MapPointerEvent {
   latLon: LatLon;
   x: number;
   y: number;
@@ -19,13 +19,13 @@ export interface InteractionOptions {
   /** Automatically sync container dimensions via ResizeObserver (default: true). */
   observeResize?: boolean;
   /** Callback invoked on pointerup when movement stayed within the 5px click threshold. */
-  onClick?: (event: MapClickEvent) => void;
+  onClick?: (event: MapPointerEvent) => void;
   /** Callback invoked on pointer move when listeners are attached. */
-  onMouseMove?: (event: MapClickEvent) => void;
+  onMouseMove?: (event: MapPointerEvent) => void;
   /** Optional fast check to skip unproject() on pointer move when no listeners exist. */
   hasMouseMoveListener?: () => boolean;
   /** Callback invoked on contextmenu (right-click) inside the map container. */
-  onContextMenu?: (event: MapClickEvent) => void;
+  onContextMenu?: (event: MapPointerEvent) => void;
   /** Debounced callback invoked after viewport movement settles. */
   onMoveEnd?: () => void;
   /** Debounce delay in ms for onMoveEnd (default: 120). */

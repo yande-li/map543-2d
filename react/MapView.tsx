@@ -17,7 +17,7 @@ import {
   type ControlPosition,
   type ControlSlots,
 } from '../core/controls';
-import { type MapClickEvent } from '../core/interactions';
+import { type MapPointerEvent } from '../core/interactions';
 import { type ZoomControlPosition, type ZoomControlsConfig } from '../core/map';
 import { Projection, LatLon, ProjectionType } from '../core/projection';
 import { attachGamepad } from '../core/gamepad';
@@ -62,11 +62,7 @@ export interface MapViewProps {
   ariaLabel?: string;
   /** Grouped zoom controls configuration or boolean toggle. */
   zoomControls?: boolean | ZoomControlsConfig;
-  showZoomControls?: boolean;
-  zoomControlPosition?: ZoomControlPosition;
   zoomDelta?: number;
-  zoomInLabel?: string;
-  zoomOutLabel?: string;
   /** Optional reference viewport width (CSS px) to scale initial/set zoom proportionally. */
   referenceWidth?: number;
   /** Preserve horizontal geographic span when container width changes on resize. */
@@ -77,8 +73,8 @@ export interface MapViewProps {
   style?: React.CSSProperties;
   /** Callback fired when clicking on the map viewport. */
   onClick?: MapClickListener;
-  onMouseMove?: (event: MapClickEvent) => void;
-  onContextMenu?: (event: MapClickEvent) => void;
+  onMouseMove?: (event: MapPointerEvent) => void;
+  onContextMenu?: (event: MapPointerEvent) => void;
   onMoveStart?: (state: ViewportState) => void;
   onMove?: (state: ViewportState) => void;
   /** Debounced callback fired after viewport movement settles. */
@@ -199,22 +195,17 @@ function getContainerA11yProps(
   };
 }
 
-function resolveZoomControlsConfig(
+function resolveZoomOpts(
   zoomControls: boolean | ZoomControlsConfig | undefined,
-  showZoomControls: boolean,
-  zoomControlPosition: ZoomControlPosition,
-  zoomDelta: number,
-  zoomInLabel: string,
-  zoomOutLabel: string
+  zoomDelta: number
 ) {
   const cfg = typeof zoomControls === 'object' ? zoomControls : undefined;
   return {
-    enabled:
-      zoomControls !== undefined ? Boolean(zoomControls) : showZoomControls,
-    position: cfg?.position ?? zoomControlPosition,
+    enabled: Boolean(zoomControls),
+    position: cfg?.position ?? 'bottom-right',
     delta: cfg?.delta ?? zoomDelta,
-    inLabel: cfg?.inLabel ?? zoomInLabel,
-    outLabel: cfg?.outLabel ?? zoomOutLabel,
+    inLabel: cfg?.inLabel ?? 'Zoom in',
+    outLabel: cfg?.outLabel ?? 'Zoom out',
   };
 }
 
@@ -234,11 +225,7 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
       smooth = false,
       ariaLabel = 'Interactive map',
       zoomControls,
-      showZoomControls = false,
-      zoomControlPosition = 'bottom-right',
       zoomDelta = 0.5,
-      zoomInLabel = 'Zoom in',
-      zoomOutLabel = 'Zoom out',
       referenceWidth,
       preserveViewportSpan = false,
       projection,
@@ -266,14 +253,7 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
       delta: resolvedZoomDelta,
       inLabel: resolvedZoomInLabel,
       outLabel: resolvedZoomOutLabel,
-    } = resolveZoomControlsConfig(
-      zoomControls,
-      showZoomControls,
-      zoomControlPosition,
-      zoomDelta,
-      zoomInLabel,
-      zoomOutLabel
-    );
+    } = resolveZoomOpts(zoomControls, zoomDelta);
     const containerRef = useRef<HTMLDivElement>(null);
     const controlSlotsRef = useRef<ControlSlots | null>(null);
     const clickListenersRef = useRef(new Set<MapClickListener>());

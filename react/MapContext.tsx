@@ -1,9 +1,9 @@
 import React, { createContext, useContext } from 'react';
 import { type ControlPosition } from '../core/controls';
 import { Viewport } from '../core/viewport';
-import { type MapClickEvent } from '../core/interactions';
+import { type MapPointerEvent } from '../core/interactions';
 
-export type MapClickListener = (event: MapClickEvent) => void;
+export type MapClickListener = (event: MapPointerEvent) => void;
 
 export interface MapContextValue {
   viewport: Viewport;

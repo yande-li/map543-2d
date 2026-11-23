@@ -16,8 +16,16 @@ import { CanvasRenderer, type CanvasRendererOptions } from './canvasRenderer';
 import { createGlowDotSprite, drawTrajectories } from './canvasTrajectory';
 import { toMapError, type MapError } from './errors';
 import { attachGamepad, type GamepadOptions } from './gamepad';
+import {
+  buildHeatmapPalette,
+  drawHeatmap,
+  packHeatmapPoints,
+  type HeatmapColorStop,
+  type HeatmapPoint,
+  type HeatmapScratch,
+} from './heatmapLayer';
 import { drawImage, loadImage } from './imageLayer';
-import { attachInteractions, type MapClickEvent } from './interactions';
+import { attachInteractions, type MapPointerEvent } from './interactions';
 import {
   attachPointHover,
   drawBatchPoints,
@@ -28,7 +36,7 @@ import {
 } from './pointLayer';
 import { type GeoBounds, type LatLon, type Point2D } from './projection';
 import { type MapLayerRenderer } from './renderer';
-import { prepareArcs, type TrajectoryItem } from './trajectory';
+import { type TrajectoryItem } from './trajectory';
 import {
   drawVectorLayers,
   uploadVectorLayers,
@@ -40,9 +48,9 @@ import { type CoordPrecision, type StaticGeometryHandle } from './batch';
 export type ZoomControlPosition = ControlPosition;
 
 export interface MapEventMap extends ViewportEventMap {
-  click: MapClickEvent;
-  mousemove: MapClickEvent;
-  contextmenu: MapClickEvent;
+  click: MapPointerEvent;
+  mousemove: MapPointerEvent;
+  contextmenu: MapPointerEvent;
 }
 import {
   loadGeobuf,
@@ -67,7 +75,7 @@ export interface CreateMapOptions extends ViewportConstraints {
   zoomDelta?: number;
   moveEndDelayMs?: number;
   zoomControls?: boolean | ZoomControlsConfig;
-  onClick?: (event: MapClickEvent) => void;
+  onClick?: (event: MapPointerEvent) => void;
   onMove?: (state: ViewportState) => void;
   onMoveEnd?: (state: ViewportState) => void;
 }
@@ -122,6 +130,19 @@ export interface AddTrajectoryLayerOptions {
   className?: string;
 }
 
+export interface AddHeatmapLayerOptions {
+  points: readonly HeatmapPoint[];
+  radiusPx?: number;
+  gridScale?: number;
+  maxIntensity?: number;
+  opacity?: number;
+  colorStops?: readonly HeatmapColorStop[];
+  precision?: CoordPrecision;
+  timeRange?: readonly [number, number];
+  zIndex?: number;
+  className?: string;
+}
+
 export interface AddOverlayOptions {
   anchor?: [number, number];
   zIndex?: number;
@@ -152,7 +173,6 @@ export interface MapInstance {
     type: K,
     listener: (payload: MapEventMap[K]) => void
   ) => Unsubscribe;
-  onClick: (listener: (event: MapClickEvent) => void) => () => void;
   addControl: (element: HTMLElement, position?: ControlPosition) => () => void;
   addLayer: (renderer: MapLayerRenderer) => () => void;
   addCanvasLayer: (options: CanvasRendererOptions) => () => void;
@@ -163,6 +183,7 @@ export interface MapInstance {
     items: readonly TrajectoryItem[],
     options?: AddTrajectoryLayerOptions
   ) => () => void;
+  addHeatmapLayer: (options: AddHeatmapLayerOptions) => () => void;
   addOverlay: (
     element: HTMLElement,
     position: LatLon,
@@ -318,29 +339,19 @@ function mountPointLayer(
   container: HTMLElement,
   viewport: Viewport,
   options: AddPointLayerOptions,
-  subscribeClick: (listener: (event: MapClickEvent) => void) => () => void
+  subscribeClick: (listener: (event: MapPointerEvent) => void) => () => void
 ): { cleanup: () => void } & PointLayerHandle {
   const precision = options.precision ?? 32;
   const hitRadiusPx = options.hitRadiusPx ?? 18;
   const marginPx = options.marginPx ?? 30;
   const spatial = packPoints(options.points, precision);
-  const outXY = new Float32Array(spatial.count * 2);
-  const outIdx = new Int32Array(spatial.count);
 
   const renderer = new CanvasRenderer({
     zIndex: options.zIndex ?? MAP_Z_INDEX.point,
     ...(options.className ? { className: options.className } : {}),
     onDraw: (ctx, _state, cam) => {
       if (spatial.count === 0) return;
-      drawBatchPoints(
-        ctx,
-        cam,
-        options.points,
-        spatial,
-        outXY,
-        outIdx,
-        marginPx
-      );
+      drawBatchPoints(ctx, cam, options.points, spatial, marginPx);
     },
   });
 
@@ -442,8 +453,14 @@ function mountTrajectoryLayer(
   items: readonly TrajectoryItem[],
   options: AddTrajectoryLayerOptions = {}
 ): () => void {
-  const prepared = prepareArcs(items);
-  const count = prepared.items.length;
+  const endpoints: Array<{ src: LatLon; dst: LatLon }> = [];
+  for (const item of items) {
+    if (item.curve === 'none') continue;
+    const src: LatLon = item.src ?? [item.srcLat ?? 0, item.srcLon ?? 0];
+    const dst: LatLon = item.dst ?? [item.dstLat ?? 0, item.dstLon ?? 0];
+    endpoints.push(item.isReversed ? { src: dst, dst: src } : { src, dst });
+  }
+  const count = endpoints.length;
   const srcXY = new Float32Array(count * 2);
   const dstXY = new Float32Array(count * 2);
   const tmpPt: Point2D = { x: 0, y: 0 };
@@ -457,11 +474,11 @@ function mountTrajectoryLayer(
     onDraw: (ctx, state, cam) => {
       if (count === 0) return;
       for (let i = 0; i < count; i++) {
-        const arc = prepared.items[i];
-        cam.projectInto(arc.src[0], arc.src[1], tmpPt);
+        const ep = endpoints[i];
+        cam.projectInto(ep.src[0], ep.src[1], tmpPt);
         srcXY[i * 2] = tmpPt.x;
         srcXY[i * 2 + 1] = tmpPt.y;
-        cam.projectInto(arc.dst[0], arc.dst[1], tmpPt);
+        cam.projectInto(ep.dst[0], ep.dst[1], tmpPt);
         dstXY[i * 2] = tmpPt.x;
         dstXY[i * 2 + 1] = tmpPt.y;
       }
@@ -478,6 +495,47 @@ function mountTrajectoryLayer(
     },
   });
 
+  return renderer.mount(container, viewport);
+}
+
+function mountHeatmapLayer(
+  container: HTMLElement,
+  viewport: Viewport,
+  options: AddHeatmapLayerOptions
+): () => void {
+  const buffers = packHeatmapPoints(options.points, options.precision ?? 32);
+  const palette = options.colorStops
+    ? buildHeatmapPalette(options.colorStops)
+    : undefined;
+  const scratch: HeatmapScratch = {};
+  const renderer = new CanvasRenderer({
+    zIndex: options.zIndex ?? MAP_Z_INDEX.heatmap,
+    ...(options.className ? { className: options.className } : {}),
+    onDraw: (ctx, _state, cam) => {
+      drawHeatmap(
+        ctx,
+        buffers,
+        cam,
+        {
+          ...(options.radiusPx !== undefined
+            ? { radiusPx: options.radiusPx }
+            : {}),
+          ...(options.gridScale !== undefined
+            ? { gridScale: options.gridScale }
+            : {}),
+          ...(options.maxIntensity !== undefined
+            ? { maxIntensity: options.maxIntensity }
+            : {}),
+          ...(options.opacity !== undefined
+            ? { opacity: options.opacity }
+            : {}),
+          ...(options.timeRange ? { timeRange: options.timeRange } : {}),
+          ...(palette ? { palette } : {}),
+        },
+        scratch
+      );
+    },
+  });
   return renderer.mount(container, viewport);
 }
 
@@ -528,9 +586,9 @@ export function createMap(
   const viewport = new Viewport(options);
   const controlSlots = createControlSlots(container);
   const pointerEmitter = createEmitter<{
-    click: MapClickEvent;
-    mousemove: MapClickEvent;
-    contextmenu: MapClickEvent;
+    click: MapPointerEvent;
+    mousemove: MapPointerEvent;
+    contextmenu: MapPointerEvent;
   }>();
   const cleanups = new Set<() => void>();
   let destroyed = false;
@@ -548,7 +606,7 @@ export function createMap(
     }
     return pointerEmitter[method](
       type,
-      listener as (payload: MapClickEvent) => void
+      listener as (payload: MapPointerEvent) => void
     );
   };
 
@@ -562,7 +620,7 @@ export function createMap(
     listener: (payload: MapEventMap[K]) => void
   ): Unsubscribe => bindEvent('once', type, listener);
 
-  const subscribeClick = (listener: (event: MapClickEvent) => void) =>
+  const subscribeClick = (listener: (event: MapPointerEvent) => void) =>
     pointerEmitter.on('click', listener);
 
   const detachInteractions = attachInteractions(container, viewport, {
@@ -629,7 +687,6 @@ export function createMap(
     subscribe: (listener) => viewport.subscribe(listener),
     on,
     once,
-    onClick: subscribeClick,
     addControl: (element, position = 'top-right') =>
       track(controlSlots.mountControl(element, position)),
     addLayer: (renderer) => {
@@ -658,6 +715,8 @@ export function createMap(
     addImageLayer: (opts) => track(mountImageLayer(container, viewport, opts)),
     addTrajectoryLayer: (items, opts) =>
       track(mountTrajectoryLayer(container, viewport, items, opts)),
+    addHeatmapLayer: (opts) =>
+      track(mountHeatmapLayer(container, viewport, opts)),
     addOverlay: (el, pos, opts) =>
       track(mountOverlay(container, viewport, el, pos, opts)),
     destroy: () => {

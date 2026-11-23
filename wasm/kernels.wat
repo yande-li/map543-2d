@@ -3,14 +3,13 @@
  (export "findNearestPointBatch" (func $wasm/kernels/findNearestPointBatch))
  (export "batchProjectMercator" (func $wasm/kernels/batchProjectMercator))
  (export "decimateRingsBatch" (func $wasm/kernels/decimateRingsBatch))
- (export "cleanSeamRingBatch" (func $wasm/kernels/cleanSeamRingBatch))
  (export "computeArcsBatch" (func $wasm/kernels/computeArcsBatch))
  (export "decodeGeobufRingMercator" (func $wasm/kernels/decodeGeobufRingMercator))
- (export "decodeLocationDictBatch" (func $wasm/kernels/decodeLocationDictBatch))
  (export "projectMercator" (func $wasm/kernels/projectMercator))
  (export "decimateRingsBatchU16" (func $wasm/kernels/decimateRingsBatchU16))
  (export "batchProjectMercatorI16" (func $wasm/kernels/batchProjectMercatorI16))
  (export "findNearestPointBatchI16" (func $wasm/kernels/findNearestPointBatchI16))
+ (export "renderHeatmapGrid" (func $wasm/kernels/renderHeatmapGrid))
  (export "memory" (memory $0))
 
  (func $mercatorY (param $lat f32) (param $lutOff i32) (result f32)
@@ -157,73 +156,6 @@
      (local.set $outLensPtr (i32.add (local.get $outLensPtr) (i32.const 4)))
      (br $ring_loop))))
   (local.get $totalOutFloats)
- )
-
- (func $wasm/kernels/cleanSeamRingBatch
-  (param $floatLen i32) (param $inPtr i32) (param $outPtr i32) (param $segLensPtr i32) (param $bboxPtr i32)
-  (result i32)
-  (local $segFloats i32) (local $segCount i32)
-  (local $minLon f32) (local $minLat f32) (local $maxLon f32) (local $maxLat f32)
-  (local $lon1 f32) (local $lat1 f32) (local $lon2 f32) (local $lat2 f32) (local $dx f32)
-  (if (i32.lt_s (local.get $floatLen) (i32.const 4))
-   (then
-    (f32.store (local.get $bboxPtr) (f32.const inf))
-    (f32.store offset=4 (local.get $bboxPtr) (f32.const inf))
-    (f32.store offset=8 (local.get $bboxPtr) (f32.const -inf))
-    (f32.store offset=12 (local.get $bboxPtr) (f32.const -inf))
-    (return (i32.const 0))))
-  (local.set $maxLon (local.tee $minLon (local.tee $lon1 (f32.load (local.get $inPtr)))))
-  (local.set $maxLat (local.tee $minLat (local.tee $lat1 (f32.load offset=4 (local.get $inPtr)))))
-  (local.set $floatLen
-   (i32.sub
-    (i32.add (local.get $inPtr) (i32.shl (local.get $floatLen) (i32.const 2)))
-    (i32.const 8)))
-  (loop $seam_loop
-   (if (i32.lt_u (local.get $inPtr) (local.get $floatLen))
-    (then
-     (local.set $lon2 (f32.load offset=8 (local.get $inPtr)))
-     (local.set $lat2 (f32.load offset=12 (local.get $inPtr)))
-     (if (f32.lt (local.get $lon2) (local.get $minLon)) (then (local.set $minLon (local.get $lon2))))
-     (if (f32.gt (local.get $lon2) (local.get $maxLon)) (then (local.set $maxLon (local.get $lon2))))
-     (if (f32.lt (local.get $lat2) (local.get $minLat)) (then (local.set $minLat (local.get $lat2))))
-     (if (f32.gt (local.get $lat2) (local.get $maxLat)) (then (local.set $maxLat (local.get $lat2))))
-     (if
-      (i32.or
-       (i32.and
-        (f32.lt (f32.abs (f32.sub (f32.abs (local.get $lon1)) (f32.const 180))) (f32.const 0.5))
-        (f32.lt (local.tee $dx (f32.abs (f32.sub (local.get $lon1) (local.get $lon2)))) (f32.const 1.0000000474974513e-03)))
-       (f32.gt (local.get $dx) (f32.const 180)))
-      (then
-       (if (i32.gt_s (local.get $segFloats) (i32.const 0))
-        (then
-         (i32.store (local.get $segLensPtr) (local.get $segFloats))
-         (local.set $segLensPtr (i32.add (local.get $segLensPtr) (i32.const 4)))
-         (local.set $segCount (i32.add (local.get $segCount) (i32.const 1)))
-         (local.set $segFloats (i32.const 0)))))
-      (else
-       (if (i32.eqz (local.get $segFloats))
-        (then
-         (f32.store (local.get $outPtr) (local.get $lon1))
-         (f32.store offset=4 (local.get $outPtr) (local.get $lat1))
-         (local.set $outPtr (i32.add (local.get $outPtr) (i32.const 8)))
-         (local.set $segFloats (i32.const 2))))
-       (f32.store (local.get $outPtr) (local.get $lon2))
-       (f32.store offset=4 (local.get $outPtr) (local.get $lat2))
-       (local.set $outPtr (i32.add (local.get $outPtr) (i32.const 8)))
-       (local.set $segFloats (i32.add (local.get $segFloats) (i32.const 2)))))
-     (local.set $lon1 (local.get $lon2))
-     (local.set $lat1 (local.get $lat2))
-     (local.set $inPtr (i32.add (local.get $inPtr) (i32.const 8)))
-     (br $seam_loop))))
-  (f32.store (local.get $bboxPtr) (local.get $minLon))
-  (f32.store offset=4 (local.get $bboxPtr) (local.get $minLat))
-  (f32.store offset=8 (local.get $bboxPtr) (local.get $maxLon))
-  (f32.store offset=12 (local.get $bboxPtr) (local.get $maxLat))
-  (if (i32.gt_s (local.get $segFloats) (i32.const 0))
-   (then
-    (i32.store (local.get $segLensPtr) (local.get $segFloats))
-    (local.set $segCount (i32.add (local.get $segCount) (i32.const 1)))))
-  (local.get $segCount)
  )
 
  (func $wasm/kernels/batchProjectMercator
@@ -382,27 +314,6 @@
   (f32.store offset=8 (local.get $boundsOff) (local.get $maxLon))
   (f32.store offset=12 (local.get $boundsOff) (local.get $maxLat))
   (i32.shl (local.get $ptCount) (i32.const 1))
- )
-
- (func $wasm/kernels/decodeLocationDictBatch
-  (param $locCount i32) (param $lutOff i32) (param $inCur i32)
-  (param $latsOff i32) (param $lonsOff i32) (param $mxsOff i32) (param $mysOff i32)
-  (result i32)
-  (local $outOff i32) (local $endOff i32) (local $lat f32) (local $lon f32)
-  (local.set $endOff (i32.shl (local.get $locCount) (i32.const 2)))
-  (loop $loc_loop
-   (if (i32.lt_s (local.get $outOff) (local.get $endOff))
-    (then
-     (local.set $lat (f32.mul (f32.convert_i32_s (i32.load16_s (local.get $inCur))) (f32.const 0.002746665852840507)))
-     (local.set $lon (f32.mul (f32.convert_i32_s (i32.load16_s offset=2 (local.get $inCur))) (f32.const 0.005493331705681014)))
-     (f32.store (i32.add (local.get $latsOff) (local.get $outOff)) (local.get $lat))
-     (f32.store (i32.add (local.get $lonsOff) (local.get $outOff)) (local.get $lon))
-     (f32.store (i32.add (local.get $mxsOff) (local.get $outOff)) (f32.mul (local.get $lon) (f32.const 0.017453292519943295)))
-     (f32.store (i32.add (local.get $mysOff) (local.get $outOff)) (call $mercatorY (local.get $lat) (local.get $lutOff)))
-     (local.set $inCur (i32.add (local.get $inCur) (i32.const 6)))
-     (local.set $outOff (i32.add (local.get $outOff) (i32.const 4)))
-     (br $loc_loop))))
-  (local.get $locCount)
  )
 
  (func $wasm/kernels/projectMercator
@@ -644,5 +555,112 @@
      (local.set $i (i32.add (local.get $i) (i32.const 1)))
      (br $loop))))
   (local.get $bestIdx)
+ )
+
+ (func $wasm/kernels/renderHeatmapGrid
+  (param $ptCount i32) (param $xyOff i32) (param $weightsOff i32)
+  (param $gridW i32) (param $gridH i32) (param $gridScale f32)
+  (param $radiusGrid i32) (param $invMaxIntensity f32)
+  (param $densityOff i32) (param $lutOff i32) (param $outRgbaOff i32)
+  (result i32)
+  (local $cells i32) (local $i i32) (local $p i32)
+  (local $sx f32) (local $sy f32) (local $w f32)
+  (local $gx f32) (local $gy f32) (local $invRSq f32)
+  (local $x0 i32) (local $y0 i32) (local $x1 i32) (local $y1 i32)
+  (local $x i32) (local $y i32) (local $dx f32) (local $dy f32)
+  (local $dSq f32) (local $t f32) (local $addr i32)
+  (if
+   (i32.or
+    (i32.or (i32.lt_s (local.get $ptCount) (i32.const 0)) (i32.le_s (local.get $gridW) (i32.const 0)))
+    (i32.or (i32.le_s (local.get $gridH) (i32.const 0)) (i32.le_s (local.get $radiusGrid) (i32.const 0))))
+   (then (return (i32.const 0))))
+  (if
+   (i32.or
+    (i32.or (i32.gt_s (local.get $gridW) (i32.const 4096)) (i32.gt_s (local.get $gridH) (i32.const 4096)))
+    (i32.gt_s (local.get $radiusGrid) (i32.const 128)))
+   (then (return (i32.const 0))))
+  (if
+   (i32.or
+    (i32.eqz (f32.gt (local.get $gridScale) (f32.const 0)))
+    (i32.eqz (f32.gt (local.get $invMaxIntensity) (f32.const 0))))
+   (then (return (i32.const 0))))
+  (local.set $cells (i32.mul (local.get $gridW) (local.get $gridH)))
+  (local.set $i (i32.const 0))
+  (loop $zero_loop
+   (if (i32.lt_s (local.get $i) (local.get $cells))
+    (then
+     (f32.store (i32.add (local.get $densityOff) (i32.shl (local.get $i) (i32.const 2))) (f32.const 0))
+     (local.set $i (i32.add (local.get $i) (i32.const 1)))
+     (br $zero_loop))))
+  (local.set $invRSq
+   (f32.div (f32.const 1) (f32.convert_i32_s (i32.mul (local.get $radiusGrid) (local.get $radiusGrid)))))
+  (local.set $p (i32.const 0))
+  (loop $pt_loop
+   (if (i32.lt_s (local.get $p) (local.get $ptCount))
+    (then
+     (local.set $addr (i32.add (local.get $xyOff) (i32.shl (local.get $p) (i32.const 3))))
+     (local.set $sx (f32.load (local.get $addr)))
+     (local.set $sy (f32.load offset=4 (local.get $addr)))
+     (local.set $w
+      (if (result f32) (local.get $weightsOff)
+       (then (f32.load (i32.add (local.get $weightsOff) (i32.shl (local.get $p) (i32.const 2)))))
+       (else (f32.const 1))))
+     (if
+      (i32.and
+       (i32.and (f32.eq (local.get $sx) (local.get $sx)) (f32.eq (local.get $sy) (local.get $sy)))
+       (f32.gt (local.get $w) (f32.const 0)))
+      (then
+       (local.set $gx (f32.mul (local.get $sx) (local.get $gridScale)))
+       (local.set $gy (f32.mul (local.get $sy) (local.get $gridScale)))
+       (local.set $x0 (i32.sub (i32.trunc_sat_f32_s (local.get $gx)) (local.get $radiusGrid)))
+       (if (i32.lt_s (local.get $x0) (i32.const 0)) (then (local.set $x0 (i32.const 0))))
+       (local.set $x1 (i32.add (i32.trunc_sat_f32_s (local.get $gx)) (local.get $radiusGrid)))
+       (if (i32.ge_s (local.get $x1) (local.get $gridW)) (then (local.set $x1 (i32.sub (local.get $gridW) (i32.const 1)))))
+       (local.set $y0 (i32.sub (i32.trunc_sat_f32_s (local.get $gy)) (local.get $radiusGrid)))
+       (if (i32.lt_s (local.get $y0) (i32.const 0)) (then (local.set $y0 (i32.const 0))))
+       (local.set $y1 (i32.add (i32.trunc_sat_f32_s (local.get $gy)) (local.get $radiusGrid)))
+       (if (i32.ge_s (local.get $y1) (local.get $gridH)) (then (local.set $y1 (i32.sub (local.get $gridH) (i32.const 1)))))
+       (local.set $y (local.get $y0))
+       (loop $y_loop
+        (if (i32.le_s (local.get $y) (local.get $y1))
+         (then
+          (local.set $dy (f32.sub (f32.convert_i32_s (local.get $y)) (local.get $gy)))
+          (local.set $x (local.get $x0))
+          (loop $x_loop
+           (if (i32.le_s (local.get $x) (local.get $x1))
+            (then
+             (local.set $dx (f32.sub (f32.convert_i32_s (local.get $x)) (local.get $gx)))
+             (local.set $dSq
+              (f32.mul
+               (f32.add (f32.mul (local.get $dx) (local.get $dx)) (f32.mul (local.get $dy) (local.get $dy)))
+               (local.get $invRSq)))
+             (if (f32.lt (local.get $dSq) (f32.const 1))
+              (then
+               (local.set $t (f32.sub (f32.const 1) (local.get $dSq)))
+               (local.set $addr
+                (i32.add (local.get $densityOff)
+                 (i32.shl (i32.add (i32.mul (local.get $y) (local.get $gridW)) (local.get $x)) (i32.const 2))))
+               (f32.store (local.get $addr)
+                (f32.add (f32.load (local.get $addr)) (f32.mul (f32.mul (local.get $t) (local.get $t)) (local.get $w))))))
+             (local.set $x (i32.add (local.get $x) (i32.const 1)))
+             (br $x_loop))))
+          (local.set $y (i32.add (local.get $y) (i32.const 1)))
+          (br $y_loop))))))
+     (local.set $p (i32.add (local.get $p) (i32.const 1)))
+     (br $pt_loop))))
+  (local.set $i (i32.const 0))
+  (loop $color_loop
+   (if (i32.lt_s (local.get $i) (local.get $cells))
+    (then
+     (local.set $t
+      (f32.min (f32.const 1)
+       (f32.max (f32.const 0)
+        (f32.mul (f32.load (i32.add (local.get $densityOff) (i32.shl (local.get $i) (i32.const 2)))) (local.get $invMaxIntensity)))))
+     (i32.store
+      (i32.add (local.get $outRgbaOff) (i32.shl (local.get $i) (i32.const 2)))
+      (i32.load (i32.add (local.get $lutOff) (i32.shl (i32.trunc_sat_f32_s (f32.mul (local.get $t) (f32.const 255))) (i32.const 2)))))
+     (local.set $i (i32.add (local.get $i) (i32.const 1)))
+     (br $color_loop))))
+  (local.get $cells)
  )
 )

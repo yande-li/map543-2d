@@ -1,4 +1,5 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
+import { MAP_Z_INDEX } from '../core/controls';
 import { type ViewportState } from '../core/viewport';
 import { toMapError, type MapError } from '../core/errors';
 import {
@@ -63,7 +64,7 @@ export const VectorLayer: React.FC<VectorLayerProps> = memo(
     styles,
     smoothFactor = 1.0,
     lowPower = false,
-    zIndex = 100,
+    zIndex = MAP_Z_INDEX.vector,
     skipOnInteractLayers,
     resetOnUpload = false,
     precision = 32,

@@ -38,7 +38,7 @@ export class CanvasRenderer implements MapLayerRenderer {
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
   private viewport: Viewport | null = null;
-  private unsubscribe: (() => void) | null = null;
+  private unsubscribes: Array<() => void> = [];
   private ownsCanvas = false;
 
   private zIndex: number;
@@ -52,7 +52,6 @@ export class CanvasRenderer implements MapLayerRenderer {
   private isInteracting = false;
   private renderedDuringInteraction = false;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
-  private lastInteractionAt = 0;
   private lowResCanvas: HTMLCanvasElement | null = null;
   private lowResCtx: CanvasRenderingContext2D | null = null;
 
@@ -102,7 +101,11 @@ export class CanvasRenderer implements MapLayerRenderer {
 
   onAttach(viewport: Viewport): void {
     this.viewport = viewport;
-    this.unsubscribe = viewport.subscribe(() => this.onViewportChange());
+    this.unsubscribes = [
+      viewport.on('movestart', () => this.onMoveStart()),
+      viewport.on('move', () => this.onMove()),
+      viewport.on('moveend', () => this.onMoveEnd()),
+    ];
     this.scheduleRedraw();
   }
 
@@ -141,14 +144,11 @@ export class CanvasRenderer implements MapLayerRenderer {
   }
 
   onDetach(): void {
-    if (this.unsubscribe) {
-      this.unsubscribe();
-      this.unsubscribe = null;
+    for (const unsub of this.unsubscribes) {
+      unsub();
     }
-    if (this.idleTimer !== null) {
-      clearTimeout(this.idleTimer);
-      this.idleTimer = null;
-    }
+    this.unsubscribes = [];
+    this.clearIdleTimer();
     if (this.rafId !== 0 && typeof cancelAnimationFrame === 'function') {
       cancelAnimationFrame(this.rafId);
       this.rafId = 0;
@@ -178,42 +178,48 @@ export class CanvasRenderer implements MapLayerRenderer {
     }
   }
 
-  private onViewportChange(): void {
+  private clearIdleTimer(): void {
+    if (this.idleTimer !== null) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
+  }
+
+  private onMoveStart(): void {
     if (!this.viewport) return;
-    if (!this.viewport.isLastChangeInteractive()) {
-      if (this.idleTimer !== null) {
-        clearTimeout(this.idleTimer);
-        this.idleTimer = null;
-      }
+    if (!this.viewport.isLastChangeInteractive()) return;
+    this.clearIdleTimer();
+    this.isInteracting = true;
+  }
+
+  private onMove(): void {
+    if (!this.viewport) return;
+    this.clearIdleTimer();
+    if (this.viewport.isLastChangeInteractive()) {
+      this.isInteracting = true;
+    } else {
       this.isInteracting = false;
       this.renderedDuringInteraction = false;
       this.releaseLowResCanvas();
-      this.scheduleRedraw();
-      return;
     }
-    this.isInteracting = true;
-    this.lastInteractionAt = performance.now();
-    this.idleTimer ??= setTimeout(
-      () => this.onIdleTimeout(),
-      this.interactionIdleDelayMs
-    );
     this.scheduleRedraw();
   }
 
-  private onIdleTimeout(): void {
-    const elapsed = performance.now() - this.lastInteractionAt;
-    const remaining = this.interactionIdleDelayMs - elapsed;
-    if (remaining > 1) {
-      this.idleTimer = setTimeout(() => this.onIdleTimeout(), remaining);
+  private onMoveEnd(): void {
+    if (!this.viewport) return;
+    if (!this.viewport.isLastChangeInteractive() && !this.isInteracting) {
       return;
     }
-    this.idleTimer = null;
-    this.isInteracting = false;
-    this.releaseLowResCanvas();
-    if (this.renderedDuringInteraction) {
-      this.renderedDuringInteraction = false;
-      this.scheduleRedraw();
-    }
+    this.clearIdleTimer();
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = null;
+      this.isInteracting = false;
+      this.releaseLowResCanvas();
+      if (this.renderedDuringInteraction) {
+        this.renderedDuringInteraction = false;
+        this.scheduleRedraw();
+      }
+    }, this.interactionIdleDelayMs);
   }
 
   private drawLayerPass(

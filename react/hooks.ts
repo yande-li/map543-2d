@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
-import { type ViewportState } from '../core/viewport';
+import { type ViewportEventMap, type ViewportState } from '../core/viewport';
 import { type MapClickListener, useMap } from './MapContext';
 
 /**
@@ -65,4 +65,40 @@ export function useMapClick(handler: MapClickListener): void {
       handlerRef.current(event);
     });
   }, [subscribeClick]);
+}
+
+/**
+ * Runs an imperative side effect on mount and every viewport update without triggering React re-renders.
+ */
+export function useViewportEffect(
+  effect: (state: ViewportState) => void
+): void {
+  const { viewport } = useMap();
+  const effectRef = useRef(effect);
+  effectRef.current = effect;
+
+  useEffect(() => {
+    effectRef.current(viewport.getState());
+    return viewport.subscribe((state) => {
+      effectRef.current(state);
+    });
+  }, [viewport]);
+}
+
+/**
+ * Subscribes to a typed viewport lifecycle event without triggering React re-renders.
+ */
+export function useViewportEvent<K extends keyof ViewportEventMap>(
+  type: K,
+  handler: (state: ViewportEventMap[K]) => void
+): void {
+  const { viewport } = useMap();
+  const handlerRef = useRef(handler);
+  handlerRef.current = handler;
+
+  useEffect(() => {
+    return viewport.on(type, (state) => {
+      handlerRef.current(state);
+    });
+  }, [viewport, type]);
 }

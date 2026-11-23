@@ -1,4 +1,13 @@
-import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
+import React, {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { MAP_Z_INDEX } from '../core/controls';
+import { boundsIntersects } from '../core/projection';
 import {
   type PreparedArc,
   type TrajectoryCurveMode,
@@ -23,6 +32,8 @@ export interface TrajectoryLayerProps {
   lowPower?: boolean;
   /** Unlock 18fps stepped easing for full-framerate smooth stroke animation (default: false). */
   smooth?: boolean;
+  /** Skip creating SVG paths/animations for arcs completely outside viewport bounds (default: true). */
+  cullOffscreen?: boolean;
 }
 
 interface TrajectoryStrokeProps {
@@ -106,14 +117,51 @@ export const TrajectoryLayer: React.FC<TrajectoryLayerProps> = memo(
     showBasePath = true,
     baseStrokeWidth = 1,
     baseOpacity = 0.14,
-    zIndex = 350,
+    zIndex = MAP_Z_INDEX.trajectory,
     lowPower = false,
     smooth = false,
+    cullOffscreen = true,
   }) => {
     const { viewport } = useMap();
     const svgRef = useRef<SVGSVGElement | null>(null);
     const pathRefs = useRef<Map<string, SVGPathElement>>(new Map());
     const basePathRefs = useRef<Map<string, SVGPathElement>>(new Map());
+    const [viewBounds, setViewBounds] = useState(() => {
+      const s = viewport.getState();
+      return s.width > 0 && s.height > 0 ? viewport.getBounds() : null;
+    });
+
+    useEffect(() => {
+      if (!cullOffscreen) {
+        setViewBounds(null);
+        return;
+      }
+      const sync = () => {
+        const s = viewport.getState();
+        setViewBounds(
+          s.width > 0 && s.height > 0 ? viewport.getBounds() : null
+        );
+      };
+      sync();
+      return viewport.on('moveend', sync);
+    }, [viewport, cullOffscreen]);
+
+    const visibleItems = useMemo(() => {
+      if (!cullOffscreen || !viewBounds) return items;
+      return items.filter((item) => {
+        const sLat = item.src?.[0] ?? item.srcLat ?? 0;
+        const sLon = item.src?.[1] ?? item.srcLon ?? 0;
+        const dLat = item.dst?.[0] ?? item.dstLat ?? 0;
+        const dLon = item.dst?.[1] ?? item.dstLon ?? 0;
+        return boundsIntersects(
+          [
+            [Math.min(sLat, dLat), Math.min(sLon, dLon)],
+            [Math.max(sLat, dLat), Math.max(sLon, dLon)],
+          ],
+          viewBounds
+        );
+      });
+    }, [items, cullOffscreen, viewBounds]);
 
     const registerPath = useCallback(
       (key: string, el: SVGPathElement | null) => {
@@ -126,7 +174,7 @@ export const TrajectoryLayer: React.FC<TrajectoryLayerProps> = memo(
       []
     );
 
-    const prepared = useMemo(() => prepareArcs(items), [items]);
+    const prepared = useMemo(() => prepareArcs(visibleItems), [visibleItems]);
 
     useEffect(() => {
       return attachSvgSync(
