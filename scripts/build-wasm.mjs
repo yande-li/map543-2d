@@ -1,18 +1,14 @@
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import wabtFactory from 'wabt';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const rootDir = resolve(__dirname, '..');
+const rootDir = fileURLToPath(new URL('..', import.meta.url));
 const inputWatPath = resolve(rootDir, 'wasm/kernels.wat');
 const outWasmPath = resolve(rootDir, 'wasm/kernels.wasm');
 
-mkdirSync(dirname(outWasmPath), { recursive: true });
-
 const wabt = await wabtFactory();
-const watSource = readFileSync(inputWatPath, 'utf8');
-const parsed = wabt.parseWat(inputWatPath, watSource);
+const parsed = wabt.parseWat(inputWatPath, readFileSync(inputWatPath, 'utf8'));
 const { buffer } = parsed.toBinary({ log: false, write_debug_names: false });
 parsed.destroy();
 

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { MAP_Z_INDEX } from '../core/controls';
 import { type LatLon } from '../core/projection';
 import { useMap } from './MapContext';
 
@@ -28,7 +29,7 @@ export const Overlay: React.FC<OverlayProps> = ({
   position,
   lat,
   lon,
-  zIndex = 500,
+  zIndex = MAP_Z_INDEX.overlay,
   anchor = [0.5, 0.5],
   fixedSize,
   cullOffscreen = true,
@@ -175,7 +176,7 @@ export const Popup: React.FC<PopupProps> = ({
   lat,
   lon,
   maxWidth = 260,
-  zIndex = 3000,
+  zIndex = MAP_Z_INDEX.popup,
   className = '',
   style,
   onClose,

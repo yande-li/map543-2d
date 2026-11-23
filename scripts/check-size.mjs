@@ -1,46 +1,40 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const rootDir = resolve(__dirname, '..');
-
+const rootDir = fileURLToPath(new URL('..', import.meta.url));
 const BUDGETS = [
-  { file: 'dist/index.js', maxRawBytes: 75 * 1024 },
-  { file: 'dist/core.js', maxRawBytes: 60 * 1024 },
-  { file: 'dist/kernels.wasm', maxRawBytes: 4096 },
+  ['dist/index.js', 75 * 1024],
+  ['dist/core.js', 60 * 1024],
+  ['dist/kernels.wasm', 4096],
 ];
-
-const FORBIDDEN_DUPLICATES = ['dist/wasm/kernels.wasm'];
 
 let failed = false;
 
-for (const dup of FORBIDDEN_DUPLICATES) {
-  if (existsSync(resolve(rootDir, dup))) {
-    console.error(`[size-check] FAIL: duplicate asset still exists: ${dup}`);
-    failed = true;
-  }
+if (existsSync(resolve(rootDir, 'dist/wasm/kernels.wasm'))) {
+  console.error(
+    '[size-check] FAIL: duplicate asset still exists: dist/wasm/kernels.wasm'
+  );
+  failed = true;
 }
 
-for (const { file, maxRawBytes } of BUDGETS) {
-  const fullPath = resolve(rootDir, file);
-  if (!existsSync(fullPath)) {
+for (const [file, maxRawBytes] of BUDGETS) {
+  let buf;
+  try {
+    buf = readFileSync(resolve(rootDir, file));
+  } catch {
     console.error(`[size-check] FAIL: missing build artifact: ${file}`);
     failed = true;
     continue;
   }
-  const buf = readFileSync(fullPath);
-  const rawBytes = statSync(fullPath).size;
+  const rawBytes = buf.byteLength;
   const gzipBytes = gzipSync(buf).byteLength;
   const ok = rawBytes <= maxRawBytes;
   if (!ok) failed = true;
-  const status = ok ? 'PASS' : 'FAIL';
   console.log(
-    `[size-check] ${status} ${file}: ${(rawBytes / 1024).toFixed(2)} kB (${rawBytes} B) | gzip: ${(gzipBytes / 1024).toFixed(2)} kB | budget: ${(maxRawBytes / 1024).toFixed(2)} kB`
+    `[size-check] ${ok ? 'PASS' : 'FAIL'} ${file}: ${(rawBytes / 1024).toFixed(2)} kB (${rawBytes} B) | gzip: ${(gzipBytes / 1024).toFixed(2)} kB | budget: ${(maxRawBytes / 1024).toFixed(2)} kB`
   );
 }
 
-if (failed) {
-  process.exit(1);
-}
+if (failed) process.exit(1);

@@ -31,6 +31,36 @@ export interface PointBuffers {
   staticHandle?: StaticPointsHandle | null;
 }
 
+export interface PointHitResult {
+  point: PointItem;
+  index: number;
+}
+
+export interface PointLayerHandle {
+  hitTest: (x: number, y: number, radiusPx?: number) => PointHitResult | null;
+  hitTestCenter: (radiusPx?: number) => PointHitResult | null;
+}
+
+/**
+ * Performs nearest-point hit-testing against packed point buffers (using the WASM static arena when valid).
+ */
+export function hitTestPointBuffers(
+  x: number,
+  y: number,
+  points: readonly PointItem[],
+  spatial: PointBuffers,
+  viewport: Viewport,
+  radiusPx = 18
+): PointHitResult | null {
+  if (points.length === 0) return null;
+  const rt = getWasmRuntime();
+  const sh = spatial.staticHandle;
+  const target = rt !== null && sh && sh.epoch === rt.arenaEpoch ? sh : spatial;
+  const index = hitTestPoints(x, y, target, viewport, radiusPx);
+  if (index < 0 || index >= points.length) return null;
+  return { point: points[index], index };
+}
+
 export function packPoints(
   points: readonly PointItem[],
   precision: CoordPrecision = 32

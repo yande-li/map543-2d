@@ -68,6 +68,8 @@ export {
   createMap,
   type CreateMapOptions,
   type MapInstance,
+  type MapEventMap,
+  type PointLayerCleanup,
   type ZoomControlPosition,
   type ZoomControlsConfig,
   type AddVectorLayerOptions,
@@ -78,8 +80,31 @@ export {
 } from './core/map';
 
 export {
+  createEmitter,
+  type TypedEmitter,
+  type Unsubscribe,
+} from './core/events';
+export {
+  MAP_Z_INDEX,
+  createControlSlots,
+  type ControlPosition,
+  type ControlSlots,
+} from './core/controls';
+export {
+  hitTestPointBuffers,
+  type PointHitResult,
+  type PointLayerHandle,
+} from './core/pointLayer';
+export {
+  createLayerGroup,
+  type LayerHandle,
+  type LayerGroup,
+} from './core/layers';
+
+export {
   Viewport,
   type ViewportState,
+  type ViewportEventMap,
   type ViewportConstraints,
   type ViewportListener,
   type ProjectionParams,

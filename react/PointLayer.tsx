@@ -1,11 +1,20 @@
-import React, { memo, useCallback, useEffect, useMemo, useRef } from 'react';
+import React, {
+  forwardRef,
+  memo,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+} from 'react';
+import { MAP_Z_INDEX } from '../core/controls';
 import { type Viewport, type ViewportState } from '../core/viewport';
 import { type CoordPrecision } from '../core/batch';
-import { hitTestPoints } from '../core/hitTest';
-import { getWasmRuntime } from '../wasm/bridge';
 import {
   type PointItem,
+  type PointLayerHandle,
   attachPointHover,
+  hitTestPointBuffers,
   packPoints,
   drawBatchPoints,
 } from '../core/pointLayer';
@@ -28,102 +37,134 @@ export interface PointLayerProps {
  * React wrapper around core/pointLayer for Canvas point rendering with WASM batch
  * projection and nearest-point hit-testing.
  */
-export const PointLayer: React.FC<PointLayerProps> = memo(
-  ({
-    points,
-    zIndex = 300,
-    hitRadiusPx = 18,
-    marginPx = 30,
-    precision = 32,
-    className,
-    onPointClick,
-    onPointHover,
-  }) => {
-    const { viewport, getContainer, subscribeClick } = useMap();
-    const outXYRef = useRef<Float32Array>(new Float32Array(0));
-    const outIdxRef = useRef<Int32Array>(new Int32Array(0));
-    const onPointClickRef = useRef(onPointClick);
-    const onPointHoverRef = useRef(onPointHover);
-    onPointClickRef.current = onPointClick;
-    onPointHoverRef.current = onPointHover;
+export const PointLayer = memo(
+  forwardRef<PointLayerHandle, PointLayerProps>(
+    (
+      {
+        points,
+        zIndex = MAP_Z_INDEX.point,
+        hitRadiusPx = 18,
+        marginPx = 30,
+        precision = 32,
+        className,
+        onPointClick,
+        onPointHover,
+      },
+      ref
+    ) => {
+      const { viewport, getContainer, subscribeClick } = useMap();
+      const outXYRef = useRef<Float32Array>(new Float32Array(0));
+      const outIdxRef = useRef<Int32Array>(new Int32Array(0));
+      const onPointClickRef = useRef(onPointClick);
+      const onPointHoverRef = useRef(onPointHover);
+      onPointClickRef.current = onPointClick;
+      onPointHoverRef.current = onPointHover;
 
-    useEffect(() => {
-      return () => {
-        outXYRef.current = new Float32Array(0);
-        outIdxRef.current = new Int32Array(0);
-      };
-    }, []);
+      useEffect(() => {
+        return () => {
+          outXYRef.current = new Float32Array(0);
+          outIdxRef.current = new Int32Array(0);
+        };
+      }, []);
 
-    const spatial = useMemo(
-      () => packPoints(points, precision),
-      [points, precision]
-    );
+      const spatial = useMemo(
+        () => packPoints(points, precision),
+        [points, precision]
+      );
 
-    const hasClick = Boolean(onPointClick);
-    const hasHover = Boolean(onPointHover);
+      useImperativeHandle(
+        ref,
+        () => ({
+          hitTest: (x, y, radiusPx = hitRadiusPx) =>
+            hitTestPointBuffers(x, y, points, spatial, viewport, radiusPx),
+          hitTestCenter: (radiusPx = hitRadiusPx) => {
+            const s = viewport.getState();
+            return hitTestPointBuffers(
+              s.width * 0.5,
+              s.height * 0.5,
+              points,
+              spatial,
+              viewport,
+              radiusPx
+            );
+          },
+        }),
+        [points, spatial, viewport, hitRadiusPx]
+      );
 
-    useEffect(() => {
-      if (!hasClick || points.length === 0) return;
-      return subscribeClick(({ x, y }) => {
-        const rt = getWasmRuntime();
-        const sh = spatial.staticHandle;
-        const target =
-          rt !== null && sh && sh.epoch === rt.arenaEpoch ? sh : spatial;
-        const idx = hitTestPoints(x, y, target, viewport, hitRadiusPx);
-        if (idx >= 0) {
-          onPointClickRef.current?.(points[idx], idx);
-        }
-      });
-    }, [points, spatial, viewport, subscribeClick, hitRadiusPx, hasClick]);
+      const hasClick = Boolean(onPointClick);
+      const hasHover = Boolean(onPointHover);
 
-    useEffect(() => {
-      if (!hasClick && !hasHover) return;
-      return attachPointHover(
-        getContainer(),
+      useEffect(() => {
+        if (!hasClick || points.length === 0) return;
+        return subscribeClick(({ x, y }) => {
+          const hit = hitTestPointBuffers(
+            x,
+            y,
+            points,
+            spatial,
+            viewport,
+            hitRadiusPx
+          );
+          if (hit) {
+            onPointClickRef.current?.(hit.point, hit.index);
+          }
+        });
+      }, [points, spatial, viewport, subscribeClick, hitRadiusPx, hasClick]);
+
+      useEffect(() => {
+        if (!hasClick && !hasHover) return;
+        return attachPointHover(
+          getContainer(),
+          viewport,
+          spatial,
+          hitRadiusPx,
+          (idx) => {
+            onPointHoverRef.current?.(idx >= 0 ? points[idx] : null, idx);
+          }
+        );
+      }, [
+        getContainer,
         viewport,
         spatial,
         hitRadiusPx,
-        (idx) => {
-          onPointHoverRef.current?.(idx >= 0 ? points[idx] : null, idx);
-        }
+        hasClick,
+        hasHover,
+        points,
+      ]);
+
+      const onDraw = useCallback(
+        (
+          ctx: CanvasRenderingContext2D,
+          _state: ViewportState,
+          cam: Viewport
+        ) => {
+          if (spatial.count === 0) return;
+          if (outIdxRef.current.length < spatial.count) {
+            outIdxRef.current = new Int32Array(spatial.count);
+            outXYRef.current = new Float32Array(spatial.count * 2);
+          }
+          drawBatchPoints(
+            ctx,
+            cam,
+            points,
+            spatial,
+            outXYRef.current,
+            outIdxRef.current,
+            marginPx
+          );
+        },
+        [points, spatial, marginPx]
       );
-    }, [
-      getContainer,
-      viewport,
-      spatial,
-      hitRadiusPx,
-      hasClick,
-      hasHover,
-      points,
-    ]);
 
-    const onDraw = useCallback(
-      (ctx: CanvasRenderingContext2D, _state: ViewportState, cam: Viewport) => {
-        if (spatial.count === 0) return;
-        if (outIdxRef.current.length < spatial.count) {
-          outIdxRef.current = new Int32Array(spatial.count);
-          outXYRef.current = new Float32Array(spatial.count * 2);
-        }
-        drawBatchPoints(
-          ctx,
-          cam,
-          points,
-          spatial,
-          outXYRef.current,
-          outIdxRef.current,
-          marginPx
-        );
-      },
-      [points, spatial, marginPx]
-    );
-
-    return (
-      <CanvasLayer
-        zIndex={zIndex}
-        {...(className ? { className } : {})}
-        onDraw={onDraw}
-      />
-    );
-  }
+      return (
+        <CanvasLayer
+          zIndex={zIndex}
+          {...(className ? { className } : {})}
+          onDraw={onDraw}
+        />
+      );
+    }
+  )
 );
 PointLayer.displayName = 'PointLayer';

@@ -28,7 +28,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
-    "bench": "RUN_BENCH=1 vitest run __tests__/map543.bench.test.ts"
+    "bench": "RUN_BENCH=1 vitest run __tests__/map543.bench.test.ts",
+    "changelog": "node scripts/changelog.mjs"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.3",
@@ -53,10 +54,14 @@
     "LICENSE"
   ],
   "peerDependencies": {
-    "react": ">=18.0.0"
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
   },
   "peerDependenciesMeta": {
     "react": {
+      "optional": true
+    },
+    "react-dom": {
       "optional": true
     }
   },

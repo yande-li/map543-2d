@@ -20,6 +20,12 @@ export interface InteractionOptions {
   observeResize?: boolean;
   /** Callback invoked on pointerup when movement stayed within the 5px click threshold. */
   onClick?: (event: MapClickEvent) => void;
+  /** Callback invoked on pointer move when listeners are attached. */
+  onMouseMove?: (event: MapClickEvent) => void;
+  /** Optional fast check to skip unproject() on pointer move when no listeners exist. */
+  hasMouseMoveListener?: () => boolean;
+  /** Callback invoked on contextmenu (right-click) inside the map container. */
+  onContextMenu?: (event: MapClickEvent) => void;
   /** Debounced callback invoked after viewport movement settles. */
   onMoveEnd?: () => void;
   /** Debounce delay in ms for onMoveEnd (default: 120). */
@@ -34,6 +40,20 @@ interface ActivePointer {
 }
 
 const CLICK_SLOP_SQ = 25; // 5px
+
+const KEY_PAN: Record<string, readonly [number, number]> = {
+  ArrowUp: [0, 1],
+  ArrowDown: [0, -1],
+  ArrowLeft: [1, 0],
+  ArrowRight: [-1, 0],
+};
+
+const KEY_ZOOM: Record<string, number> = {
+  '+': 1,
+  '=': 1,
+  '-': -1,
+  _: -1,
+};
 
 /**
  * Attaches DOM viewport interactions (resize, drag, pinch, wheel, double-click, keyboard, and click)
@@ -51,6 +71,9 @@ export function attachInteractions(
     zoomDelta = 0.5,
     observeResize = true,
     onClick,
+    onMouseMove,
+    hasMouseMoveListener,
+    onContextMenu,
     onMoveEnd,
     moveEndDelayMs = 120,
     coalesceFrame = true,
@@ -88,27 +111,36 @@ export function attachInteractions(
   }
 
   if (onMoveEnd) {
-    let moveEndTimer: ReturnType<typeof setTimeout> | null = null;
-    const unsubscribe = viewport.subscribe(() => {
-      if (moveEndTimer !== null) clearTimeout(moveEndTimer);
-      moveEndTimer = setTimeout(() => {
-        moveEndTimer = null;
-        onMoveEnd();
-      }, moveEndDelayMs);
-    });
-    cleanups.push(() => {
-      unsubscribe();
-      if (moveEndTimer !== null) clearTimeout(moveEndTimer);
-    });
+    cleanups.push(viewport.on('moveend', onMoveEnd));
   }
 
   if (interactive) {
     const prevTouchAction = el.style.touchAction;
     el.style.touchAction = 'none';
+    const addedTabIndex = keyboard && el.getAttribute('tabindex') === null;
+    if (addedTabIndex) {
+      el.tabIndex = 0;
+    }
 
     const pointers = new Map<number, ActivePointer>();
     let dragOrigin: { x: number; y: number; moved: boolean } | null = null;
     let lastPinchDist: number | null = null;
+    let dragGestureActive = false;
+    let pinchGestureActive = false;
+    let wheelGestureActive = false;
+    let wheelEndTimer: ReturnType<typeof setTimeout> | null = null;
+    let keyGestureCount = 0;
+    let keyPanActive = false;
+    let keyZoomActive = false;
+
+    const endKeyGesture = () => {
+      while (keyGestureCount > 0) {
+        keyGestureCount -= 1;
+        viewport.endGesture();
+      }
+      keyPanActive = false;
+      keyZoomActive = false;
+    };
 
     const useRaf = coalesceFrame && typeof requestAnimationFrame === 'function';
     let rafId = 0;
@@ -146,6 +178,19 @@ export function attachInteractions(
 
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
+      if (!wheelGestureActive) {
+        wheelGestureActive = true;
+        viewport.beginGesture(true);
+      }
+      if (wheelEndTimer !== null) clearTimeout(wheelEndTimer);
+      wheelEndTimer = setTimeout(() => {
+        wheelEndTimer = null;
+        if (wheelGestureActive) {
+          wheelGestureActive = false;
+          viewport.endGesture();
+        }
+      }, moveEndDelayMs);
+
       const anchorX = e.clientX - rectLeft;
       const anchorY = e.clientY - rectTop;
       const step = e.deltaY < 0 ? zoomDelta : -zoomDelta;
@@ -180,10 +225,19 @@ export function attachInteractions(
         if (dragOrigin) {
           dragOrigin.moved = true;
         }
+        if (!pinchGestureActive) {
+          pinchGestureActive = true;
+          viewport.beginGesture(true);
+        }
       }
     };
 
     const handlePointerMove = (e: PointerEvent) => {
+      if (onMouseMove && (!hasMouseMoveListener || hasMouseMoveListener())) {
+        const px = e.clientX - rectLeft;
+        const py = e.clientY - rectTop;
+        onMouseMove({ latLon: viewport.unproject(px, py), x: px, y: py });
+      }
       const prev = pointers.get(e.pointerId);
       if (!prev) return;
 
@@ -200,6 +254,10 @@ export function attachInteractions(
           }
         }
         if (dragOrigin?.moved) {
+          if (!dragGestureActive) {
+            dragGestureActive = true;
+            viewport.beginGesture(false);
+          }
           if (useRaf) {
             pendingPanX += dx;
             pendingPanY += dy;
@@ -235,6 +293,10 @@ export function attachInteractions(
       pointers.delete(e.pointerId);
       if (pointers.size < 2) {
         lastPinchDist = null;
+        if (pinchGestureActive) {
+          pinchGestureActive = false;
+          viewport.endGesture();
+        }
       }
 
       if (
@@ -252,6 +314,10 @@ export function attachInteractions(
 
       if (pointers.size === 0) {
         dragOrigin = null;
+        if (dragGestureActive) {
+          dragGestureActive = false;
+          viewport.endGesture();
+        }
       }
     };
 
@@ -259,6 +325,15 @@ export function attachInteractions(
       pointers.clear();
       dragOrigin = null;
       lastPinchDist = null;
+      if (pinchGestureActive) {
+        pinchGestureActive = false;
+        viewport.endGesture();
+      }
+      if (dragGestureActive) {
+        dragGestureActive = false;
+        viewport.endGesture();
+      }
+      endKeyGesture();
     };
 
     const bind = <K extends keyof HTMLElementEventMap>(
@@ -295,34 +370,44 @@ export function attachInteractions(
       ) {
         return;
       }
-      switch (e.key) {
-        case 'ArrowUp':
-          e.preventDefault();
-          viewport.panBy(0, keyboardPanStepPx);
-          break;
-        case 'ArrowDown':
-          e.preventDefault();
-          viewport.panBy(0, -keyboardPanStepPx);
-          break;
-        case 'ArrowLeft':
-          e.preventDefault();
-          viewport.panBy(keyboardPanStepPx, 0);
-          break;
-        case 'ArrowRight':
-          e.preventDefault();
-          viewport.panBy(-keyboardPanStepPx, 0);
-          break;
-        case '+':
-        case '=':
-          e.preventDefault();
-          zoomCenter(zoomDelta);
-          break;
-        case '-':
-        case '_':
-          e.preventDefault();
-          zoomCenter(-zoomDelta);
-          break;
+      const pan = KEY_PAN[e.key];
+      if (pan) {
+        e.preventDefault();
+        if (!keyPanActive) {
+          keyPanActive = true;
+          keyGestureCount += 1;
+          viewport.beginGesture(false);
+        }
+        viewport.panBy(pan[0] * keyboardPanStepPx, pan[1] * keyboardPanStepPx);
+        return;
       }
+      const zoomDir = KEY_ZOOM[e.key];
+      if (zoomDir !== undefined) {
+        e.preventDefault();
+        if (!keyZoomActive) {
+          keyZoomActive = true;
+          keyGestureCount += 1;
+          viewport.beginGesture(true);
+        }
+        zoomCenter(zoomDir * zoomDelta);
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (
+        keyboard &&
+        keyGestureCount > 0 &&
+        (e.key in KEY_PAN || e.key in KEY_ZOOM)
+      ) {
+        endKeyGesture();
+      }
+    };
+
+    const handleContextMenu = (e: MouseEvent) => {
+      if (!onContextMenu) return;
+      const px = e.clientX - rectLeft;
+      const py = e.clientY - rectTop;
+      onContextMenu({ latLon: viewport.unproject(px, py), x: px, y: py });
     };
 
     bind('wheel', handleWheel, { passive: false });
@@ -332,8 +417,12 @@ export function attachInteractions(
     bind('pointercancel', endPointer);
     bind('lostpointercapture', endPointer);
     bind('dblclick', handleDoubleClick);
+    if (onContextMenu) {
+      bind('contextmenu', handleContextMenu);
+    }
     if (keyboard) {
       bind('keydown', handleKeyDown);
+      bind('keyup', handleKeyUp);
     }
     if (typeof window !== 'undefined') {
       window.addEventListener('blur', clearPointers);
@@ -342,6 +431,18 @@ export function attachInteractions(
 
     cleanups.push(() => {
       el.style.touchAction = prevTouchAction;
+      if (addedTabIndex) {
+        el.removeAttribute('tabindex');
+      }
+      endKeyGesture();
+      if (wheelEndTimer !== null) {
+        clearTimeout(wheelEndTimer);
+        wheelEndTimer = null;
+      }
+      if (wheelGestureActive) {
+        wheelGestureActive = false;
+        viewport.endGesture();
+      }
       if (rafId !== 0 && typeof cancelAnimationFrame === 'function') {
         cancelAnimationFrame(rafId);
         rafId = 0;

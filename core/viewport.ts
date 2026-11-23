@@ -1,3 +1,4 @@
+import { createEmitter, type Unsubscribe } from './events';
 import {
   Projection,
   LatLon,
@@ -15,6 +16,15 @@ import {
   resolveProjection,
   pxToLatLon,
 } from './projection';
+
+export interface ViewportEventMap extends Record<string, unknown> {
+  movestart: ViewportState;
+  move: ViewportState;
+  moveend: ViewportState;
+  zoomstart: ViewportState;
+  zoom: ViewportState;
+  zoomend: ViewportState;
+}
 
 export interface ViewportState {
   center: LatLon;
@@ -55,8 +65,11 @@ export interface ProjectionParams {
  */
 export class Viewport {
   private state: ViewportState;
-  private listeners = new Set<ViewportListener>();
+  private emitter = createEmitter<ViewportEventMap>();
   private flyRafId = 0;
+  private activeGestureCount = 0;
+  private moving = false;
+  private zooming = false;
   private lastChangeInteractive = false;
   private cachedWorldSize = TILE_SIZE;
   private cachedCenterNormX = 0.5;
@@ -153,16 +166,63 @@ export class Viewport {
   }
 
   subscribe(listener: ViewportListener): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
+    return this.emitter.on('move', listener);
   }
 
-  private emit(): void {
+  on<K extends keyof ViewportEventMap>(
+    type: K,
+    listener: (payload: ViewportEventMap[K]) => void
+  ): Unsubscribe {
+    return this.emitter.on(type, listener);
+  }
+
+  once<K extends keyof ViewportEventMap>(
+    type: K,
+    listener: (payload: ViewportEventMap[K]) => void
+  ): Unsubscribe {
+    return this.emitter.once(type, listener);
+  }
+
+  private startMotion(withZoom: boolean): void {
+    if (!this.moving) {
+      this.moving = true;
+      this.emitter.emit('movestart', this.state);
+    }
+    if (withZoom && !this.zooming) {
+      this.zooming = true;
+      this.emitter.emit('zoomstart', this.state);
+    }
+  }
+
+  beginGesture(zooming = false): void {
+    this.activeGestureCount += 1;
+    this.startMotion(zooming);
+  }
+
+  endGesture(): void {
+    if (this.activeGestureCount > 0) {
+      this.activeGestureCount -= 1;
+    }
+    this.finishMotionIfIdle();
+  }
+
+  private finishMotionIfIdle(): void {
+    if (this.activeGestureCount > 0 || this.flyRafId !== 0) return;
+    if (this.zooming) {
+      this.zooming = false;
+      this.emitter.emit('zoomend', this.state);
+    }
+    if (this.moving) {
+      this.moving = false;
+      this.emitter.emit('moveend', this.state);
+    }
+  }
+
+  private emit(zoomChanged = false): void {
     this.updateProjectionCache();
-    for (const listener of this.listeners) {
-      listener(this.state);
+    this.emitter.emit('move', this.state);
+    if (zoomChanged) {
+      this.emitter.emit('zoom', this.state);
     }
   }
 
@@ -186,6 +246,7 @@ export class Viewport {
     if (this.flyRafId !== 0) {
       cancelAnimationFrame(this.flyRafId);
       this.flyRafId = 0;
+      this.finishMotionIfIdle();
     }
   }
 
@@ -315,15 +376,19 @@ export class Viewport {
     zoom: number,
     interactive: boolean
   ): void {
+    const prevZoom = this.state.zoom;
     const clampedZoom = this.clampZoom(zoom);
     const clampedCenter = this.clampStateCenter(center, clampedZoom);
+    const zoomChanged = Math.abs(clampedZoom - prevZoom) > 1e-6;
+    this.startMotion(zoomChanged);
     this.state = {
       ...this.state,
       center: clampedCenter,
       zoom: clampedZoom,
     };
     this.lastChangeInteractive = interactive;
-    this.emit();
+    this.emit(zoomChanged);
+    this.finishMotionIfIdle();
   }
 
   setView(center: LatLon, zoom = this.state.zoom): void {
@@ -334,6 +399,7 @@ export class Viewport {
   panBy(dx: number, dy: number): void {
     if (dx === 0 && dy === 0) return;
     this.cancelAnimation();
+    this.startMotion(false);
     const worldSize = TILE_SIZE * Math.pow(2, this.state.zoom);
     const centerNorm = this.projectionObj.latLonToNorm(
       this.state.center[0],
@@ -347,13 +413,16 @@ export class Viewport {
     const clamped = this.clampStateCenter(nextCenter, this.state.zoom);
     this.state = { ...this.state, center: clamped };
     this.lastChangeInteractive = true;
-    this.emit();
+    this.emit(false);
+    this.finishMotionIfIdle();
   }
 
   zoomAt(targetZoom: number, anchorX: number, anchorY: number): void {
     this.cancelAnimation();
     const nextZoom = this.clampZoom(targetZoom);
     if (Math.abs(nextZoom - this.state.zoom) < 1e-5) return;
+
+    this.startMotion(true);
 
     const anchorLatLon = pxToLatLon(
       anchorX,
@@ -379,7 +448,8 @@ export class Viewport {
     const clampedCenter = this.clampStateCenter(rawCenter, nextZoom);
     this.state = { ...this.state, center: clampedCenter, zoom: nextZoom };
     this.lastChangeInteractive = true;
-    this.emit();
+    this.emit(true);
+    this.finishMotionIfIdle();
   }
 
   flyTo(
@@ -402,6 +472,9 @@ export class Viewport {
     let lastEmitTime = 0;
     const FLY_FRAME_INTERVAL_MS = 50; // Cap flyTo updates to 20 FPS unless unlocked
     const tmpFlyCenter: LatLon = [0, 0];
+    const hasZoomDelta = Math.abs(endZoom - startZoom) > 1e-6;
+    this.startMotion(hasZoomDelta);
+
     const tick = (now: number) => {
       const elapsed = now - startTime;
       const t = Math.min(1, elapsed / durationMs);
@@ -429,9 +502,10 @@ export class Viewport {
       this.lastChangeInteractive = true;
       if (t >= 1) {
         this.flyRafId = 0;
-        this.emit();
+        this.emit(hasZoomDelta);
+        this.finishMotionIfIdle();
       } else {
-        this.emit();
+        this.emit(hasZoomDelta);
         this.flyRafId = requestAnimationFrame(tick);
       }
     };

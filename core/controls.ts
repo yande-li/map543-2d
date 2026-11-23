@@ -1,0 +1,97 @@
+export type ControlPosition =
+  'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+
+export const MAP_Z_INDEX = {
+  base: 0,
+  vector: 10,
+  trajectory: 30,
+  image: 50,
+  point: 300,
+  overlay: 500,
+  control: 800,
+  tooltip: 2000,
+  popup: 3000,
+} as const;
+
+export interface ControlSlots {
+  getSlot: (position: ControlPosition) => HTMLElement;
+  mountControl: (
+    element: HTMLElement,
+    position?: ControlPosition
+  ) => () => void;
+  releaseSlotIfEmpty: (position: ControlPosition) => void;
+  destroy: () => void;
+}
+
+function applySlotPositionStyles(
+  slot: HTMLElement,
+  position: ControlPosition
+): void {
+  const isTop = position.startsWith('top-');
+  const isLeft = position.endsWith('-left');
+  Object.assign(slot.style, {
+    position: 'absolute',
+    zIndex: String(MAP_Z_INDEX.control),
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    pointerEvents: 'none',
+    [isTop ? 'top' : 'bottom']: '16px',
+    [isLeft ? 'left' : 'right']: '16px',
+    alignItems: isLeft ? 'flex-start' : 'flex-end',
+  });
+}
+
+/**
+ * Manages lazy 4-corner flex slots inside a map container so controls stack without overlapping.
+ */
+export function createControlSlots(container: HTMLElement): ControlSlots {
+  const slots = new Map<ControlPosition, HTMLElement>();
+
+  const getSlot = (position: ControlPosition): HTMLElement => {
+    const existing = slots.get(position);
+    if (existing) return existing;
+    const slot = document.createElement('div');
+    slot.className = `map-control-slot ${position}`;
+    applySlotPositionStyles(slot, position);
+    container.appendChild(slot);
+    slots.set(position, slot);
+    return slot;
+  };
+
+  const releaseSlotIfEmpty = (position: ControlPosition): void => {
+    const slot = slots.get(position);
+    if (slot && slot.childElementCount === 0) {
+      slot.remove();
+      slots.delete(position);
+    }
+  };
+
+  const mountControl = (
+    element: HTMLElement,
+    position: ControlPosition = 'top-right'
+  ): (() => void) => {
+    const slot = getSlot(position);
+    const prevPointerEvents = element.style.pointerEvents;
+    element.style.pointerEvents = 'auto';
+    slot.appendChild(element);
+
+    let removed = false;
+    return () => {
+      if (removed) return;
+      removed = true;
+      element.style.pointerEvents = prevPointerEvents;
+      element.remove();
+      releaseSlotIfEmpty(position);
+    };
+  };
+
+  const destroy = (): void => {
+    for (const slot of slots.values()) {
+      slot.remove();
+    }
+    slots.clear();
+  };
+
+  return { getSlot, mountControl, releaseSlotIfEmpty, destroy };
+}

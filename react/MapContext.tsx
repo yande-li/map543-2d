@@ -1,4 +1,5 @@
 import React, { createContext, useContext } from 'react';
+import { type ControlPosition } from '../core/controls';
 import { Viewport } from '../core/viewport';
 import { type MapClickEvent } from '../core/interactions';
 
@@ -8,6 +9,8 @@ export interface MapContextValue {
   viewport: Viewport;
   getContainer: () => HTMLDivElement | null;
   subscribeClick: (listener: MapClickListener) => () => void;
+  getControlSlot?: (position: ControlPosition) => HTMLElement | null;
+  releaseControlSlot?: (position: ControlPosition) => void;
 }
 
 export const MapContext = createContext<MapContextValue | null>(null);

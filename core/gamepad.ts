@@ -50,9 +50,16 @@ export function attachGamepad(
   let rafId = 0;
   let lastTime = 0;
   let lastPollTime = 0;
-  let wasActive = false;
+  let gestureMode: 0 | 1 | 2 = 0; // 0 = idle, 1 = pan, 2 = zoom
   let prevLb = false;
   let prevRb = false;
+
+  const endGamepadGesture = () => {
+    while (gestureMode > 0) {
+      gestureMode -= 1;
+      viewport.endGesture();
+    }
+  };
 
   const findConnectedGamepad = (): Gamepad | null => {
     const pads = navigator.getGamepads();
@@ -69,9 +76,9 @@ export function attachGamepad(
       cancelAnimationFrame(rafId);
       rafId = 0;
     }
+    endGamepadGesture();
     lastTime = 0;
     lastPollTime = 0;
-    wasActive = false;
     prevLb = false;
     prevRb = false;
   };
@@ -109,7 +116,7 @@ export function attachGamepad(
 
   const tick = (now: number) => {
     rafId = 0;
-    const minInterval = wasActive ? ACTIVE_INTERVAL_MS : IDLE_INTERVAL_MS;
+    const minInterval = gestureMode > 0 ? ACTIVE_INTERVAL_MS : IDLE_INTERVAL_MS;
     if (lastPollTime > 0 && now - lastPollTime < minInterval) {
       rafId = requestAnimationFrame(tick);
       return;
@@ -127,17 +134,26 @@ export function attachGamepad(
 
     const panDx = readPanX(activePad, dt);
     const panDy = readPanY(activePad, dt);
-    if (panDx !== 0 || panDy !== 0) {
-      viewport.panBy(panDx, panDy);
-    }
-
     const totalZoomDelta = readZoomDelta(activePad, dt);
-    if (totalZoomDelta !== 0) {
-      const s = viewport.getState();
-      viewport.zoomAt(s.zoom + totalZoomDelta, s.width * 0.5, s.height * 0.5);
+    const hasPan = panDx !== 0 || panDy !== 0;
+    const hasZoom = totalZoomDelta !== 0;
+    if (hasPan || hasZoom) {
+      if (gestureMode === 0) {
+        gestureMode = hasZoom ? 2 : 1;
+        viewport.beginGesture(hasZoom);
+      } else if (hasZoom && gestureMode === 1) {
+        gestureMode = 2;
+        viewport.beginGesture(true);
+      }
+      if (hasPan) viewport.panBy(panDx, panDy);
+      if (hasZoom) {
+        const s = viewport.getState();
+        viewport.zoomAt(s.zoom + totalZoomDelta, s.width * 0.5, s.height * 0.5);
+      }
+    } else if (gestureMode > 0) {
+      endGamepadGesture();
     }
 
-    wasActive = panDx !== 0 || panDy !== 0 || totalZoomDelta !== 0;
     rafId = requestAnimationFrame(tick);
   };
 

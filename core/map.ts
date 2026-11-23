@@ -1,21 +1,30 @@
 import {
   Viewport,
   type ViewportConstraints,
+  type ViewportEventMap,
   type ViewportListener,
   type ViewportState,
 } from './viewport';
+import {
+  MAP_Z_INDEX,
+  createControlSlots,
+  type ControlPosition,
+  type ControlSlots,
+} from './controls';
+import { createEmitter, type Unsubscribe } from './events';
 import { CanvasRenderer, type CanvasRendererOptions } from './canvasRenderer';
 import { createGlowDotSprite, drawTrajectories } from './canvasTrajectory';
 import { toMapError, type MapError } from './errors';
-import { type GamepadOptions } from './gamepad';
-import { hitTestPoints } from './hitTest';
+import { attachGamepad, type GamepadOptions } from './gamepad';
 import { drawImage, loadImage } from './imageLayer';
 import { attachInteractions, type MapClickEvent } from './interactions';
 import {
   attachPointHover,
   drawBatchPoints,
+  hitTestPointBuffers,
   packPoints,
   type PointItem,
+  type PointLayerHandle,
 } from './pointLayer';
 import { type GeoBounds, type LatLon, type Point2D } from './projection';
 import { type MapLayerRenderer } from './renderer';
@@ -28,15 +37,19 @@ import {
 } from './vectorLayer';
 import { type CoordPrecision, type StaticGeometryHandle } from './batch';
 
-export type ZoomControlPosition =
-  'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+export type ZoomControlPosition = ControlPosition;
+
+export interface MapEventMap extends ViewportEventMap {
+  click: MapClickEvent;
+  mousemove: MapClickEvent;
+  contextmenu: MapClickEvent;
+}
 import {
   loadGeobuf,
   parseGeobufInput,
   type ParsedGeobuf,
 } from '../formats/geobuf';
 import { type PreparedFeature, type PreparedLayer } from '../formats/types';
-import { getWasmRuntime } from '../wasm/bridge';
 
 export interface ZoomControlsConfig {
   position?: ZoomControlPosition;
@@ -114,6 +127,8 @@ export interface AddOverlayOptions {
   zIndex?: number;
 }
 
+export type PointLayerCleanup = (() => void) & PointLayerHandle;
+
 export interface MapInstance {
   readonly viewport: Viewport;
   setView: (center: LatLon, zoom?: number) => void;
@@ -129,11 +144,20 @@ export interface MapInstance {
   ) => void;
   getState: () => ViewportState;
   subscribe: (listener: ViewportListener) => () => void;
+  on: <K extends keyof MapEventMap>(
+    type: K,
+    listener: (payload: MapEventMap[K]) => void
+  ) => Unsubscribe;
+  once: <K extends keyof MapEventMap>(
+    type: K,
+    listener: (payload: MapEventMap[K]) => void
+  ) => Unsubscribe;
   onClick: (listener: (event: MapClickEvent) => void) => () => void;
+  addControl: (element: HTMLElement, position?: ControlPosition) => () => void;
   addLayer: (renderer: MapLayerRenderer) => () => void;
   addCanvasLayer: (options: CanvasRendererOptions) => () => void;
   addVectorLayer: (options: AddVectorLayerOptions) => () => void;
-  addPointLayer: (options: AddPointLayerOptions) => () => void;
+  addPointLayer: (options: AddPointLayerOptions) => PointLayerCleanup;
   addImageLayer: (options: AddImageLayerOptions) => () => void;
   addTrajectoryLayer: (
     items: readonly TrajectoryItem[],
@@ -153,7 +177,7 @@ const DEFAULT_WORLD_BOUNDS: GeoBounds = [
 ];
 
 function createZoomControlsElement(
-  container: HTMLElement,
+  controlSlots: ControlSlots,
   viewport: Viewport,
   config: ZoomControlsConfig
 ): () => void {
@@ -164,44 +188,33 @@ function createZoomControlsElement(
 
   const root = document.createElement('div');
   root.className = `map-zoom-controls ${position}`;
-  root.style.position = 'absolute';
-  root.style.zIndex = '800';
   root.style.display = 'flex';
   root.style.flexDirection = 'column';
-  if (position.startsWith('top-')) root.style.top = '16px';
-  else root.style.bottom = '16px';
-  if (position.endsWith('-left')) root.style.left = '16px';
-  else root.style.right = '16px';
 
   const stop = (e: Event) => e.stopPropagation();
   root.addEventListener('pointerdown', stop);
   root.addEventListener('dblclick', stop);
 
-  const btnIn = document.createElement('button');
-  btnIn.type = 'button';
-  btnIn.className = 'map-zoom-btn map-zoom-in';
-  btnIn.setAttribute('aria-label', inLabel);
-  btnIn.textContent = '+';
-  btnIn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const s = viewport.getState();
-    viewport.zoomAt(s.zoom + delta, s.width * 0.5, s.height * 0.5);
-  });
+  const makeBtn = (cls: string, label: string, text: string, dir: number) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `map-zoom-btn ${cls}`;
+    btn.setAttribute('aria-label', label);
+    btn.textContent = text;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const s = viewport.getState();
+      viewport.zoomAt(s.zoom + delta * dir, s.width * 0.5, s.height * 0.5);
+    });
+    return btn;
+  };
 
-  const btnOut = document.createElement('button');
-  btnOut.type = 'button';
-  btnOut.className = 'map-zoom-btn map-zoom-out';
-  btnOut.setAttribute('aria-label', outLabel);
-  btnOut.textContent = '−';
-  btnOut.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const s = viewport.getState();
-    viewport.zoomAt(s.zoom - delta, s.width * 0.5, s.height * 0.5);
-  });
+  const btnIn = makeBtn('map-zoom-in', inLabel, '+', 1);
+  const btnOut = makeBtn('map-zoom-out', outLabel, '−', -1);
 
   root.appendChild(btnIn);
   root.appendChild(btnOut);
-  container.appendChild(root);
+  const unmountControl = controlSlots.mountControl(root, position);
 
   const syncButtons = () => {
     const s = viewport.getState();
@@ -216,28 +229,8 @@ function createZoomControlsElement(
     unsub();
     root.removeEventListener('pointerdown', stop);
     root.removeEventListener('dblclick', stop);
-    root.remove();
+    unmountControl();
   };
-}
-
-function createViewportFromOptions(options: CreateMapOptions): Viewport {
-  return new Viewport({
-    ...(options.center ? { center: options.center } : {}),
-    ...(options.zoom !== undefined ? { zoom: options.zoom } : {}),
-    ...(options.minZoom !== undefined ? { minZoom: options.minZoom } : {}),
-    ...(options.maxZoom !== undefined ? { maxZoom: options.maxZoom } : {}),
-    ...(options.maxBounds ? { maxBounds: options.maxBounds } : {}),
-    ...(options.referenceWidth !== undefined
-      ? { referenceWidth: options.referenceWidth }
-      : {}),
-    ...(options.preserveViewportSpan !== undefined
-      ? { preserveViewportSpan: options.preserveViewportSpan }
-      : {}),
-    ...(options.projection !== undefined
-      ? { projection: options.projection }
-      : {}),
-    ...(options.smooth !== undefined ? { smooth: options.smooth } : {}),
-  });
 }
 
 function mountVectorLayer(
@@ -326,7 +319,7 @@ function mountPointLayer(
   viewport: Viewport,
   options: AddPointLayerOptions,
   subscribeClick: (listener: (event: MapClickEvent) => void) => () => void
-): () => void {
+): { cleanup: () => void } & PointLayerHandle {
   const precision = options.precision ?? 32;
   const hitRadiusPx = options.hitRadiusPx ?? 18;
   const marginPx = options.marginPx ?? 30;
@@ -335,7 +328,7 @@ function mountPointLayer(
   const outIdx = new Int32Array(spatial.count);
 
   const renderer = new CanvasRenderer({
-    zIndex: options.zIndex ?? 300,
+    zIndex: options.zIndex ?? MAP_Z_INDEX.point,
     ...(options.className ? { className: options.className } : {}),
     onDraw: (ctx, _state, cam) => {
       if (spatial.count === 0) return;
@@ -355,13 +348,16 @@ function mountPointLayer(
   const unsubClick =
     options.onPointClick && options.points.length > 0
       ? subscribeClick(({ x, y }) => {
-          const rt = getWasmRuntime();
-          const sh = spatial.staticHandle;
-          const target =
-            rt !== null && sh && sh.epoch === rt.arenaEpoch ? sh : spatial;
-          const idx = hitTestPoints(x, y, target, viewport, hitRadiusPx);
-          if (idx >= 0) {
-            options.onPointClick?.(options.points[idx], idx);
+          const hit = hitTestPointBuffers(
+            x,
+            y,
+            options.points,
+            spatial,
+            viewport,
+            hitRadiusPx
+          );
+          if (hit) {
+            options.onPointClick?.(hit.point, hit.index);
           }
         })
       : () => {};
@@ -373,10 +369,25 @@ function mountPointLayer(
         })
       : () => {};
 
-  return () => {
-    unsubClick();
-    unsubHover();
-    unmountCanvas();
+  return {
+    cleanup: () => {
+      unsubClick();
+      unsubHover();
+      unmountCanvas();
+    },
+    hitTest: (x, y, radiusPx = hitRadiusPx) =>
+      hitTestPointBuffers(x, y, options.points, spatial, viewport, radiusPx),
+    hitTestCenter: (radiusPx = hitRadiusPx) => {
+      const s = viewport.getState();
+      return hitTestPointBuffers(
+        s.width * 0.5,
+        s.height * 0.5,
+        options.points,
+        spatial,
+        viewport,
+        radiusPx
+      );
+    },
   };
 }
 
@@ -390,7 +401,7 @@ function mountImageLayer(
   const bounds = options.bounds ?? DEFAULT_WORLD_BOUNDS;
 
   const renderer = new CanvasRenderer({
-    zIndex: options.zIndex ?? 50,
+    zIndex: options.zIndex ?? MAP_Z_INDEX.image,
     maxDpr: options.maxDpr ?? 2,
     ...(options.className ? { className: options.className } : {}),
     onDraw: (ctx, _state, cam) => {
@@ -514,17 +525,45 @@ export function createMap(
   if (!container) {
     throw new Error(`Map container not found: ${String(containerOrSelector)}`);
   }
-  const viewport = createViewportFromOptions(options);
-  const clickListeners = new Set<(event: MapClickEvent) => void>();
+  const viewport = new Viewport(options);
+  const controlSlots = createControlSlots(container);
+  const pointerEmitter = createEmitter<{
+    click: MapClickEvent;
+    mousemove: MapClickEvent;
+    contextmenu: MapClickEvent;
+  }>();
   const cleanups = new Set<() => void>();
   let destroyed = false;
 
-  const subscribeClick = (listener: (event: MapClickEvent) => void) => {
-    clickListeners.add(listener);
-    return () => {
-      clickListeners.delete(listener);
-    };
+  const bindEvent = <K extends keyof MapEventMap>(
+    method: 'on' | 'once',
+    type: K,
+    listener: (payload: MapEventMap[K]) => void
+  ): Unsubscribe => {
+    if (type !== 'click' && type !== 'mousemove' && type !== 'contextmenu') {
+      return viewport[method](
+        type,
+        listener as (payload: ViewportEventMap[typeof type]) => void
+      );
+    }
+    return pointerEmitter[method](
+      type,
+      listener as (payload: MapClickEvent) => void
+    );
   };
+
+  const on = <K extends keyof MapEventMap>(
+    type: K,
+    listener: (payload: MapEventMap[K]) => void
+  ): Unsubscribe => bindEvent('on', type, listener);
+
+  const once = <K extends keyof MapEventMap>(
+    type: K,
+    listener: (payload: MapEventMap[K]) => void
+  ): Unsubscribe => bindEvent('once', type, listener);
+
+  const subscribeClick = (listener: (event: MapClickEvent) => void) =>
+    pointerEmitter.on('click', listener);
 
   const detachInteractions = attachInteractions(container, viewport, {
     interactive: options.interactive ?? true,
@@ -539,34 +578,29 @@ export function createMap(
     onMoveEnd: () => options.onMoveEnd?.(viewport.getState()),
     onClick: (event) => {
       options.onClick?.(event);
-      for (const listener of clickListeners) {
-        listener(event);
-      }
+      pointerEmitter.emit('click', event);
     },
+    hasMouseMoveListener: () => pointerEmitter.hasListeners('mousemove'),
+    onMouseMove: (event) => pointerEmitter.emit('mousemove', event),
+    onContextMenu: (event) => pointerEmitter.emit('contextmenu', event),
   });
 
   const detachMove = options.onMove
     ? viewport.subscribe((state) => options.onMove?.(state))
     : () => {};
 
-  let gamepadCleanup: (() => void) | undefined;
-  if (options.gamepad && (options.interactive ?? true)) {
-    const gpOpts =
-      typeof options.gamepad === 'object' ? options.gamepad : undefined;
-    void import('./gamepad').then(({ attachGamepad }) => {
-      if (!destroyed) {
-        gamepadCleanup = attachGamepad(viewport, gpOpts);
-      }
-    });
-  }
-  const detachGamepad = () => {
-    gamepadCleanup?.();
-  };
+  const detachGamepad =
+    options.gamepad && (options.interactive ?? true)
+      ? attachGamepad(
+          viewport,
+          typeof options.gamepad === 'object' ? options.gamepad : undefined
+        )
+      : () => {};
 
   const detachZoomControls =
     options.zoomControls && (options.interactive ?? true)
       ? createZoomControlsElement(
-          container,
+          controlSlots,
           viewport,
           typeof options.zoomControls === 'object' ? options.zoomControls : {}
         )
@@ -593,7 +627,11 @@ export function createMap(
       viewport.fitBounds(bounds, paddingPx, durationMs),
     getState: () => viewport.getState(),
     subscribe: (listener) => viewport.subscribe(listener),
+    on,
+    once,
     onClick: subscribeClick,
+    addControl: (element, position = 'top-right') =>
+      track(controlSlots.mountControl(element, position)),
     addLayer: (renderer) => {
       renderer.onAttach(viewport);
       return track(() => renderer.onDetach());
@@ -604,8 +642,19 @@ export function createMap(
     },
     addVectorLayer: (opts) =>
       track(mountVectorLayer(container, viewport, opts)),
-    addPointLayer: (opts) =>
-      track(mountPointLayer(container, viewport, opts, subscribeClick)),
+    addPointLayer: (opts) => {
+      const mounted = mountPointLayer(
+        container,
+        viewport,
+        opts,
+        subscribeClick
+      );
+      const remove = track(mounted.cleanup);
+      return Object.assign(remove, {
+        hitTest: mounted.hitTest,
+        hitTestCenter: mounted.hitTestCenter,
+      });
+    },
     addImageLayer: (opts) => track(mountImageLayer(container, viewport, opts)),
     addTrajectoryLayer: (items, opts) =>
       track(mountTrajectoryLayer(container, viewport, items, opts)),
@@ -618,8 +667,9 @@ export function createMap(
         cleanup();
       }
       cleanups.clear();
-      clickListeners.clear();
+      pointerEmitter.clear();
       detachZoomControls();
+      controlSlots.destroy();
       detachGamepad();
       detachMove();
       detachInteractions();

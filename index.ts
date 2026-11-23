@@ -65,6 +65,23 @@ export {
   splitAntimeridianRing,
 } from './core/batch';
 export { type ZoomControlPosition, type ZoomControlsConfig } from './core/map';
+export {
+  createEmitter,
+  type TypedEmitter,
+  type Unsubscribe,
+} from './core/events';
+export {
+  MAP_Z_INDEX,
+  createControlSlots,
+  type ControlPosition,
+  type ControlSlots,
+} from './core/controls';
+export {
+  createLayerGroup,
+  type LayerHandle,
+  type LayerGroup,
+} from './core/layers';
+export { type ViewportEventMap } from './core/viewport';
 export { drawRings } from './core/vectorLod';
 export {
   initWasm,
@@ -102,6 +119,7 @@ export {
   type MapViewProps,
   type MapViewHandle,
 } from './react/MapView';
+export { MapControl, type MapControlProps } from './react/MapControl';
 
 export { CanvasLayer, type CanvasLayerProps } from './react/CanvasLayer';
 
@@ -134,8 +152,11 @@ export {
   packPoints,
   drawBatchPoints,
   attachPointHover,
+  hitTestPointBuffers,
   type PointItem,
   type PointBuffers,
+  type PointHitResult,
+  type PointLayerHandle,
 } from './core/pointLayer';
 
 export { PointLayer, type PointLayerProps } from './react/PointLayer';
