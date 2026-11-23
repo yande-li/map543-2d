@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.0-rc.1] - 2026-11-23
+
+### Features
+
+- Add WASM-accelerated heatmap rendering and React wrapper
+- Refactor Overlay and PointLayer components to use centralized z-index constants
+- Add cleanSeamFeature function
+
+### Changed
+
+- Updated TrajectoryLayer to synchronize with viewport.
+- Refactored VectorLayer to support loading Geobuf data with improved error handling.
+- Introduced MapError class for error management.
+- Added useGeobuf hook for declarative fetching and parsing of Geobuf files.
+- Improve the click event handling of MapView and PointLayer, and refactor code
+
 ## [0.3.0] - 2026-11-21
 
 ### Features

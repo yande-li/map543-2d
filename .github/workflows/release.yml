@@ -48,4 +48,5 @@ jobs:
         with:
           body_path: release-notes.md
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: map543-2d-*.tgz
