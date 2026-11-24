@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0-rc.2] - 2026-11-24
+
+### Features
+
+- Add MapView cursor handling and cruise controller functionality
+
+### Fixed
+
+- Update size budgets for index.js and core.js in check-size script
+- Include `cruise.ts` and `cruise-react.ts` in `tsconfig.build.json` for declaration output
+
 ## [0.4.0-rc.1] - 2026-11-23
 
 ### Features

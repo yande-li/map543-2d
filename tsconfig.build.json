@@ -21,6 +21,8 @@
   },
   "include": [
     "core.ts",
+    "cruise.ts",
+    "cruise-react.ts",
     "index.ts",
     "core/**/*.ts",
     "formats/**/*.ts",
