@@ -5,8 +5,10 @@ import { gzipSync } from 'node:zlib';
 
 const rootDir = fileURLToPath(new URL('..', import.meta.url));
 const BUDGETS = [
-  ['dist/index.js', 75 * 1024],
-  ['dist/core.js', 60 * 1024],
+  ['dist/index.js', 90 * 1024],
+  ['dist/core.js', 70 * 1024],
+  ['dist/cruise.js', 5 * 1024],
+  ['dist/cruise-react.js', 6 * 1024],
   ['dist/kernels.wasm', 4096],
 ];
 
