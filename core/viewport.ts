@@ -274,6 +274,9 @@ export class Viewport {
     const nextZoom = this.clampZoom(targetZoom);
     const nextCenter = this.clampStateCenter(nextState.center, nextZoom);
     this.state = { ...nextState, zoom: nextZoom, center: nextCenter };
+    if (this.activeGestureCount === 0 && this.flyRafId === 0) {
+      this.lastChangeInteractive = false;
+    }
     this.emit();
   }
 

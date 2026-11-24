@@ -1,23 +1,24 @@
 # Changelog
 
-## [0.4.0-rc.2] - 2026-11-24
-
-### Features
-
-- Add MapView cursor handling and cruise controller functionality
-
-### Fixed
-
-- Update size budgets for index.js and core.js in check-size script
-- Include `cruise.ts` and `cruise-react.ts` in `tsconfig.build.json` for declaration output
-
-## [0.4.0-rc.1] - 2026-11-23
+## [0.4.0] - 2026-11-24
 
 ### Features
 
 - Add WASM-accelerated heatmap rendering and React wrapper
+- Add `map543-2d/cruise` (`createCruiseController`) and `map543-2d/cruise/react` (`useCruise`)
+- Add `MapView` `cursor` prop and `--map543-cursor` CSS variable support
+- Export `quantize16` from `map543-2d` and `map543-2d/core`
 - Refactor Overlay and PointLayer components to use centralized z-index constants
 - Add cleanSeamFeature function
+
+### Fixed
+
+- Fix `useCruise` lifecycle under React `<StrictMode>` by recreating destroyed controllers on remount
+- Share `MapContext` instance across `dist/index.js` and `dist/cruise-react.js` via `Symbol.for`
+- Reset `lastChangeInteractive` in `Viewport.setSize()` when idle so resizing does not keep `CanvasRenderer` in low-resolution mode
+- Resolve waypoints before `next()` / `prev()` / `goTo()` and resume `overview` phase properly in `createCruiseController`
+- Include `cruise.ts` and `cruise-react.ts` in `tsconfig.build.json` for declaration output
+- Update size budgets for index.js and core.js in check-size script
 
 ### Changed
 

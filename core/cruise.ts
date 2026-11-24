@@ -244,21 +244,33 @@ export function createCruiseController<T = unknown>(
     scheduleNext(dur + dwell, () => runWaypoint(idx + 1));
   };
 
-  const startCycle = (cycleNum: number) => {
-    if (destroyed || !state.playing || state.paused) return;
+  const resolveWaypoints = () => {
     activeWaypoints = typeof source === 'function' ? source() : source;
     state.total = activeWaypoints.length;
+  };
+
+  const runOverview = () => {
+    if (!opts.overview) {
+      runWaypoint(0);
+      return;
+    }
+    state.phase = 'overview';
+    state.currentIndex = -1;
+    const dur = performNavigate(opts.overview, 1200);
+    const dwell = opts.overview.dwellMs ?? opts.dwellMs ?? 2000;
+    scheduleNext(dur + dwell, () => runWaypoint(0));
+  };
+
+  const startCycle = (cycleNum: number) => {
+    if (destroyed || !state.playing || state.paused) return;
+    resolveWaypoints();
     state.cycle = cycleNum;
     if (state.total === 0 && !opts.overview) {
       stopInternal(true);
       return;
     }
     if (opts.overview) {
-      state.phase = 'overview';
-      state.currentIndex = -1;
-      const dur = performNavigate(opts.overview, 1200);
-      const dwell = opts.overview.dwellMs ?? opts.dwellMs ?? 2000;
-      scheduleNext(dur + dwell, () => runWaypoint(0));
+      runOverview();
       return;
     }
     runWaypoint(0);
@@ -277,6 +289,10 @@ export function createCruiseController<T = unknown>(
     clearTimers();
     state.paused = false;
     emitter.emit('resume', { ...state });
+    if (state.phase === 'overview' && opts.overview) {
+      runOverview();
+      return;
+    }
     runWaypoint(Math.max(0, state.currentIndex));
   };
 
@@ -315,20 +331,26 @@ export function createCruiseController<T = unknown>(
     pause,
     resume,
     next: () => {
-      if (destroyed || activeWaypoints.length === 0) return;
+      if (destroyed) return;
+      if (activeWaypoints.length === 0) resolveWaypoints();
+      if (activeWaypoints.length === 0) return;
       state.playing = true;
       state.paused = false;
       runWaypoint((state.currentIndex + 1) % activeWaypoints.length);
     },
     prev: () => {
-      if (destroyed || activeWaypoints.length === 0) return;
+      if (destroyed) return;
+      if (activeWaypoints.length === 0) resolveWaypoints();
+      if (activeWaypoints.length === 0) return;
       const len = activeWaypoints.length;
       state.playing = true;
       state.paused = false;
       runWaypoint((state.currentIndex - 1 + len) % len);
     },
     goTo: (index: number) => {
-      if (destroyed || activeWaypoints.length === 0) return;
+      if (destroyed) return;
+      if (activeWaypoints.length === 0) resolveWaypoints();
+      if (activeWaypoints.length === 0) return;
       state.playing = true;
       state.paused = false;
       runWaypoint(Math.max(0, Math.min(activeWaypoints.length - 1, index)));

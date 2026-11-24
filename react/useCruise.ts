@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import {
   createCruiseController,
   type CruiseController,
@@ -43,19 +43,31 @@ export function useCruise<T = unknown>(
 
   const optionsRef = useRef(options);
   optionsRef.current = options;
+  const waypointsRef = useRef(waypoints);
+  waypointsRef.current = waypoints;
 
-  const controller = useMemo(
-    () =>
-      createCruiseController<T>(resolvedTarget, waypoints, {
-        ...optionsRef.current,
-        onEnterWaypoint: (wp, idx) =>
-          optionsRef.current.onEnterWaypoint?.(wp, idx),
-        onLeaveWaypoint: (wp, idx) =>
-          optionsRef.current.onLeaveWaypoint?.(wp, idx),
-      }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- controller lifecycle is bound to resolvedTarget; waypoints & options synced below
-    [resolvedTarget]
+  const createCtrl = (target: CruiseTarget) =>
+    createCruiseController<T>(target, waypointsRef.current, {
+      ...optionsRef.current,
+      onEnterWaypoint: (wp, idx) =>
+        optionsRef.current.onEnterWaypoint?.(wp, idx),
+      onLeaveWaypoint: (wp, idx) =>
+        optionsRef.current.onLeaveWaypoint?.(wp, idx),
+    });
+
+  const [controller, setController] = useState<CruiseController<T>>(() =>
+    createCtrl(resolvedTarget)
   );
+  const controllerTargetRef = useRef(resolvedTarget);
+  const destroyedControllerRef = useRef<CruiseController<T> | null>(null);
+
+  useEffect(() => {
+    if (controllerTargetRef.current !== resolvedTarget) {
+      controllerTargetRef.current = resolvedTarget;
+      setController(createCtrl(resolvedTarget));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- createCtrl reads latest refs
+  }, [resolvedTarget]);
 
   const [state, setState] = useState<CruiseState>(() => controller.getState());
 
@@ -74,6 +86,11 @@ export function useCruise<T = unknown>(
   }, [controller, options]);
 
   useEffect(() => {
+    if (destroyedControllerRef.current === controller) {
+      setController(createCtrl(controllerTargetRef.current));
+      return;
+    }
+
     const sync = () => {
       const next = controller.getState();
       setState((prev) =>
@@ -95,13 +112,16 @@ export function useCruise<T = unknown>(
       controller.on('waypoint', sync),
       controller.on('complete', sync),
     ];
+    sync();
     if (optionsRef.current.autoStart) {
       controller.start();
     }
     return () => {
       for (const unsub of unsubs) unsub();
+      destroyedControllerRef.current = controller;
       controller.destroy();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- createCtrl reads latest refs
   }, [controller]);
 
   return {

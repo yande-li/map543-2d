@@ -13,7 +13,22 @@ export interface MapContextValue {
   releaseControlSlot?: (position: ControlPosition) => void;
 }
 
-export const MapContext = createContext<MapContextValue | null>(null);
+const MAP_CONTEXT_KEY = Symbol.for('map543-2d/MapContext');
+
+function getOrCreateMapContext(): React.Context<MapContextValue | null> {
+  const store = globalThis as unknown as Record<
+    symbol,
+    React.Context<MapContextValue | null> | undefined
+  >;
+  let ctx = store[MAP_CONTEXT_KEY];
+  if (!ctx) {
+    ctx = createContext<MapContextValue | null>(null);
+    store[MAP_CONTEXT_KEY] = ctx;
+  }
+  return ctx;
+}
+
+export const MapContext = getOrCreateMapContext();
 
 export function useMap(): MapContextValue {
   const ctx = useContext(MapContext);

@@ -44,6 +44,7 @@ export {
 export { hitTestPoints, encodePoints16, type PointData } from './core/hitTest';
 export {
   type CoordPrecision,
+  quantize16,
   uploadStaticPoints,
   type StaticPointsHandle,
   uploadStaticRings,
