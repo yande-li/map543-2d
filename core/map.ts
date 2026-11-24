@@ -13,7 +13,11 @@ import {
 } from './controls';
 import { createEmitter, type Unsubscribe } from './events';
 import { CanvasRenderer, type CanvasRendererOptions } from './canvasRenderer';
-import { createGlowDotSprite, drawTrajectories } from './canvasTrajectory';
+import {
+  createGlowDotSprite,
+  drawBatchTrajectories,
+  packTrajectories,
+} from './canvasTrajectory';
 import { toMapError, type MapError } from './errors';
 import { attachGamepad, type GamepadOptions } from './gamepad';
 import {
@@ -75,6 +79,7 @@ export interface CreateMapOptions extends ViewportConstraints {
   zoomDelta?: number;
   moveEndDelayMs?: number;
   zoomControls?: boolean | ZoomControlsConfig;
+  cursor?: string;
   onClick?: (event: MapPointerEvent) => void;
   onMove?: (state: ViewportState) => void;
   onMoveEnd?: (state: ViewportState) => void;
@@ -127,6 +132,7 @@ export interface AddTrajectoryLayerOptions {
   zIndex?: number;
   maxDpr?: number;
   dotSize?: number;
+  precision?: CoordPrecision;
   className?: string;
 }
 
@@ -285,25 +291,22 @@ function mountVectorLayer(
     },
   });
 
+  const uploadOpts = {
+    ...(options.resetOnUpload !== undefined
+      ? { reset: options.resetOnUpload }
+      : {}),
+    precision,
+  };
+
   const applyLayers = (next: ParsedGeobuf) => {
     fillLayers = next.fillLayers;
     strokeLayers = next.strokeLayers;
-    handles = uploadVectorLayers(fillLayers, strokeLayers, {
-      ...(options.resetOnUpload !== undefined
-        ? { reset: options.resetOnUpload }
-        : {}),
-      precision,
-    });
+    handles = uploadVectorLayers(fillLayers, strokeLayers, uploadOpts);
     renderer.render(viewport.getState());
   };
 
   if (fillLayers.length > 0 || strokeLayers.length > 0) {
-    handles = uploadVectorLayers(fillLayers, strokeLayers, {
-      ...(options.resetOnUpload !== undefined
-        ? { reset: options.resetOnUpload }
-        : {}),
-      precision,
-    });
+    handles = uploadVectorLayers(fillLayers, strokeLayers, uploadOpts);
   } else if (options.data) {
     try {
       applyLayers(parseGeobufInput(options.data));
@@ -453,17 +456,7 @@ function mountTrajectoryLayer(
   items: readonly TrajectoryItem[],
   options: AddTrajectoryLayerOptions = {}
 ): () => void {
-  const endpoints: Array<{ src: LatLon; dst: LatLon }> = [];
-  for (const item of items) {
-    if (item.curve === 'none') continue;
-    const src: LatLon = item.src ?? [item.srcLat ?? 0, item.srcLon ?? 0];
-    const dst: LatLon = item.dst ?? [item.dstLat ?? 0, item.dstLon ?? 0];
-    endpoints.push(item.isReversed ? { src: dst, dst: src } : { src, dst });
-  }
-  const count = endpoints.length;
-  const srcXY = new Float32Array(count * 2);
-  const dstXY = new Float32Array(count * 2);
-  const tmpPt: Point2D = { x: 0, y: 0 };
+  const buffers = packTrajectories(items, options.precision ?? 32);
   const color = options.color ?? '#0ebf9c';
   const sprite = createGlowDotSprite(color, options.dotSize ?? 10);
 
@@ -471,27 +464,9 @@ function mountTrajectoryLayer(
     zIndex: options.zIndex ?? 350,
     maxDpr: options.maxDpr ?? 2,
     ...(options.className ? { className: options.className } : {}),
-    onDraw: (ctx, state, cam) => {
-      if (count === 0) return;
-      for (let i = 0; i < count; i++) {
-        const ep = endpoints[i];
-        cam.projectInto(ep.src[0], ep.src[1], tmpPt);
-        srcXY[i * 2] = tmpPt.x;
-        srcXY[i * 2 + 1] = tmpPt.y;
-        cam.projectInto(ep.dst[0], ep.dst[1], tmpPt);
-        dstXY[i * 2] = tmpPt.x;
-        dstXY[i * 2 + 1] = tmpPt.y;
-      }
-      drawTrajectories(
-        ctx,
-        srcXY,
-        count,
-        dstXY,
-        state.width,
-        state.height,
-        color,
-        sprite
-      );
+    onDraw: (ctx, _state, cam) => {
+      if (buffers.count === 0) return;
+      drawBatchTrajectories(ctx, cam, buffers, { color, sprite });
     },
   });
 
@@ -583,6 +558,11 @@ export function createMap(
   if (!container) {
     throw new Error(`Map container not found: ${String(containerOrSelector)}`);
   }
+  const prevCursor = container.style.cursor;
+  const interactive = options.interactive ?? true;
+  container.style.cursor =
+    options.cursor ??
+    `var(--map543-cursor, ${interactive ? 'grab' : 'default'})`;
   const viewport = new Viewport(options);
   const controlSlots = createControlSlots(container);
   const pointerEmitter = createEmitter<{
@@ -733,6 +713,7 @@ export function createMap(
       detachMove();
       detachInteractions();
       viewport.cancelAnimation();
+      container.style.cursor = prevCursor;
     },
   };
 }

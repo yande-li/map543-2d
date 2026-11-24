@@ -25,12 +25,13 @@ async function bundleEntry(input, outFile, external) {
   return { outFile, raw: buf.byteLength, gz: gzipSync(buf).byteLength };
 }
 
+const REACT_EXTERNALS = [/^react($|\/)/, /^react-dom($|\/)/];
+
 const results = await Promise.all([
-  bundleEntry('index.ts', 'dist/index.js', [
-    /^react($|\/)/,
-    /^react-dom($|\/)/,
-  ]),
+  bundleEntry('index.ts', 'dist/index.js', REACT_EXTERNALS),
   bundleEntry('core.ts', 'dist/core.js', []),
+  bundleEntry('cruise.ts', 'dist/cruise.js', []),
+  bundleEntry('cruise-react.ts', 'dist/cruise-react.js', REACT_EXTERNALS),
 ]);
 
 writeFileSync(resolve(rootDir, 'dist/kernels.wasm'), wasmBuf);

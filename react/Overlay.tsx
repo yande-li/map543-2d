@@ -18,6 +18,7 @@ export interface OverlayProps {
   cullMarginPx?: number;
   className?: string;
   interactive?: boolean;
+  cursor?: React.CSSProperties['cursor'];
   onClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
   children: React.ReactNode;
 }
@@ -36,6 +37,7 @@ export const Overlay: React.FC<OverlayProps> = ({
   cullMarginPx = 64,
   className = '',
   interactive = false,
+  cursor,
   onClick,
   children,
 }) => {
@@ -148,6 +150,11 @@ export const Overlay: React.FC<OverlayProps> = ({
         zIndex,
         contain: 'layout style',
         pointerEvents: interactive ? 'auto' : 'none',
+        ...(cursor !== undefined
+          ? { cursor }
+          : interactive
+            ? { cursor: 'var(--map543-overlay-cursor, pointer)' }
+            : {}),
       }}
     >
       {children}

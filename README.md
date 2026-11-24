@@ -9,7 +9,7 @@ A 2D map rendering library using lower-precision techniques to reduce memory foo
 - **Projected Coordinate Systems (PCS)**:
   - **Web Mercator** (`EPSG:3857`, default)
   - **Equirectangular / Plate Carrée**
-- **Minimum Requirements (ES2022 + WebAssembly 2.0)**
+- **ES2022 + WebAssembly 2.0**
 
 ## Usage
 
@@ -60,9 +60,9 @@ map.addOverlay(markerEl, [25.033, 121.565]);
 
 Full prop types and JSDoc are included in TypeScript declarations (`.d.ts`).
 
-- `<MapView>` — Interactive map container with `ref` controls (`flyTo`, `setView`, `fitBounds`).
+- `<MapView>` — Interactive map container with `ref` controls (`flyTo`, `setView`, `fitBounds`) and `cursor` / `--map543-cursor` support.
 - `<CanvasLayer>`, `<VectorLayer>`, `<PointLayer>`, `<HeatmapLayer>`, `<ImageLayer>`, `<TrajectoryLayer>` — Map rendering layers.
-- `<Marker>`, `<Overlay>`, `<Popup>`, `<MapControl>` — DOM overlays and corner UI controls.
+- `<Marker>`, `<Overlay>`, `<Popup>`, `<MapControl>` — DOM overlays and UI controls.
 - `useViewport`, `useViewportSelector`, `useViewportEffect`, `useViewportEvent`, `useMapClick`, `useGeobuf`, `useMap` — React hooks.
 
 ## Core API (`map543-2d/core`)
@@ -72,5 +72,11 @@ React-free and Web Worker compatible:
 - `createMap` — Map instance factory (`addVectorLayer`, `addPointLayer`, `addHeatmapLayer`, `addImageLayer`, `addTrajectoryLayer`, `addOverlay`, `destroy`).
 - `Viewport`, `MERCATOR_PROJECTION`, `createEquirectangular` — Viewport state and projections.
 - `loadGeobuf`, `parseGeobuf`, `loadImage`, `drawImage` — Data and image loaders.
-- `initWasm`, `resetWasmArena`, `disposeWasm` — WASM lifecycle (auto-initializes on first use).
+- `packTrajectories`, `packTrajectoryArrays`, `drawBatchTrajectories` — 32/16-bit batch Canvas trajectory pipeline.
+- `initWasm`, `resetWasmArena`, `disposeWasm` — WASM lifecycle.
 - `attachInteractions`, `attachGamepad`, `CanvasRenderer`, `MapError` — Input controllers, custom canvas renderer, and error type.
+
+## Optional Subpaths
+
+- `map543-2d/cruise` — `createCruiseController` (target-agnostic tour controller supporting `Viewport`, `MapInstance`, `fitBounds`, generic `CruiseWaypoint<T>`, and user-input preemption).
+- `map543-2d/cruise/react` — `useCruise` React hook.

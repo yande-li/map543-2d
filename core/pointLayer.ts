@@ -195,7 +195,8 @@ export function attachPointHover(
   viewport: Viewport,
   spatial: PointBuffers,
   hitRadiusPx = 18,
-  onHover?: (index: number) => void
+  onHover?: (index: number) => void,
+  hoverCursor = 'pointer'
 ): () => void {
   if (!container || spatial.count === 0) return () => {};
 
@@ -223,6 +224,15 @@ export function attachPointHover(
     });
   }
 
+  let savedCursor: string | null = null;
+
+  const restoreCursor = () => {
+    if (savedCursor !== null) {
+      container.style.cursor = savedCursor;
+      savedCursor = null;
+    }
+  };
+
   const checkHover = () => {
     rafId = 0;
     const x = lastX - rectLeft;
@@ -235,7 +245,12 @@ export function attachPointHover(
       viewport,
       hitRadiusPx
     );
-    container.style.cursor = idx >= 0 ? 'pointer' : '';
+    if (idx >= 0) {
+      savedCursor ??= container.style.cursor;
+      container.style.cursor = hoverCursor;
+    } else {
+      restoreCursor();
+    }
     if (idx !== lastHoverIdx) {
       lastHoverIdx = idx;
       onHover?.(idx);
@@ -256,7 +271,7 @@ export function attachPointHover(
       cancelAnimationFrame(rafId);
       rafId = 0;
     }
-    container.style.cursor = '';
+    restoreCursor();
     if (lastHoverIdx !== -1) {
       lastHoverIdx = -1;
       onHover?.(-1);
@@ -273,6 +288,6 @@ export function attachPointHover(
     }
     container.removeEventListener('pointermove', onPointerMove);
     container.removeEventListener('pointerleave', onPointerLeave);
-    container.style.cursor = '';
+    restoreCursor();
   };
 }

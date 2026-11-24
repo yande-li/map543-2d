@@ -16,6 +16,14 @@
       "types": "./dist/core.d.ts",
       "import": "./dist/core.js"
     },
+    "./cruise": {
+      "types": "./dist/cruise.d.ts",
+      "import": "./dist/cruise.js"
+    },
+    "./cruise/react": {
+      "types": "./dist/cruise-react.d.ts",
+      "import": "./dist/cruise-react.js"
+    },
     "./kernels.wasm": "./dist/kernels.wasm"
   },
   "scripts": {

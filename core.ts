@@ -30,7 +30,15 @@ export {
   type TrajectoryCurveMode,
   type TrajectoryItem,
 } from './core/trajectory';
-export { createGlowDotSprite, drawTrajectories } from './core/canvasTrajectory';
+export {
+  createGlowDotSprite,
+  drawTrajectories,
+  packTrajectories,
+  packTrajectoryArrays,
+  drawBatchTrajectories,
+  type TrajectoryBuffers,
+  type DrawBatchTrajectoriesOptions,
+} from './core/canvasTrajectory';
 export {
   packPoints,
   drawBatchPoints,

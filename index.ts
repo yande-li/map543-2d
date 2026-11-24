@@ -132,7 +132,15 @@ export {
 
 export { prepareArcs } from './core/trajectory';
 
-export { createGlowDotSprite, drawTrajectories } from './core/canvasTrajectory';
+export {
+  createGlowDotSprite,
+  drawTrajectories,
+  packTrajectories,
+  packTrajectoryArrays,
+  drawBatchTrajectories,
+  type TrajectoryBuffers,
+  type DrawBatchTrajectoriesOptions,
+} from './core/canvasTrajectory';
 
 export {
   packPoints,

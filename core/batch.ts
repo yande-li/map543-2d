@@ -17,6 +17,11 @@ export interface StaticPointsHandle {
   precision: CoordPrecision;
 }
 
+export function quantize16(val: number, maxAbs: number): number {
+  const c = Number.isFinite(val) ? Math.max(-maxAbs, Math.min(maxAbs, val)) : 0;
+  return Math.round((c / maxAbs) * 32767);
+}
+
 /**
  * Packs [lat, lon] items directly into 32-bit Float32Array or 16-bit Int16Array buffers
  * in a single pass without intermediate allocations.
@@ -32,14 +37,8 @@ export function packLatLon<T extends { lat: number; lon: number }>(
     const lons = new Int16Array(count);
     for (let i = 0; i < count; i++) {
       const item = items[i];
-      const cLat = Number.isFinite(item.lat)
-        ? Math.max(-90, Math.min(90, item.lat))
-        : 0;
-      const cLon = Number.isFinite(item.lon)
-        ? Math.max(-180, Math.min(180, item.lon))
-        : 0;
-      lats[i] = Math.round((cLat / 90) * 32767);
-      lons[i] = Math.round((cLon / 180) * 32767);
+      lats[i] = quantize16(item.lat, 90);
+      lons[i] = quantize16(item.lon, 180);
       onItem?.(i, item);
     }
     return { lats, lons };

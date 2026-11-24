@@ -67,6 +67,25 @@ export function stageCoordPair<T extends Float32Array | Int16Array>(
   );
 }
 
+type BatchSegmentKernelFn = (
+  count: number,
+  lutOffset: number,
+  srcLatsOffset: number,
+  srcLonsOffset: number,
+  dstLatsOffset: number,
+  dstLonsOffset: number,
+  outSegsOffset: number,
+  centerNormX: number,
+  centerNormY: number,
+  worldSize: number,
+  halfW: number,
+  halfH: number,
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number
+) => number;
+
 interface WasmKernelExports {
   memory: WebAssembly.Memory;
   findNearestPointBatch: HitTestKernelFn;
@@ -137,6 +156,8 @@ interface WasmKernelExports {
     lutOff: number,
     outRgbaOff: number
   ) => number;
+  batchProjectSegments?: BatchSegmentKernelFn;
+  batchProjectSegmentsI16?: BatchSegmentKernelFn;
 }
 
 export interface WasmRuntime {

@@ -9,7 +9,7 @@
 - **投影座標系（PCS）**：
   - **Web Mercator**（`EPSG:3857`，預設）
   - **Equirectangular / Plate Carrée**
-- **最低環境要求（ES2022 + WebAssembly 2.0）**
+- **ES2022 + WebAssembly 2.0**
 
 ## 使用範例
 
@@ -60,9 +60,9 @@ map.addOverlay(markerEl, [25.033, 121.565]);
 
 完整 Props 型別與 JSDoc 皆附帶於 TypeScript `.d.ts` 宣告檔中。
 
-- `<MapView>` — 互動式地圖容器，支援 `ref` 控制（`flyTo`、`setView`、`fitBounds`）。
+- `<MapView>` — 互動式地圖容器，支援 `ref` 控制（`flyTo`、`setView`、`fitBounds`）與 `cursor` / `--map543-cursor`。
 - `<CanvasLayer>`、`<VectorLayer>`、`<PointLayer>`、`<HeatmapLayer>`、`<ImageLayer>`、`<TrajectoryLayer>` — 各類地圖 layer。
-- `<Marker>`、`<Overlay>`、`<Popup>`、`<MapControl>` — DOM overlay 與角落 control 元件。
+- `<Marker>`、`<Overlay>`、`<Popup>`、`<MapControl>` — DOM overlay 與 UI 元件。
 - `useViewport`、`useViewportSelector`、`useViewportEffect`、`useViewportEvent`、`useMapClick`、`useGeobuf`、`useMap` — React Hooks。
 
 ## Core API（`map543-2d/core`）
@@ -70,7 +70,13 @@ map.addOverlay(markerEl, [25.033, 121.565]);
 不依賴 React，支援 Web Worker：
 
 - `createMap` — 建立 map instance（`addVectorLayer`、`addPointLayer`、`addHeatmapLayer`、`addImageLayer`、`addTrajectoryLayer`、`addOverlay`、`destroy`）。
-- `Viewport`、`MERCATOR_PROJECTION`、`createEquirectangular` — viewport 狀態與投影系統。
+- `Viewport`、`MERCATOR_PROJECTION`、`createEquirectangular` — viewport 狀態與投影。
 - `loadGeobuf`、`parseGeobuf`、`loadImage`、`drawImage` — 資料與圖片載入工具。
-- `initWasm`、`resetWasmArena`、`disposeWasm` — WASM 生命週期管理（首次使用時會自動同步初始化）。
-- `attachInteractions`、`attachGamepad`、`CanvasRenderer`、`MapError` — 輸入 controller、自訂 Canvas renderer 與錯誤型別。
+- `packTrajectories`、`packTrajectoryArrays`、`drawBatchTrajectories` — 32/16-bit 批次 Canvas 軌跡繪製管線。
+- `initWasm`、`resetWasmArena`、`disposeWasm` — WASM 生命週期管理。
+- `attachInteractions`、`attachGamepad`、`CanvasRenderer`、`MapError` — 輸入控制、自訂 Canvas renderer 與錯誤型別。
+
+## 選用 Subpaths
+
+- `map543-2d/cruise` — `createCruiseController`（巡航控制，支援 `Viewport`、`MapInstance`、`fitBounds`、generic `CruiseWaypoint<T>` 與使用者輸入搶佔）。
+- `map543-2d/cruise/react` — `useCruise` React Hook。

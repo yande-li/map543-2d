@@ -69,6 +69,8 @@ export interface MapViewProps {
   preserveViewportSpan?: boolean;
   /** Map projection ('mercator' | 'equirectangular' | custom Projection). */
   projection?: ProjectionType | Projection;
+  /** CSS cursor override for the map container (falls back to `--map543-cursor`). */
+  cursor?: React.CSSProperties['cursor'];
   className?: string;
   style?: React.CSSProperties;
   /** Callback fired when clicking on the map viewport. */
@@ -164,6 +166,7 @@ function buildViewportConstraints(opts: {
 
 function buildContainerStyle(
   interactive: boolean,
+  cursor?: React.CSSProperties['cursor'],
   style?: React.CSSProperties
 ): React.CSSProperties {
   return {
@@ -173,7 +176,8 @@ function buildContainerStyle(
     overflow: 'hidden',
     touchAction: interactive ? 'none' : 'auto',
     userSelect: 'none',
-    cursor: interactive ? 'grab' : 'default',
+    cursor:
+      cursor ?? `var(--map543-cursor, ${interactive ? 'grab' : 'default'})`,
     ...style,
   };
 }
@@ -229,6 +233,7 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
       referenceWidth,
       preserveViewportSpan = false,
       projection,
+      cursor,
       className = '',
       style,
       onClick,
@@ -509,7 +514,7 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
           ref={containerRef}
           {...getContainerA11yProps(interactive, keyboard, ariaLabel)}
           className={`map-container ${interactive ? 'is-interactive' : 'is-static'} ${className}`.trim()}
-          style={buildContainerStyle(interactive, style)}
+          style={buildContainerStyle(interactive, cursor, style)}
         >
           {children}
           {resolvedZoomControls && interactive && (

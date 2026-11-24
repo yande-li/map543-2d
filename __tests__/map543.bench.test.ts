@@ -68,6 +68,8 @@ import {
   getWrappedSlices,
   prepareArcs,
   drawTrajectories,
+  packTrajectories,
+  drawBatchTrajectories,
   packPoints,
   drawBatchPoints,
   drawVectorLayers,
@@ -769,6 +771,26 @@ describe.skipIf(!RUN_BENCH)(
     });
   }
 );
+
+describe.runIf(RUN_BENCH)('10. Batch Canvas Trajectories (WASM)', () => {
+  const trajItems5k: TrajectoryItem[] = Array.from(
+    { length: 5000 },
+    (_, i) => ({
+      src: [((i * 19) % 120) - 60, ((i * 41) % 320) - 160],
+      dst: [25.033 + (i % 10), 121.565 + (i % 10)],
+    })
+  );
+  const trajBuf32 = packTrajectories(trajItems5k, 32);
+  const trajBuf16 = packTrajectories(trajItems5k, 16);
+
+  bench('drawBatchTrajectories (5,000 arcs, WASM Mercator f32)', () => {
+    drawBatchTrajectories(noopCtx, viewportZoom4, trajBuf32);
+  });
+
+  bench('drawBatchTrajectories (5,000 arcs, WASM Mercator i16)', () => {
+    drawBatchTrajectories(noopCtx, viewportZoom4, trajBuf16);
+  });
+});
 
 afterAll(() => {
   if (RUN_BENCH && process.env.BENCH_JSON === '1') {
