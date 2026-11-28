@@ -72,11 +72,6 @@ export class Viewport {
   private moving = false;
   private zooming = false;
   private lastChangeInteractive = false;
-  private cachedWorldSize = TILE_SIZE;
-  private cachedCenterNormX = 0.5;
-  private cachedCenterNormY = 0.5;
-  private cachedHalfW = 0;
-  private cachedHalfH = 0;
   private cachedNormBounds: NormalizedBounds;
   private projectionObj: Projection;
   private readonly tmpNorm: Point2D = { x: 0, y: 0 };
@@ -145,21 +140,16 @@ export class Viewport {
   }
 
   private updateProjectionCache(): void {
-    this.cachedWorldSize = TILE_SIZE * Math.pow(2, this.state.zoom);
     this.projectionObj.latLonToNorm(
       this.state.center[0],
       this.state.center[1],
       this.tmpNorm
     );
-    this.cachedCenterNormX = this.tmpNorm.x;
-    this.cachedCenterNormY = this.tmpNorm.y;
-    this.cachedHalfW = this.state.width * 0.5;
-    this.cachedHalfH = this.state.height * 0.5;
-    this.cachedParams.centerNormX = this.cachedCenterNormX;
-    this.cachedParams.centerNormY = this.cachedCenterNormY;
-    this.cachedParams.worldSize = this.cachedWorldSize;
-    this.cachedParams.halfW = this.cachedHalfW;
-    this.cachedParams.halfH = this.cachedHalfH;
+    this.cachedParams.centerNormX = this.tmpNorm.x;
+    this.cachedParams.centerNormY = this.tmpNorm.y;
+    this.cachedParams.worldSize = TILE_SIZE * Math.pow(2, this.state.zoom);
+    this.cachedParams.halfW = this.state.width * 0.5;
+    this.cachedParams.halfH = this.state.height * 0.5;
   }
 
   getState(): ViewportState {
@@ -254,27 +244,18 @@ export class Viewport {
   setSize(width: number, height: number): void {
     if (width === this.state.width && height === this.state.height) return;
     const prevWidth = this.state.width;
+    this.state = { ...this.state, width, height };
     let targetZoom = this.state.zoom;
     if (width > 0) {
-      if (
-        prevWidth <= 0 &&
-        this.state.referenceWidth !== undefined &&
-        this.state.referenceWidth > 0
-      ) {
-        targetZoom = getResponsiveZoom(
-          this.state.zoom,
-          width,
-          this.state.referenceWidth
-        );
-      } else if (prevWidth > 0 && this.state.preserveViewportSpan) {
+      if (prevWidth <= 0) {
+        targetZoom = this.getResponsiveZoom(this.state.zoom);
+      } else if (this.state.preserveViewportSpan) {
         targetZoom = this.state.zoom + Math.log2(width / prevWidth);
       }
     }
-    const nextState: ViewportState = { ...this.state, width, height };
-    this.state = nextState;
     const nextZoom = this.clampZoom(targetZoom);
-    const nextCenter = this.clampStateCenter(nextState.center, nextZoom);
-    this.state = { ...nextState, zoom: nextZoom, center: nextCenter };
+    const nextCenter = this.clampStateCenter(this.state.center, nextZoom);
+    this.state = { ...this.state, zoom: nextZoom, center: nextCenter };
     if (this.activeGestureCount === 0 && this.flyRafId === 0) {
       this.lastChangeInteractive = false;
     }
@@ -375,9 +356,10 @@ export class Viewport {
   panBy(dx: number, dy: number): void {
     if (dx === 0 && dy === 0) return;
     this.cancelAnimation();
+    const p = this.cachedParams;
     const nextCenter = this.projectionObj.normToLatLon(
-      this.cachedCenterNormX - dx / this.cachedWorldSize,
-      this.cachedCenterNormY - dy / this.cachedWorldSize
+      p.centerNormX - dx / p.worldSize,
+      p.centerNormY - dy / p.worldSize
     );
     this.commitClampedView(nextCenter, this.state.zoom, true);
   }
@@ -399,15 +381,17 @@ export class Viewport {
       anchorLatLon[1],
       this.tmpNorm
     );
+    const p = this.cachedParams;
     const rawCenter = this.projectionObj.normToLatLon(
-      anchorNorm.x - (anchorX - this.cachedHalfW) / nextWorldSize,
-      anchorNorm.y - (anchorY - this.cachedHalfH) / nextWorldSize
+      anchorNorm.x - (anchorX - p.halfW) / nextWorldSize,
+      anchorNorm.y - (anchorY - p.halfH) / nextWorldSize
     );
     this.commitClampedView(rawCenter, nextZoom, true);
   }
 
   zoomBy(delta: number): void {
-    this.zoomAt(this.state.zoom + delta, this.cachedHalfW, this.cachedHalfH);
+    const p = this.cachedParams;
+    this.zoomAt(this.state.zoom + delta, p.halfW, p.halfH);
   }
 
   flyTo(
@@ -475,12 +459,9 @@ export class Viewport {
    */
   projectInto(lat: number, lon: number, out: Point2D): Point2D {
     this.projectionObj.latLonToNorm(lat, lon, this.tmpNorm);
-    out.x =
-      this.cachedHalfW +
-      (this.tmpNorm.x - this.cachedCenterNormX) * this.cachedWorldSize;
-    out.y =
-      this.cachedHalfH +
-      (this.tmpNorm.y - this.cachedCenterNormY) * this.cachedWorldSize;
+    const p = this.cachedParams;
+    out.x = p.halfW + (this.tmpNorm.x - p.centerNormX) * p.worldSize;
+    out.y = p.halfH + (this.tmpNorm.y - p.centerNormY) * p.worldSize;
     return out;
   }
 

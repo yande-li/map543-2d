@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useState } from 'react';
+import { type RefObject, useContext, useEffect, useRef, useState } from 'react';
 import {
   createCruiseController,
   type CruiseController,
@@ -26,6 +26,17 @@ export interface UseCruiseResult<T = unknown> {
   goTo: (index: number) => void;
 }
 
+function withLatestCallbacks<T>(
+  base: UseCruiseOptions<T>,
+  optionsRef: RefObject<UseCruiseOptions<T>>
+): CruiseOptions<T> {
+  return {
+    ...base,
+    onEnterWaypoint: (wp, idx) => optionsRef.current.onEnterWaypoint?.(wp, idx),
+    onLeaveWaypoint: (wp, idx) => optionsRef.current.onLeaveWaypoint?.(wp, idx),
+  };
+}
+
 /**
  * Manages a lifecycle-bound generic auto-cruise controller for `<MapView>` or any custom `CruiseTarget`.
  */
@@ -47,13 +58,11 @@ export function useCruise<T = unknown>(
   waypointsRef.current = waypoints;
 
   const createCtrl = (target: CruiseTarget) =>
-    createCruiseController<T>(target, waypointsRef.current, {
-      ...optionsRef.current,
-      onEnterWaypoint: (wp, idx) =>
-        optionsRef.current.onEnterWaypoint?.(wp, idx),
-      onLeaveWaypoint: (wp, idx) =>
-        optionsRef.current.onLeaveWaypoint?.(wp, idx),
-    });
+    createCruiseController<T>(
+      target,
+      waypointsRef.current,
+      withLatestCallbacks(optionsRef.current, optionsRef)
+    );
 
   const [controller, setController] = useState<CruiseController<T>>(() =>
     createCtrl(resolvedTarget)
@@ -76,13 +85,7 @@ export function useCruise<T = unknown>(
   }, [controller, waypoints]);
 
   useEffect(() => {
-    controller.setOptions({
-      ...options,
-      onEnterWaypoint: (wp, idx) =>
-        optionsRef.current.onEnterWaypoint?.(wp, idx),
-      onLeaveWaypoint: (wp, idx) =>
-        optionsRef.current.onLeaveWaypoint?.(wp, idx),
-    });
+    controller.setOptions(withLatestCallbacks(options, optionsRef));
   }, [controller, options]);
 
   useEffect(() => {

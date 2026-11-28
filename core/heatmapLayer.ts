@@ -1,6 +1,7 @@
 import {
   type CoordPrecision,
   type StaticPointsHandle,
+  growFloat32Buffer,
   packLatLon,
   projectPointsToScratch,
   resolveStaticPointsHandle,
@@ -374,20 +375,12 @@ const TMP_HEAT_PT: Point2D = { x: 0, y: 0 };
 let heatXYBuf = new Float32Array(256);
 let heatWBuf = new Float32Array(128);
 
-function growF32(buf: Float32Array, needed: number): Float32Array<ArrayBuffer> {
-  let next = buf.length;
-  while (next < needed) next *= 2;
-  const out = new Float32Array(next);
-  out.set(buf);
-  return out;
-}
-
 function ensureHeatStagingCapacity(neededPoints: number): void {
   if (neededPoints * 2 > heatXYBuf.length) {
-    heatXYBuf = growF32(heatXYBuf, neededPoints * 2);
+    heatXYBuf = growFloat32Buffer(heatXYBuf, neededPoints * 2);
   }
   if (neededPoints > heatWBuf.length) {
-    heatWBuf = growF32(heatWBuf, neededPoints);
+    heatWBuf = growFloat32Buffer(heatWBuf, neededPoints);
   }
 }
 

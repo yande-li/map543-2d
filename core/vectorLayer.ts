@@ -270,7 +270,7 @@ export function drawVectorLayers(
     projection
   );
 
-  const sf = Math.max(0, smoothFactor ?? 1.0);
+  const sf = Math.max(0, smoothFactor);
   const basePixelStep =
     sf <= 0.6 ? 0.5 : Math.max(minPixelStep, Math.pow(sf, 2.2));
   const effectivePixelStep = getPixelStep(isInteracting, basePixelStep, 6.0);

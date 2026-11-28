@@ -1,6 +1,7 @@
 import {
   type CoordPrecision,
   type StaticPointsHandle,
+  growFloat32Buffer,
   quantize16,
   resolveStaticPointsHandle,
   uploadStaticPoints,
@@ -324,10 +325,11 @@ export function packTrajectories(
     if (items[i].curve !== 'none') count++;
   }
   const use16 = precision === 16;
-  const srcLats = use16 ? new Int16Array(count) : new Float32Array(count);
-  const srcLons = use16 ? new Int16Array(count) : new Float32Array(count);
-  const dstLats = use16 ? new Int16Array(count) : new Float32Array(count);
-  const dstLons = use16 ? new Int16Array(count) : new Float32Array(count);
+  const Ctor = use16 ? Int16Array : Float32Array;
+  const srcLats = new Ctor(count);
+  const srcLons = new Ctor(count);
+  const dstLats = new Ctor(count);
+  const dstLons = new Ctor(count);
 
   let out = 0;
   for (let i = 0; i < items.length; i++) {
@@ -558,15 +560,6 @@ const TMP_SRC_PT: Point2D = { x: 0, y: 0 };
 const TMP_DST_PT: Point2D = { x: 0, y: 0 };
 let nonMercSrcXY = new Float32Array(256);
 
-function ensureNonMercSrcCapacity(neededFloats: number): void {
-  if (neededFloats <= nonMercSrcXY.length) return;
-  let next = nonMercSrcXY.length;
-  while (next < neededFloats) next *= 2;
-  const buf = new Float32Array(next);
-  buf.set(nonMercSrcXY);
-  nonMercSrcXY = buf;
-}
-
 function drawNonMercatorTrajectories(
   ctx: CanvasRenderingContext2D,
   viewport: Viewport,
@@ -602,7 +595,10 @@ function drawNonMercatorTrajectories(
     const dx = TMP_DST_PT.x + wrapShiftPx;
     const dy = TMP_DST_PT.y;
     if (sx >= minX && sx <= maxX && sy >= minY && sy <= maxY) {
-      ensureNonMercSrcCapacity((visibleDots + 1) * 2);
+      const needed = (visibleDots + 1) * 2;
+      if (needed > nonMercSrcXY.length) {
+        nonMercSrcXY = growFloat32Buffer(nonMercSrcXY, needed);
+      }
       nonMercSrcXY[visibleDots * 2] = sx;
       nonMercSrcXY[visibleDots * 2 + 1] = sy;
       visibleDots++;

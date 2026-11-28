@@ -23,6 +23,20 @@ export function quantize16(val: number, maxAbs: number): number {
 }
 
 /**
+ * Doubles a Float32Array scratch buffer until its length covers `needed` elements.
+ */
+export function growFloat32Buffer(
+  buf: Float32Array,
+  needed: number
+): Float32Array<ArrayBuffer> {
+  let next = buf.length;
+  while (next < needed) next *= 2;
+  const out = new Float32Array(next);
+  out.set(buf);
+  return out;
+}
+
+/**
  * Packs [lat, lon] items directly into 32-bit Float32Array or 16-bit Int16Array buffers
  * in a single pass without intermediate allocations.
  */
