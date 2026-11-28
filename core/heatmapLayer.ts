@@ -364,7 +364,7 @@ interface StagedHeatmapInput {
   xyOff: number;
   weightsOff: number;
   afterWeights: number;
-  deferredWeights: boolean;
+  fromJsStaging: boolean;
   outIdxIntBase: number;
 }
 
@@ -423,7 +423,7 @@ function stageSingleMercatorPoints(
     xyOff: outXYFloatBase << 2,
     weightsOff,
     afterWeights,
-    deferredWeights: weightsOff > 0,
+    fromJsStaging: false,
     outIdxIntBase,
   };
 }
@@ -482,7 +482,7 @@ function stageWrappedOrCustomPoints(
     xyOff,
     weightsOff,
     afterWeights,
-    deferredWeights: false,
+    fromJsStaging: true,
     outIdxIntBase: 0,
   };
 }
@@ -562,14 +562,14 @@ function renderHeatmapToWasm(
   const outRgbaOff = densityOff + cells * 4;
   if (!rt.ensureCapacity(outRgbaOff + cells * 4)) return null;
 
-  if (staged.deferredWeights && buffers.weights) {
+  if (!staged.fromJsStaging && weightsOff > 0 && buffers.weights) {
     const wBase = weightsOff >> 2;
     for (let i = 0; i < visible; i++) {
       rt.f32[wBase + i] =
         buffers.weights[slice.startIndex + rt.i32[staged.outIdxIntBase + i]] ??
         1;
     }
-  } else if (!staged.deferredWeights && visible > 0) {
+  } else if (staged.fromJsStaging && visible > 0) {
     rt.f32.set(heatXYBuf.subarray(0, visible * 2), xyOff >> 2);
     if (weightsOff > 0) {
       rt.f32.set(heatWBuf.subarray(0, visible), weightsOff >> 2);
