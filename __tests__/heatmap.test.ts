@@ -10,6 +10,7 @@ import {
   drawHeatmap,
   packPoints,
   drawBatchPoints,
+  hitTestPointBuffers,
   type HeatmapScratch,
   type PointItem,
   resetWasmArena,
@@ -181,7 +182,7 @@ describe('WASM Heatmap / Pixel-Matrix', () => {
     expect(lut[32 * 4 + 2]).toBe(233);
     expect(lut[32 * 4 + 3]).toBeGreaterThan(40);
 
-    // 50 overlapping points with default maxIntensity='auto' should peak red at center and fade outward
+    // 50 overlapping points with maxIntensity='viewport' should peak red at center and fade outward
     const vp = new Viewport({
       center: [25, 121],
       zoom: 5,
@@ -198,7 +199,7 @@ describe('WASM Heatmap / Pixel-Matrix', () => {
       createMockHeatmapCtx(),
       packHeatmapPoints(densePts, 32),
       vp,
-      { gridScale: 0.25, radiusPx: 24 },
+      { gridScale: 0.25, radiusPx: 24, maxIntensity: 'viewport' },
       scratch
     );
     expect(ok).toBe(true);
@@ -212,6 +213,161 @@ describe('WASM Heatmap / Pixel-Matrix', () => {
     const outerIdx = (37 * 100 + 55) * 4;
     expect(data[outerIdx]).toBeLessThan(200);
     expect(data[outerIdx + 3]).toBeGreaterThan(0);
+  });
+
+  it('keeps low-weight hotspot RGBA stable when panning a high-weight hotspot out of viewport in default global mode', () => {
+    const pts = [
+      { lat: 25, lon: 121, weight: 10 },
+      { lat: 25, lon: 118, weight: 100 },
+    ];
+    const buffers = packHeatmapPoints(pts, 32);
+    expect(buffers.maxWeight).toBe(100);
+
+    const soaBuffers = packHeatmapArrays({
+      lats: new Float32Array([25, 25]),
+      lons: new Float32Array([121, 118]),
+      weights: new Float32Array([10, 100]),
+    });
+    expect(soaBuffers.maxWeight).toBe(100);
+
+    const vp = new Viewport({
+      center: [25, 121],
+      zoom: 6,
+      width: 400,
+      height: 300,
+    });
+    const ctx = createMockHeatmapCtx();
+    const scratchBefore = createMockHeatmapScratch();
+    const scratchAfter = createMockHeatmapScratch();
+
+    // Both points visible; low-weight point is at (200, 150) -> grid (50, 37)
+    expect(
+      drawHeatmap(
+        ctx,
+        buffers,
+        vp,
+        { gridScale: 0.25, radiusPx: 24 },
+        scratchBefore
+      )
+    ).toBe(true);
+    const beforeData = scratchBefore.imageData?.data;
+    expect(beforeData).toBeDefined();
+    if (!beforeData) return;
+    const beforeOff = (37 * 100 + 50) * 4;
+    const rgbaBefore = Array.from(beforeData.slice(beforeOff, beforeOff + 4));
+
+    // Pan left by 120 CSS px (30 grid cells): high-weight point leaves viewport, low-weight moves to grid (20, 37)
+    vp.panBy(-120, 0);
+    expect(
+      drawHeatmap(
+        ctx,
+        buffers,
+        vp,
+        { gridScale: 0.25, radiusPx: 24 },
+        scratchAfter
+      )
+    ).toBe(true);
+    const afterData = scratchAfter.imageData?.data;
+    expect(afterData).toBeDefined();
+    if (!afterData) return;
+    const afterOff = (37 * 100 + 20) * 4;
+    const rgbaAfter = Array.from(afterData.slice(afterOff, afterOff + 4));
+
+    expect(rgbaAfter).toEqual(rgbaBefore);
+    expect(rgbaAfter[3]).toBeGreaterThan(0);
+  });
+
+  it('supports world wrap-around and Equirectangular projection in drawHeatmap', () => {
+    const ctx = createMockHeatmapCtx();
+
+    // Antimeridian wrap-around: center at lon 175, point at lon -175 (10 deg east across ±180°)
+    const wrapBuffers = packHeatmapPoints(
+      [{ lat: 0, lon: -175, weight: 1 }],
+      32
+    );
+    const vpWrap = new Viewport({
+      center: [0, 175],
+      zoom: 2,
+      width: 400,
+      height: 300,
+      maxBounds: [
+        [-85, -540],
+        [85, 540],
+      ],
+    });
+    const scratchWrap = createMockHeatmapScratch();
+    expect(
+      drawHeatmap(
+        ctx,
+        wrapBuffers,
+        vpWrap,
+        { gridScale: 0.25, radiusPx: 20 },
+        scratchWrap
+      )
+    ).toBe(true);
+    const wrapData = scratchWrap.imageData?.data;
+    expect(wrapData).toBeDefined();
+    if (!wrapData) return;
+    // Wrapped copy lands at x = 200 + (10 / 360) * 1024 ≈ 228.44 -> gx ≈ 57
+    expect(wrapData[(37 * 100 + 57) * 4 + 3]).toBeGreaterThan(100);
+
+    // Equirectangular projection
+    const eqBuffers = packHeatmapPoints([{ lat: 0, lon: 0, weight: 1 }], 32);
+    const vpEq = new Viewport({
+      center: [0, 0],
+      zoom: 2,
+      width: 400,
+      height: 300,
+      projection: 'equirectangular',
+    });
+    const scratchEq = createMockHeatmapScratch();
+    expect(
+      drawHeatmap(
+        ctx,
+        eqBuffers,
+        vpEq,
+        { gridScale: 0.25, radiusPx: 20 },
+        scratchEq
+      )
+    ).toBe(true);
+    const eqData = scratchEq.imageData?.data;
+    expect(eqData).toBeDefined();
+    if (!eqData) return;
+    expect(eqData[(37 * 100 + 50) * 4 + 3]).toBeGreaterThan(100);
+  });
+
+  it('uses Uint16Array weights for 16-bit integer weights and separable 1D Gaussian blur for large point counts', () => {
+    const vp = new Viewport({
+      center: [25, 121],
+      zoom: 5,
+      width: 400,
+      height: 300,
+    });
+    const pts = Array.from({ length: 2000 }, () => ({
+      lat: 25,
+      lon: 121,
+      weight: 2,
+    }));
+    const buf16 = packHeatmapPoints(pts, 16);
+    expect(buf16.weights).toBeInstanceOf(Uint16Array);
+    expect(buf16.maxWeight).toBe(2);
+
+    const scratch = createMockHeatmapScratch();
+    const ok = drawHeatmap(
+      createMockHeatmapCtx(),
+      buf16,
+      vp,
+      { gridScale: 0.25, radiusPx: 24, maxIntensity: 'viewport' },
+      scratch
+    );
+    expect(ok).toBe(true);
+    const data = scratch.imageData?.data;
+    expect(data).toBeDefined();
+    if (!data) return;
+    // Separable 1D Gaussian peak at center (50, 37) and smooth decay outward
+    expect(data[(37 * 100 + 50) * 4]).toBeGreaterThan(220);
+    expect(data[(37 * 100 + 55) * 4]).toBeLessThan(200);
+    expect(data[(37 * 100 + 55) * 4 + 3]).toBeGreaterThan(0);
   });
 });
 
@@ -269,5 +425,20 @@ describe('Symbol Map (drawBatchPoints)', () => {
     expect(drawnRadii.slice(0, 3)).toEqual([16, 10, 4]);
     expect(fillCount).toBe(drawnRadii.length);
     expect(strokeCount).toBe(drawnRadii.length);
+
+    // Pre-sorted buffers use Uint16Array origIndices and preserve original index in hitTestPointBuffers
+    expect(spatial.origIndices).toBeInstanceOf(Uint16Array);
+    const hit = hitTestPointBuffers(200, 150, points, spatial, vp, 20);
+    expect(hit).not.toBeNull();
+    if (hit) {
+      expect(points[hit.index]).toBe(hit.point);
+    }
+
+    // Already-sorted input skips origIndices allocation entirely
+    const sortedPts: PointItem[] = [
+      { lat: 25, lon: 121, radius: 16, color: '#38bdf8' },
+      { lat: 25, lon: 121, radius: 8, color: '#38bdf8' },
+    ];
+    expect(packPoints(sortedPts, 16).origIndices).toBeNull();
   });
 });

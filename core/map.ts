@@ -27,6 +27,7 @@ import {
   type HeatmapColorStop,
   type HeatmapIntensityMode,
   type HeatmapKernelType,
+  type HeatmapMaxIntensity,
   type HeatmapPoint,
   type HeatmapScratch,
 } from './heatmapLayer';
@@ -145,7 +146,7 @@ export interface AddHeatmapLayerOptions {
   points: readonly HeatmapPoint[];
   radiusPx?: number;
   gridScale?: number;
-  maxIntensity?: number | 'auto';
+  maxIntensity?: HeatmapMaxIntensity;
   intensityMode?: HeatmapIntensityMode;
   kernel?: HeatmapKernelType;
   opacity?: number;

@@ -166,6 +166,7 @@ export {
   type HeatmapColorStop,
   type HeatmapBuffers,
   type HeatmapOptions,
+  type HeatmapMaxIntensity,
   type HeatmapIntensityMode,
   type HeatmapKernelType,
   type HeatmapScratch,

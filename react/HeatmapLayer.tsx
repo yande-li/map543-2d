@@ -6,6 +6,7 @@ import {
   type HeatmapColorStop,
   type HeatmapIntensityMode,
   type HeatmapKernelType,
+  type HeatmapMaxIntensity,
   type HeatmapPoint,
   type HeatmapScratch,
   buildHeatmapPalette,
@@ -21,7 +22,7 @@ export interface HeatmapLayerProps {
   timeRange?: readonly [number, number];
   radiusPx?: number;
   gridScale?: number;
-  maxIntensity?: number | 'auto';
+  maxIntensity?: HeatmapMaxIntensity;
   intensityMode?: HeatmapIntensityMode;
   kernel?: HeatmapKernelType;
   opacity?: number;
@@ -43,7 +44,7 @@ export const HeatmapLayer: React.FC<HeatmapLayerProps> = memo(
     timeRange,
     radiusPx = 24,
     gridScale = 0.25,
-    maxIntensity = 'auto',
+    maxIntensity = 'global',
     intensityMode = 'sqrt',
     kernel = 'gaussian',
     opacity = 0.85,

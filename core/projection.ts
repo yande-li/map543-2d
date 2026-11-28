@@ -370,7 +370,7 @@ export function getWrappedSlices(
   if (needsLeftWrap) {
     const lonShiftDeg = 360;
     slices.push({
-      wrapShiftPx: scale,
+      wrapShiftPx: -scale,
       drawOffsetX: baseOffsetX + scale,
       adjLonMin: viewLonMin + lonShiftDeg,
       adjLonMax: viewLonMax + lonShiftDeg,
@@ -379,7 +379,7 @@ export function getWrappedSlices(
   if (needsRightWrap && (scale + 1e-3 < state.width || !needsLeftWrap)) {
     const lonShiftDeg = -360;
     slices.push({
-      wrapShiftPx: -scale,
+      wrapShiftPx: scale,
       drawOffsetX: baseOffsetX - scale,
       adjLonMin: viewLonMin + lonShiftDeg,
       adjLonMax: viewLonMax + lonShiftDeg,
