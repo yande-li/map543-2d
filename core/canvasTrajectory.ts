@@ -1,14 +1,14 @@
 import {
   type CoordPrecision,
   type StaticPointsHandle,
-  growFloat32Buffer,
-  quantize16,
+  createCoordPairArrays,
   resolveStaticPointsHandle,
   uploadStaticPoints,
+  writeCoordPair,
 } from './batch';
 import { traceArc } from './curves';
 import { type Point2D, getWrappedSlices } from './projection';
-import { type TrajectoryItem } from './trajectory';
+import { type TrajectoryItem, resolveTrajectoryEndpoints } from './trajectory';
 import { type Viewport } from './viewport';
 import {
   LUT_OFFSET_BYTES,
@@ -301,18 +301,6 @@ export interface DrawBatchTrajectoriesOptions {
   straightThreshold?: number;
 }
 
-function writeCoordPair(
-  lats: Float32Array | Int16Array,
-  lons: Float32Array | Int16Array,
-  idx: number,
-  lat: number,
-  lon: number,
-  use16: boolean
-): void {
-  lats[idx] = use16 ? quantize16(lat, 90) : lat;
-  lons[idx] = use16 ? quantize16(lon, 180) : lon;
-}
-
 /**
  * Packs trajectory items into 32-bit or 16-bit SoA buffers and uploads endpoints to the WASM static arena.
  */
@@ -325,27 +313,22 @@ export function packTrajectories(
     if (items[i].curve !== 'none') count++;
   }
   const use16 = precision === 16;
-  const Ctor = use16 ? Int16Array : Float32Array;
-  const srcLats = new Ctor(count);
-  const srcLons = new Ctor(count);
-  const dstLats = new Ctor(count);
-  const dstLons = new Ctor(count);
+  const { lats: srcLats, lons: srcLons } = createCoordPairArrays(
+    count,
+    precision
+  );
+  const { lats: dstLats, lons: dstLons } = createCoordPairArrays(
+    count,
+    precision
+  );
 
   let out = 0;
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     if (item.curve === 'none') continue;
-    const sLat = item.src?.[0] ?? item.srcLat ?? 0;
-    const sLon = item.src?.[1] ?? item.srcLon ?? 0;
-    const dLat = item.dst?.[0] ?? item.dstLat ?? 0;
-    const dLon = item.dst?.[1] ?? item.dstLon ?? 0;
-    if (item.isReversed) {
-      writeCoordPair(srcLats, srcLons, out, dLat, dLon, use16);
-      writeCoordPair(dstLats, dstLons, out, sLat, sLon, use16);
-    } else {
-      writeCoordPair(srcLats, srcLons, out, sLat, sLon, use16);
-      writeCoordPair(dstLats, dstLons, out, dLat, dLon, use16);
-    }
+    const [sLat, sLon, dLat, dLon] = resolveTrajectoryEndpoints(item);
+    writeCoordPair(srcLats, srcLons, out, sLat, sLon, use16);
+    writeCoordPair(dstLats, dstLons, out, dLat, dLon, use16);
     out++;
   }
 
@@ -450,8 +433,8 @@ function projectSegmentsToScratch(
   maxY: number
 ): { visible: number; outFloatBase: number } | null {
   const { count, precision } = buffers;
+  if (count <= 0) return null;
   const kernel = rt.exports.batchProjectSegments;
-  if (!kernel || count <= 0) return null;
 
   const srcH = resolveStaticPointsHandle(
     buffers.srcLats,
@@ -558,27 +541,27 @@ function drawProjectedSegments(
 
 const TMP_SRC_PT: Point2D = { x: 0, y: 0 };
 const TMP_DST_PT: Point2D = { x: 0, y: 0 };
-let nonMercSrcXY = new Float32Array(256);
 
-function drawNonMercatorTrajectories(
-  ctx: CanvasRenderingContext2D,
-  viewport: Viewport,
+function projectNonMercatorSegmentsToScratch(
+  rt: WasmRuntime,
   buffers: TrajectoryBuffers,
-  wrapShiftPx: number,
-  color: string,
-  sprite: HTMLCanvasElement | null,
-  straightLimit: number,
+  viewport: Viewport,
   minX: number,
   minY: number,
   maxX: number,
   maxY: number
-): void {
+): { visible: number; outFloatBase: number } | null {
   const { count, srcLats, srcLons, dstLats, dstLons, precision } = buffers;
+  if (count <= 0) return null;
+
+  const outSegsOff = rt.getScratchBase();
+  if (!rt.ensureCapacity(outSegsOff + count * 16)) return null;
+
   const latScale = precision === 16 ? 90 / 32767 : 1;
   const lonScale = precision === 16 ? 180 / 32767 : 1;
+  const outFloatBase = outSegsOff >> 2;
+  let visible = 0;
 
-  beginArcPass(ctx, color);
-  let visibleDots = 0;
   for (let i = 0; i < count; i++) {
     viewport.projectInto(
       srcLats[i] * latScale,
@@ -590,19 +573,10 @@ function drawNonMercatorTrajectories(
       dstLons[i] * lonScale,
       TMP_DST_PT
     );
-    const sx = TMP_SRC_PT.x + wrapShiftPx;
+    const sx = TMP_SRC_PT.x;
     const sy = TMP_SRC_PT.y;
-    const dx = TMP_DST_PT.x + wrapShiftPx;
+    const dx = TMP_DST_PT.x;
     const dy = TMP_DST_PT.y;
-    if (sx >= minX && sx <= maxX && sy >= minY && sy <= maxY) {
-      const needed = (visibleDots + 1) * 2;
-      if (needed > nonMercSrcXY.length) {
-        nonMercSrcXY = growFloat32Buffer(nonMercSrcXY, needed);
-      }
-      nonMercSrcXY[visibleDots * 2] = sx;
-      nonMercSrcXY[visibleDots * 2 + 1] = sy;
-      visibleDots++;
-    }
     if (
       Math.max(sx, dx) < minX ||
       Math.min(sx, dx) > maxX ||
@@ -611,25 +585,15 @@ function drawNonMercatorTrajectories(
     ) {
       continue;
     }
-    ctx.moveTo(sx, sy);
-    traceArc(ctx, sx, sy, dx, dy, straightLimit);
+    const base = outFloatBase + visible * 4;
+    rt.f32[base] = sx;
+    rt.f32[base + 1] = sy;
+    rt.f32[base + 2] = dx;
+    rt.f32[base + 3] = dy;
+    visible++;
   }
-  strokeArcPass(ctx);
 
-  drawStridedSourceDots(
-    ctx,
-    nonMercSrcXY,
-    visibleDots,
-    2,
-    0,
-    0,
-    color,
-    sprite,
-    minX,
-    minY,
-    maxX,
-    maxY
-  );
+  return { visible, outFloatBase };
 }
 
 /**
@@ -644,6 +608,9 @@ export function drawBatchTrajectories(
 ): void {
   if (buffers.count <= 0) return;
 
+  const rt = getWasmRuntime();
+  if (rt === null) return;
+
   const s = viewport.getState();
   const color = options.color ?? '#0ebf9c';
   const sprite = options.sprite ?? null;
@@ -656,31 +623,13 @@ export function drawBatchTrajectories(
 
   const projection = viewport.getProjection();
   const { slices } = getWrappedSlices(s, 2, projection);
-
-  if (projection.id !== 'mercator') {
-    for (const slice of slices) {
-      drawNonMercatorTrajectories(
-        ctx,
-        viewport,
-        buffers,
-        slice.wrapShiftPx,
-        color,
-        sprite,
-        straightLimit,
-        minX,
-        minY,
-        maxX,
-        maxY
-      );
-    }
-    return;
-  }
-
-  const rt = getWasmRuntime();
-  if (rt === null) return;
+  const projectFn =
+    projection.id === 'mercator'
+      ? projectSegmentsToScratch
+      : projectNonMercatorSegmentsToScratch;
 
   for (const slice of slices) {
-    const proj = projectSegmentsToScratch(
+    const proj = projectFn(
       rt,
       buffers,
       viewport,

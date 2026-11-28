@@ -9,6 +9,7 @@ import {
   resolveMarkerGeometry,
 } from '../core/marker';
 import { type LatLon } from '../core/projection';
+import { resolveLatLon } from './MapContext';
 import { Overlay, Popup } from './Overlay';
 
 export type { MarkerVariant, MarkerPulse };
@@ -217,11 +218,13 @@ function resolveMarkerConfig(props: MarkerProps): ResolvedMarker {
   const borderColor =
     props.borderColor ?? (variant === 'ring' ? color : '#ffffff');
 
+  const [lat, lon] = resolveLatLon(props.position, props.lat, props.lon);
+
   return {
     variant,
     isPin,
-    lat: props.position?.[0] ?? props.lat ?? Number.NaN,
-    lon: props.position?.[1] ?? props.lon ?? Number.NaN,
+    lat,
+    lon,
     geom,
     color,
     borderColor,

@@ -35,10 +35,9 @@ import {
 import { DEFAULT_WORLD_BOUNDS, drawImage, loadImage } from './imageLayer';
 import { attachInteractions, type MapPointerEvent } from './interactions';
 import {
-  attachPointHover,
+  attachPointInteractions,
   createPointLayerHandle,
   drawBatchPoints,
-  hitTestPointBuffers,
   packPoints,
   type PointItem,
   type PointLayerHandle,
@@ -237,10 +236,9 @@ function createZoomControlsElement(
   const unmountControl = controlSlots.mountControl(root, position);
 
   const syncButtons = () => {
-    const s = viewport.getState();
-    const minZ = viewport.getEffectiveMinZoom();
-    btnIn.disabled = s.zoom >= s.maxZoom - 1e-4;
-    btnOut.disabled = s.zoom <= minZ + 1e-4;
+    const { canZoomIn, canZoomOut } = viewport.getZoomLimits();
+    btnIn.disabled = !canZoomIn;
+    btnOut.disabled = !canZoomOut;
   };
   syncButtons();
   const unsub = viewport.subscribe(syncButtons);
@@ -366,34 +364,20 @@ function mountPointLayer(
   });
 
   const unmountCanvas = renderer.mount(container, viewport);
-  const unsubClick =
-    options.onPointClick && options.points.length > 0
-      ? subscribeClick(({ x, y }) => {
-          const hit = hitTestPointBuffers(
-            x,
-            y,
-            options.points,
-            spatial,
-            viewport,
-            hitRadiusPx
-          );
-          if (hit) {
-            options.onPointClick?.(hit.point, hit.index);
-          }
-        })
-      : () => {};
-
-  const unsubHover =
-    options.onPointClick || options.onPointHover
-      ? attachPointHover(container, viewport, spatial, hitRadiusPx, (idx) => {
-          options.onPointHover?.(idx >= 0 ? options.points[idx] : null, idx);
-        })
-      : () => {};
+  const detachInteractions = attachPointInteractions({
+    container,
+    viewport,
+    points: options.points,
+    spatial,
+    hitRadiusPx,
+    subscribeClick,
+    ...(options.onPointClick ? { onPointClick: options.onPointClick } : {}),
+    ...(options.onPointHover ? { onPointHover: options.onPointHover } : {}),
+  });
 
   return {
     cleanup: () => {
-      unsubClick();
-      unsubHover();
+      detachInteractions();
       unmountCanvas();
     },
     ...createPointLayerHandle(options.points, spatial, viewport, hitRadiusPx),

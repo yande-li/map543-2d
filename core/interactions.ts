@@ -113,17 +113,13 @@ export function attachInteractions(
     let pinchGestureActive = false;
     let wheelGestureActive = false;
     let wheelEndTimer: ReturnType<typeof setTimeout> | null = null;
-    let keyGestureCount = 0;
-    let keyPanActive = false;
-    let keyZoomActive = false;
+    let keyGestureMode: 0 | 1 | 2 = 0;
 
     const endKeyGesture = () => {
-      while (keyGestureCount > 0) {
-        keyGestureCount -= 1;
+      if (keyGestureMode > 0) {
+        keyGestureMode = 0;
         viewport.endGesture();
       }
-      keyPanActive = false;
-      keyZoomActive = false;
     };
 
     const useRaf = coalesceFrame && typeof requestAnimationFrame === 'function';
@@ -359,9 +355,8 @@ export function attachInteractions(
       const pan = KEY_PAN[e.key];
       if (pan) {
         e.preventDefault();
-        if (!keyPanActive) {
-          keyPanActive = true;
-          keyGestureCount += 1;
+        if (keyGestureMode === 0) {
+          keyGestureMode = 1;
           viewport.beginGesture(false);
         }
         viewport.panBy(pan[0] * keyboardPanStepPx, pan[1] * keyboardPanStepPx);
@@ -370,10 +365,12 @@ export function attachInteractions(
       const zoomDir = KEY_ZOOM[e.key];
       if (zoomDir !== undefined) {
         e.preventDefault();
-        if (!keyZoomActive) {
-          keyZoomActive = true;
-          keyGestureCount += 1;
+        if (keyGestureMode === 0) {
+          keyGestureMode = 2;
           viewport.beginGesture(true);
+        } else if (keyGestureMode === 1) {
+          keyGestureMode = 2;
+          viewport.upgradeGestureZoom();
         }
         viewport.zoomBy(zoomDir * zoomDelta);
       }
@@ -382,7 +379,7 @@ export function attachInteractions(
     const handleKeyUp = (e: KeyboardEvent) => {
       if (
         keyboard &&
-        keyGestureCount > 0 &&
+        keyGestureMode > 0 &&
         (e.key in KEY_PAN || e.key in KEY_ZOOM)
       ) {
         endKeyGesture();

@@ -23,17 +23,29 @@ export function quantize16(val: number, maxAbs: number): number {
 }
 
 /**
- * Doubles a Float32Array scratch buffer until its length covers `needed` elements.
+ * Allocates parallel 32-bit Float32Array or 16-bit Int16Array coordinate buffers.
  */
-export function growFloat32Buffer(
-  buf: Float32Array,
-  needed: number
-): Float32Array<ArrayBuffer> {
-  let next = buf.length;
-  while (next < needed) next *= 2;
-  const out = new Float32Array(next);
-  out.set(buf);
-  return out;
+export function createCoordPairArrays(
+  count: number,
+  precision: CoordPrecision = 32
+): { lats: Float32Array | Int16Array; lons: Float32Array | Int16Array } {
+  const Ctor = precision === 16 ? Int16Array : Float32Array;
+  return { lats: new Ctor(count), lons: new Ctor(count) };
+}
+
+/**
+ * Writes a single (lat, lon) coordinate pair into 32-bit or 16-bit quantized buffers.
+ */
+export function writeCoordPair(
+  lats: Float32Array | Int16Array,
+  lons: Float32Array | Int16Array,
+  idx: number,
+  lat: number,
+  lon: number,
+  use16: boolean
+): void {
+  lats[idx] = use16 ? quantize16(lat, 90) : lat;
+  lons[idx] = use16 ? quantize16(lon, 180) : lon;
 }
 
 /**
@@ -46,23 +58,11 @@ export function packLatLon<T extends { lat: number; lon: number }>(
   onItem?: (index: number, item: T) => void
 ): { lats: Float32Array | Int16Array; lons: Float32Array | Int16Array } {
   const count = items.length;
-  if (precision === 16) {
-    const lats = new Int16Array(count);
-    const lons = new Int16Array(count);
-    for (let i = 0; i < count; i++) {
-      const item = items[i];
-      lats[i] = quantize16(item.lat, 90);
-      lons[i] = quantize16(item.lon, 180);
-      onItem?.(i, item);
-    }
-    return { lats, lons };
-  }
-  const lats = new Float32Array(count);
-  const lons = new Float32Array(count);
+  const use16 = precision === 16;
+  const { lats, lons } = createCoordPairArrays(count, precision);
   for (let i = 0; i < count; i++) {
     const item = items[i];
-    lats[i] = item.lat;
-    lons[i] = item.lon;
+    writeCoordPair(lats, lons, i, item.lat, item.lon, use16);
     onItem?.(i, item);
   }
   return { lats, lons };

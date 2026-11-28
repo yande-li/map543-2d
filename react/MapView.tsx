@@ -361,10 +361,8 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
     useEffect(() => {
       const syncZoomLimits = () => {
         if (!resolvedZoomControls || !interactive) return;
-        const s = viewport.getState();
-        const effectiveMin = viewport.getEffectiveMinZoom();
-        const canIn = s.zoom < s.maxZoom - 1e-4;
-        const canOut = s.zoom > effectiveMin + 1e-4;
+        const { canZoomIn: canIn, canZoomOut: canOut } =
+          viewport.getZoomLimits();
         setZoomLimits((prev) =>
           prev.canZoomIn === canIn && prev.canZoomOut === canOut
             ? prev

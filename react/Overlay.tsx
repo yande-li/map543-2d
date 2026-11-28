@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { MAP_Z_INDEX } from '../core/controls';
 import { type LatLon } from '../core/projection';
-import { useMap } from './MapContext';
+import { resolveLatLon, useMap } from './MapContext';
 
 export interface OverlayProps {
   /** Geographic position as [lat, lon] tuple (or pass `lat` and `lon`). */
@@ -43,8 +43,7 @@ export const Overlay: React.FC<OverlayProps> = ({
 }) => {
   const { viewport } = useMap();
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const resolvedLat = position?.[0] ?? lat ?? Number.NaN;
-  const resolvedLon = position?.[1] ?? lon ?? Number.NaN;
+  const [resolvedLat, resolvedLon] = resolveLatLon(position, lat, lon);
   const anchorX = anchor[0];
   const anchorY = anchor[1];
   const fixedW = fixedSize?.[0];
@@ -191,8 +190,7 @@ export const Popup: React.FC<PopupProps> = ({
 }) => {
   const { viewport } = useMap();
   const [flipped, setFlipped] = useState(false);
-  const resolvedLat = position?.[0] ?? lat ?? Number.NaN;
-  const resolvedLon = position?.[1] ?? lon ?? Number.NaN;
+  const [resolvedLat, resolvedLon] = resolveLatLon(position, lat, lon);
 
   useEffect(() => {
     if (!onClose || typeof window === 'undefined') return;

@@ -4,11 +4,12 @@ import { type Viewport } from './viewport';
 import {
   type CoordPrecision,
   type StaticPointsHandle,
+  createCoordPairArrays,
   packLatLon,
   projectPointsToScratch,
-  quantize16,
   resolveStaticPointsHandle,
   uploadStaticPoints,
+  writeCoordPair,
 } from './batch';
 import { hitTestPoints } from './hitTest';
 import { getWasmRuntime } from '../wasm/bridge';
@@ -134,13 +135,13 @@ export function packPoints(
     lats = packed.lats;
     lons = packed.lons;
   } else {
-    const is16 = precision === 16;
-    lats = is16 ? new Int16Array(count) : new Float32Array(count);
-    lons = is16 ? new Int16Array(count) : new Float32Array(count);
+    const use16 = precision === 16;
+    const arrays = createCoordPairArrays(count, precision);
+    lats = arrays.lats;
+    lons = arrays.lons;
     for (let i = 0; i < count; i++) {
       const p = points[origIndices[i]];
-      lats[i] = is16 ? quantize16(p.lat, 90) : p.lat;
-      lons[i] = is16 ? quantize16(p.lon, 180) : p.lon;
+      writeCoordPair(lats, lons, i, p.lat, p.lon, use16);
     }
   }
 
@@ -518,5 +519,58 @@ export function attachPointHover(
     container.removeEventListener('pointermove', onPointerMove);
     container.removeEventListener('pointerleave', onPointerLeave);
     restoreCursor();
+  };
+}
+
+/**
+ * Binds both click hit-testing and hover cursor/hit-testing for a point layer.
+ */
+export function attachPointInteractions(opts: {
+  container: HTMLElement | null;
+  viewport: Viewport;
+  points: readonly PointItem[];
+  spatial: PointBuffers;
+  hitRadiusPx: number;
+  subscribeClick: (
+    listener: (pos: { x: number; y: number }) => void
+  ) => () => void;
+  onPointClick?: (point: PointItem, index: number) => void;
+  onPointHover?: (point: PointItem | null, index: number) => void;
+}): () => void {
+  const {
+    container,
+    viewport,
+    points,
+    spatial,
+    hitRadiusPx,
+    subscribeClick,
+    onPointClick,
+    onPointHover,
+  } = opts;
+  const unsubClick =
+    onPointClick && points.length > 0
+      ? subscribeClick(({ x, y }) => {
+          const hit = hitTestPointBuffers(
+            x,
+            y,
+            points,
+            spatial,
+            viewport,
+            hitRadiusPx
+          );
+          if (hit) {
+            onPointClick(hit.point, hit.index);
+          }
+        })
+      : null;
+  const unsubHover =
+    onPointClick || onPointHover
+      ? attachPointHover(container, viewport, spatial, hitRadiusPx, (idx) => {
+          onPointHover?.(idx >= 0 ? points[idx] : null, idx);
+        })
+      : null;
+  return () => {
+    unsubClick?.();
+    unsubHover?.();
   };
 }

@@ -15,6 +15,7 @@ import {
   animateStroke,
   attachSvgSync,
   prepareArcs,
+  resolveTrajectoryEndpoints,
   scheduleAnimation,
 } from '../core/trajectory';
 import { useMap } from './MapContext';
@@ -153,10 +154,7 @@ export const TrajectoryLayer: React.FC<TrajectoryLayerProps> = memo(
     const visibleItems = useMemo(() => {
       if (!cullOffscreen || !viewBounds) return items;
       return items.filter((item) => {
-        const sLat = item.src?.[0] ?? item.srcLat ?? 0;
-        const sLon = item.src?.[1] ?? item.srcLon ?? 0;
-        const dLat = item.dst?.[0] ?? item.dstLat ?? 0;
-        const dLon = item.dst?.[1] ?? item.dstLon ?? 0;
+        const [sLat, sLon, dLat, dLon] = resolveTrajectoryEndpoints(item);
         return boundsIntersects(
           [
             [Math.min(sLat, dLat), Math.min(sLon, dLon)],

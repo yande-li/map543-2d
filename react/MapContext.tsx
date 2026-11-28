@@ -1,5 +1,6 @@
 import React, { createContext, useContext } from 'react';
 import { type ControlPosition } from '../core/controls';
+import { type LatLon } from '../core/projection';
 import { Viewport } from '../core/viewport';
 import { type MapPointerEvent } from '../core/interactions';
 
@@ -44,3 +45,14 @@ export const MapProvider: React.FC<{
 }> = ({ value, children }) => (
   <MapContext.Provider value={value}>{children}</MapContext.Provider>
 );
+
+export function resolveLatLon(
+  position: LatLon | undefined,
+  lat: number | undefined,
+  lon: number | undefined
+): [number, number] {
+  return [
+    position?.[0] ?? lat ?? Number.NaN,
+    position?.[1] ?? lon ?? Number.NaN,
+  ];
+}

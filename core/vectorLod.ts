@@ -87,7 +87,6 @@ export function simplifyRings(
     handle.precision === 16
       ? rt.exports.decimateRingsBatchU16
       : rt.exports.decimateRingsBatch;
-  if (!kernel) return false;
 
   const outLenOffset = outXYOffset + handle.totalInFloats * 4;
   if (!rt.ensureCapacity(outLenOffset + handle.ringCount * 4)) return false;

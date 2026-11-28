@@ -112,12 +112,6 @@ export const VectorLayer: React.FC<VectorLayerProps> = memo(
     );
 
     useEffect(() => {
-      return () => {
-        handlesRef.current = new WeakMap();
-      };
-    }, []);
-
-    useEffect(() => {
       handlesRef.current = uploadVectorLayers(
         resolvedFillLayers,
         resolvedStrokeLayers,

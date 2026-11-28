@@ -168,7 +168,7 @@ interface WasmKernelExports {
     halfW: number,
     halfH: number
   ) => number;
-  decimateRingsBatchU16?: (
+  decimateRingsBatchU16: (
     ringCount: number,
     inXYOffset: number,
     ringLengthsOffset: number,
@@ -179,7 +179,7 @@ interface WasmKernelExports {
     offsetY: number,
     pixelStep: number
   ) => number;
-  renderHeatmapGrid?: (
+  renderHeatmapGrid: (
     ptCount: number,
     xyOff: number,
     weightsOff: number,
@@ -195,7 +195,7 @@ interface WasmKernelExports {
     lutOff: number,
     outRgbaOff: number
   ) => number;
-  batchProjectSegments?: BatchSegmentKernelFn;
+  batchProjectSegments: BatchSegmentKernelFn;
 }
 
 export interface WasmRuntime {
@@ -233,7 +233,11 @@ function isValidWasmExports(
     typeof raw.batchProjectMercator === 'function' &&
     typeof raw.decimateRingsBatch === 'function' &&
     typeof raw.computeArcsBatch === 'function' &&
-    typeof raw.decodeGeobufRingMercator === 'function'
+    typeof raw.decodeGeobufRingMercator === 'function' &&
+    typeof raw.projectMercator === 'function' &&
+    typeof raw.decimateRingsBatchU16 === 'function' &&
+    typeof raw.renderHeatmapGrid === 'function' &&
+    typeof raw.batchProjectSegments === 'function'
   );
 }
 

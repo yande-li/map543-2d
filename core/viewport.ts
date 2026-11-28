@@ -190,6 +190,12 @@ export class Viewport {
     this.startMotion(zooming);
   }
 
+  upgradeGestureZoom(): void {
+    if (this.activeGestureCount > 0) {
+      this.startMotion(true);
+    }
+  }
+
   endGesture(): void {
     if (this.activeGestureCount > 0) {
       this.activeGestureCount -= 1;
@@ -226,6 +232,14 @@ export class Viewport {
       this.projectionObj
     );
     return Math.max(this.state.minZoom, dynamicMin);
+  }
+
+  getZoomLimits(): { canZoomIn: boolean; canZoomOut: boolean } {
+    const minZ = this.getEffectiveMinZoom();
+    return {
+      canZoomIn: this.state.zoom < this.state.maxZoom - 1e-4,
+      canZoomOut: this.state.zoom > minZ + 1e-4,
+    };
   }
 
   private clampZoom(zoom: number): number {

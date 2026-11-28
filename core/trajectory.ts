@@ -111,6 +111,20 @@ export function animateStroke(
 }
 
 /**
+ * Resolves [srcLat, srcLon, dstLat, dstLon] from either tuple or flat fields,
+ * applying `isReversed` when set.
+ */
+export function resolveTrajectoryEndpoints(
+  item: TrajectoryItem
+): [number, number, number, number] {
+  const sLat = item.src?.[0] ?? item.srcLat ?? 0;
+  const sLon = item.src?.[1] ?? item.srcLon ?? 0;
+  const dLat = item.dst?.[0] ?? item.dstLat ?? 0;
+  const dLon = item.dst?.[1] ?? item.dstLon ?? 0;
+  return item.isReversed ? [dLat, dLon, sLat, sLon] : [sLat, sLon, dLat, dLon];
+}
+
+/**
  * Prepares trajectory timings and computes all curved arcs in one WASM batch.
  */
 export function prepareArcs(
@@ -122,21 +136,18 @@ export function prepareArcs(
 
   for (const item of items) {
     if (item.curve === 'none') continue;
-    const src: LatLon = item.src ?? [item.srcLat ?? 0, item.srcLon ?? 0];
-    const dst: LatLon = item.dst ?? [item.dstLat ?? 0, item.dstLon ?? 0];
+    const [sLat, sLon, dLat, dLon] = resolveTrajectoryEndpoints(item);
+    const resolvedSrc: LatLon = [sLat, sLon];
+    const resolvedDst: LatLon = [dLat, dLon];
     const isStraight = item.curve === 'straight';
-    const dist = manhattanDeg(src, dst);
+    const dist = manhattanDeg(resolvedSrc, resolvedDst);
     const timing = timingFn(dist);
 
     const idx = result.length;
     if (!isStraight) {
       arcIndices.push(idx);
     }
-    const resolvedSrc: LatLon = item.isReversed ? dst : src;
-    const resolvedDst: LatLon = item.isReversed ? src : dst;
-    const key =
-      item.key ??
-      `${idx}:${resolvedSrc[0]},${resolvedSrc[1]}->${resolvedDst[0]},${resolvedDst[1]}`;
+    const key = item.key ?? `${idx}:${sLat},${sLon}->${dLat},${dLon}`;
     result.push({
       key,
       src: resolvedSrc,

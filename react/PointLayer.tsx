@@ -13,9 +13,8 @@ import { type CoordPrecision } from '../core/batch';
 import {
   type PointItem,
   type PointLayerHandle,
-  attachPointHover,
+  attachPointInteractions,
   createPointLayerHandle,
-  hitTestPointBuffers,
   packPoints,
   drawBatchPoints,
 } from '../core/pointLayer';
@@ -80,38 +79,31 @@ export const PointLayer = memo(
       const hasHover = Boolean(onPointHover);
 
       useEffect(() => {
-        if (!hasClick || points.length === 0) return;
-        return subscribeClick(({ x, y }) => {
-          const hit = hitTestPointBuffers(
-            x,
-            y,
-            points,
-            spatial,
-            viewport,
-            hitRadiusPx
-          );
-          if (hit) {
-            onPointClickRef.current?.(hit.point, hit.index);
-          }
-        });
-      }, [points, spatial, viewport, subscribeClick, hitRadiusPx, hasClick]);
-
-      useEffect(() => {
         if (!hasClick && !hasHover) return;
-        return attachPointHover(
-          getContainer(),
+        return attachPointInteractions({
+          container: getContainer(),
           viewport,
+          points,
           spatial,
           hitRadiusPx,
-          (idx) => {
-            onPointHoverRef.current?.(idx >= 0 ? points[idx] : null, idx);
-          }
-        );
+          subscribeClick,
+          ...(hasClick
+            ? {
+                onPointClick: (pt, idx) => onPointClickRef.current?.(pt, idx),
+              }
+            : {}),
+          ...(hasHover
+            ? {
+                onPointHover: (pt, idx) => onPointHoverRef.current?.(pt, idx),
+              }
+            : {}),
+        });
       }, [
         getContainer,
         viewport,
         spatial,
         hitRadiusPx,
+        subscribeClick,
         hasClick,
         hasHover,
         points,

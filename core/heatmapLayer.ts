@@ -1,7 +1,6 @@
 import {
   type CoordPrecision,
   type StaticPointsHandle,
-  growFloat32Buffer,
   packLatLon,
   projectPointsToScratch,
   resolveStaticPointsHandle,
@@ -367,22 +366,9 @@ interface StagedHeatmapInput {
   xyOff: number;
   weightsOff: number;
   afterWeights: number;
-  fromJsStaging: boolean;
-  outIdxIntBase: number;
 }
 
 const TMP_HEAT_PT: Point2D = { x: 0, y: 0 };
-let heatXYBuf = new Float32Array(256);
-let heatWBuf = new Float32Array(128);
-
-function ensureHeatStagingCapacity(neededPoints: number): void {
-  if (neededPoints * 2 > heatXYBuf.length) {
-    heatXYBuf = growFloat32Buffer(heatXYBuf, neededPoints * 2);
-  }
-  if (neededPoints > heatWBuf.length) {
-    heatWBuf = growFloat32Buffer(heatWBuf, neededPoints);
-  }
-}
 
 function stageSingleMercatorPoints(
   buffers: HeatmapBuffers,
@@ -412,14 +398,20 @@ function stageSingleMercatorPoints(
   const scratchEnd = (outIdxIntBase << 2) + sliceCount * 4;
   const weightsOff = buffers.weights && visible > 0 ? (scratchEnd + 3) & ~3 : 0;
   const afterWeights = weightsOff > 0 ? weightsOff + visible * 4 : scratchEnd;
+  if (weightsOff > 0 && buffers.weights) {
+    if (!rt.ensureCapacity(afterWeights)) return null;
+    const wBase = weightsOff >> 2;
+    for (let i = 0; i < visible; i++) {
+      rt.f32[wBase + i] =
+        buffers.weights[startIndex + rt.i32[outIdxIntBase + i]] ?? 1;
+    }
+  }
   return {
     rt,
     visible,
     xyOff: outXYFloatBase << 2,
     weightsOff,
     afterWeights,
-    fromJsStaging: false,
-    outIdxIntBase,
   };
 }
 
@@ -434,6 +426,15 @@ function stageWrappedOrCustomPoints(
   const rt = getWasmRuntime();
   if (!rt) return null;
 
+  const weights = buffers.weights;
+  const maxVisible = sliceCount * slices.length;
+  const xyOff = rt.getScratchBase();
+  const weightsOff =
+    weights && maxVisible > 0 ? (xyOff + maxVisible * 8 + 3) & ~3 : 0;
+  const afterMax =
+    weightsOff > 0 ? weightsOff + maxVisible * 4 : xyOff + maxVisible * 8;
+  if (!rt.ensureCapacity(afterMax)) return null;
+
   const s = viewport.getState();
   const latScale = buffers.precision === 16 ? 90 / 32767 : 1;
   const lonScale = buffers.precision === 16 ? 180 / 32767 : 1;
@@ -441,9 +442,10 @@ function stageWrappedOrCustomPoints(
   const minY = -radiusPx;
   const maxX = s.width + radiusPx;
   const maxY = s.height + radiusPx;
-  const weights = buffers.weights;
 
   let visible = 0;
+  const xyBase = xyOff >> 2;
+  const wBase = weightsOff >> 2;
   const end = startIndex + sliceCount;
   for (let i = startIndex; i < end; i++) {
     viewport.projectInto(
@@ -457,28 +459,21 @@ function stageWrappedOrCustomPoints(
     for (const slice of slices) {
       const sx = TMP_HEAT_PT.x + slice.wrapShiftPx;
       if (sx < minX || sx > maxX) continue;
-      if ((visible + 1) * 2 > heatXYBuf.length) {
-        ensureHeatStagingCapacity(visible + 1);
-      }
-      heatXYBuf[visible * 2] = sx;
-      heatXYBuf[visible * 2 + 1] = sy;
-      if (weights) heatWBuf[visible] = w;
+      rt.f32[xyBase + visible * 2] = sx;
+      rt.f32[xyBase + visible * 2 + 1] = sy;
+      if (weightsOff > 0) rt.f32[wBase + visible] = w;
       visible++;
     }
   }
 
-  const xyOff = rt.getScratchBase();
-  const afterXY = xyOff + visible * 8;
-  const weightsOff = weights && visible > 0 ? (afterXY + 3) & ~3 : 0;
-  const afterWeights = weightsOff > 0 ? weightsOff + visible * 4 : afterXY;
+  const afterWeights =
+    weightsOff > 0 ? weightsOff + visible * 4 : xyOff + visible * 8;
   return {
     rt,
     visible,
     xyOff,
     weightsOff,
     afterWeights,
-    fromJsStaging: true,
-    outIdxIntBase: 0,
   };
 }
 
@@ -548,7 +543,6 @@ function renderHeatmapToWasm(
 
   const { rt, visible, xyOff, weightsOff, afterWeights } = staged;
   const kernel = rt.exports.renderHeatmapGrid;
-  if (!kernel) return null;
 
   const cells = cfg.gridW * cfg.gridH;
   const kernelLutOff = (afterWeights + 3) & ~3;
@@ -556,20 +550,6 @@ function renderHeatmapToWasm(
   const densityOff = lutOff + 1024;
   const outRgbaOff = densityOff + cells * 4;
   if (!rt.ensureCapacity(outRgbaOff + cells * 4)) return null;
-
-  if (!staged.fromJsStaging && weightsOff > 0 && buffers.weights) {
-    const wBase = weightsOff >> 2;
-    for (let i = 0; i < visible; i++) {
-      rt.f32[wBase + i] =
-        buffers.weights[slice.startIndex + rt.i32[staged.outIdxIntBase + i]] ??
-        1;
-    }
-  } else if (staged.fromJsStaging && visible > 0) {
-    rt.f32.set(heatXYBuf.subarray(0, visible * 2), xyOff >> 2);
-    if (weightsOff > 0) {
-      rt.f32.set(heatWBuf.subarray(0, visible), weightsOff >> 2);
-    }
-  }
 
   const rInt = Math.max(1, Math.ceil(cfg.radiusGrid));
   const useSeparable = visible * (rInt * 2 + 1) > cells * 2;

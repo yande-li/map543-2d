@@ -62,8 +62,8 @@ export function attachGamepad(
   let prevRb = false;
 
   const endGamepadGesture = () => {
-    while (gestureMode > 0) {
-      gestureMode -= 1;
+    if (gestureMode > 0) {
+      gestureMode = 0;
       viewport.endGesture();
     }
   };
@@ -150,7 +150,7 @@ export function attachGamepad(
         viewport.beginGesture(hasZoom);
       } else if (hasZoom && gestureMode === 1) {
         gestureMode = 2;
-        viewport.beginGesture(true);
+        viewport.upgradeGestureZoom();
       }
       if (hasPan) viewport.panBy(panDx, panDy);
       if (hasZoom) viewport.zoomBy(totalZoomDelta);
