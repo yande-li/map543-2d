@@ -8,7 +8,10 @@ import {
   packHeatmapArrays,
   sliceHeatmapByTime,
   drawHeatmap,
+  packPoints,
+  drawBatchPoints,
   type HeatmapScratch,
+  type PointItem,
   resetWasmArena,
 } from '../core';
 import { MapView, HeatmapLayer } from '../index';
@@ -164,5 +167,107 @@ describe('WASM Heatmap / Pixel-Matrix', () => {
     expect(scratch.imageData?.data[(37 * 100 + 50) * 4 + 3]).toBeGreaterThan(
       200
     );
+  });
+
+  it('avoids dark RGB halo at transparent stop edges and preserves gradient for dense clusters', () => {
+    const lut = buildHeatmapPalette([
+      { offset: 0, color: '#00000000' },
+      { offset: 0.25, color: '#0ea5e988' },
+      { offset: 1, color: '#ef4444ff' },
+    ]);
+    // At offset ~0.125 (index 32), RGB should stay sky-blue (#0ea5e9) instead of darkening toward black
+    expect(lut[32 * 4]).toBe(14);
+    expect(lut[32 * 4 + 1]).toBe(165);
+    expect(lut[32 * 4 + 2]).toBe(233);
+    expect(lut[32 * 4 + 3]).toBeGreaterThan(40);
+
+    // 50 overlapping points with default maxIntensity='auto' should peak red at center and fade outward
+    const vp = new Viewport({
+      center: [25, 121],
+      zoom: 5,
+      width: 400,
+      height: 300,
+    });
+    const densePts = Array.from({ length: 50 }, () => ({
+      lat: 25,
+      lon: 121,
+      weight: 1,
+    }));
+    const scratch = createMockHeatmapScratch();
+    const ok = drawHeatmap(
+      createMockHeatmapCtx(),
+      packHeatmapPoints(densePts, 32),
+      vp,
+      { gridScale: 0.25, radiusPx: 24 },
+      scratch
+    );
+    expect(ok).toBe(true);
+    const data = scratch.imageData?.data;
+    expect(data).toBeDefined();
+    if (!data) return;
+    // Center cell (50, 37) should hit peak red (#ef4444)
+    const centerIdx = (37 * 100 + 50) * 4;
+    expect(data[centerIdx]).toBeGreaterThan(220);
+    // Outer ring cell (50 + 5, 37) should NOT be saturated solid red
+    const outerIdx = (37 * 100 + 55) * 4;
+    expect(data[outerIdx]).toBeLessThan(200);
+    expect(data[outerIdx + 3]).toBeGreaterThan(0);
+  });
+});
+
+describe('Symbol Map (drawBatchPoints)', () => {
+  it('draws circles individually in large-to-small order with optional strokes and restores canvas state', () => {
+    const vp = new Viewport({
+      center: [25, 121],
+      zoom: 5,
+      width: 400,
+      height: 300,
+    });
+    const points: PointItem[] = [
+      { lat: 25, lon: 121, radius: 4, color: '#38bdf8', alpha: 0.6 },
+      { lat: 25, lon: 121, radius: 16, color: '#38bdf8', alpha: 0.6 },
+      { lat: 25, lon: 121, radius: 10, color: '#38bdf8', alpha: 0.6 },
+    ];
+    const drawnRadii: number[] = [];
+    let fillCount = 0;
+    let strokeCount = 0;
+    let saved = 0;
+    let restored = 0;
+
+    const ctx = {
+      save: () => {
+        saved++;
+      },
+      restore: () => {
+        restored++;
+      },
+      beginPath: () => {},
+      arc: (_x: number, _y: number, r: number) => {
+        drawnRadii.push(r);
+      },
+      fill: () => {
+        fillCount++;
+      },
+      stroke: () => {
+        strokeCount++;
+      },
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 1,
+      globalAlpha: 1,
+    } as unknown as CanvasRenderingContext2D;
+
+    const spatial = packPoints(points, 32);
+    drawBatchPoints(ctx, vp, points, spatial, {
+      strokeColor: '#ffffff',
+      strokeWidth: 1.5,
+    });
+
+    expect(saved).toBe(1);
+    expect(restored).toBe(1);
+    // Large-to-small Z-order (first 3 arcs in primary wrap slice)
+    expect(drawnRadii.slice(0, 3)).toEqual([16, 10, 4]);
+    expect(fillCount).toBe(drawnRadii.length);
+    expect(strokeCount).toBe(drawnRadii.length);
   });
 });

@@ -499,31 +499,35 @@
 
  (func $wasm/kernels/renderHeatmapGrid
   (param $ptCount i32) (param $xyOff i32) (param $weightsOff i32)
-  (param $gridW i32) (param $gridH i32) (param $gridScale f32)
-  (param $radiusGrid i32) (param $invMaxIntensity f32)
+  (param $gridW i32) (param $gridH i32)
+  (param $scaleX f32) (param $scaleY f32)
+  (param $radiusGrid f32) (param $invMaxIntensity f32)
+  (param $intensityMode i32) (param $kernelLutOff i32)
   (param $densityOff i32) (param $lutOff i32) (param $outRgbaOff i32)
   (result i32)
-  (local $cells i32) (local $i i32) (local $p i32)
+  (local $cells i32) (local $i i32) (local $p i32) (local $rInt i32)
   (local $sx f32) (local $sy f32) (local $w f32)
   (local $gx f32) (local $gy f32) (local $invRSq f32)
   (local $x0 i32) (local $y0 i32) (local $x1 i32) (local $y1 i32)
   (local $x i32) (local $y i32) (local $dx f32) (local $dy f32)
-  (local $dSq f32) (local $t f32) (local $addr i32)
+  (local $dSq f32) (local $t f32) (local $maxD f32) (local $addr i32)
   (if
    (i32.or
     (i32.or (i32.lt_s (local.get $ptCount) (i32.const 0)) (i32.le_s (local.get $gridW) (i32.const 0)))
-    (i32.or (i32.le_s (local.get $gridH) (i32.const 0)) (i32.le_s (local.get $radiusGrid) (i32.const 0))))
+    (i32.or (i32.le_s (local.get $gridH) (i32.const 0)) (i32.eqz (f32.gt (local.get $radiusGrid) (f32.const 0)))))
    (then (return (i32.const 0))))
   (if
    (i32.or
     (i32.or (i32.gt_s (local.get $gridW) (i32.const 4096)) (i32.gt_s (local.get $gridH) (i32.const 4096)))
-    (i32.gt_s (local.get $radiusGrid) (i32.const 128)))
+    (f32.gt (local.get $radiusGrid) (f32.const 128)))
    (then (return (i32.const 0))))
   (if
    (i32.or
-    (i32.eqz (f32.gt (local.get $gridScale) (f32.const 0)))
-    (i32.eqz (f32.gt (local.get $invMaxIntensity) (f32.const 0))))
+    (i32.or (i32.eqz (f32.gt (local.get $scaleX) (f32.const 0))) (i32.eqz (f32.gt (local.get $scaleY) (f32.const 0))))
+    (f32.lt (local.get $invMaxIntensity) (f32.const 0)))
    (then (return (i32.const 0))))
+  (local.set $rInt (i32.trunc_sat_f32_s (f32.ceil (local.get $radiusGrid))))
+  (if (i32.lt_s (local.get $rInt) (i32.const 1)) (then (local.set $rInt (i32.const 1))))
   (local.set $cells (i32.mul (local.get $gridW) (local.get $gridH)))
   (local.set $i (i32.const 0))
   (loop $zero_loop
@@ -532,8 +536,7 @@
      (f32.store (i32.add (local.get $densityOff) (i32.shl (local.get $i) (i32.const 2))) (f32.const 0))
      (local.set $i (i32.add (local.get $i) (i32.const 1)))
      (br $zero_loop))))
-  (local.set $invRSq
-   (f32.div (f32.const 1) (f32.convert_i32_s (i32.mul (local.get $radiusGrid) (local.get $radiusGrid)))))
+  (local.set $invRSq (f32.div (f32.const 1) (f32.mul (local.get $radiusGrid) (local.get $radiusGrid))))
   (local.set $p (i32.const 0))
   (loop $pt_loop
    (if (i32.lt_s (local.get $p) (local.get $ptCount))
@@ -550,44 +553,59 @@
        (i32.and (f32.eq (local.get $sx) (local.get $sx)) (f32.eq (local.get $sy) (local.get $sy)))
        (f32.gt (local.get $w) (f32.const 0)))
       (then
-       (local.set $gx (f32.mul (local.get $sx) (local.get $gridScale)))
-       (local.set $gy (f32.mul (local.get $sy) (local.get $gridScale)))
-       (local.set $x0 (i32.sub (i32.trunc_sat_f32_s (local.get $gx)) (local.get $radiusGrid)))
+       (local.set $gx (f32.mul (local.get $sx) (local.get $scaleX)))
+       (local.set $gy (f32.mul (local.get $sy) (local.get $scaleY)))
+       (local.set $x0 (i32.sub (i32.trunc_sat_f32_s (local.get $gx)) (local.get $rInt)))
        (if (i32.lt_s (local.get $x0) (i32.const 0)) (then (local.set $x0 (i32.const 0))))
-       (local.set $x1 (i32.add (i32.trunc_sat_f32_s (local.get $gx)) (local.get $radiusGrid)))
+       (local.set $x1 (i32.add (i32.trunc_sat_f32_s (local.get $gx)) (local.get $rInt)))
        (if (i32.ge_s (local.get $x1) (local.get $gridW)) (then (local.set $x1 (i32.sub (local.get $gridW) (i32.const 1)))))
-       (local.set $y0 (i32.sub (i32.trunc_sat_f32_s (local.get $gy)) (local.get $radiusGrid)))
+       (local.set $y0 (i32.sub (i32.trunc_sat_f32_s (local.get $gy)) (local.get $rInt)))
        (if (i32.lt_s (local.get $y0) (i32.const 0)) (then (local.set $y0 (i32.const 0))))
-       (local.set $y1 (i32.add (i32.trunc_sat_f32_s (local.get $gy)) (local.get $radiusGrid)))
+       (local.set $y1 (i32.add (i32.trunc_sat_f32_s (local.get $gy)) (local.get $rInt)))
        (if (i32.ge_s (local.get $y1) (local.get $gridH)) (then (local.set $y1 (i32.sub (local.get $gridH) (i32.const 1)))))
        (local.set $y (local.get $y0))
        (loop $y_loop
         (if (i32.le_s (local.get $y) (local.get $y1))
          (then
-          (local.set $dy (f32.sub (f32.convert_i32_s (local.get $y)) (local.get $gy)))
+          (local.set $dy (f32.sub (f32.add (f32.convert_i32_s (local.get $y)) (f32.const 0.5)) (local.get $gy)))
           (local.set $x (local.get $x0))
           (loop $x_loop
            (if (i32.le_s (local.get $x) (local.get $x1))
             (then
-             (local.set $dx (f32.sub (f32.convert_i32_s (local.get $x)) (local.get $gx)))
+             (local.set $dx (f32.sub (f32.add (f32.convert_i32_s (local.get $x)) (f32.const 0.5)) (local.get $gx)))
              (local.set $dSq
               (f32.mul
                (f32.add (f32.mul (local.get $dx) (local.get $dx)) (f32.mul (local.get $dy) (local.get $dy)))
                (local.get $invRSq)))
              (if (f32.lt (local.get $dSq) (f32.const 1))
               (then
-               (local.set $t (f32.sub (f32.const 1) (local.get $dSq)))
+               (local.set $t
+                (f32.load
+                 (i32.add (local.get $kernelLutOff)
+                  (i32.shl (i32.trunc_sat_f32_s (f32.mul (local.get $dSq) (f32.const 127))) (i32.const 2)))))
                (local.set $addr
                 (i32.add (local.get $densityOff)
                  (i32.shl (i32.add (i32.mul (local.get $y) (local.get $gridW)) (local.get $x)) (i32.const 2))))
                (f32.store (local.get $addr)
-                (f32.add (f32.load (local.get $addr)) (f32.mul (f32.mul (local.get $t) (local.get $t)) (local.get $w))))))
+                (f32.add (f32.load (local.get $addr)) (f32.mul (local.get $t) (local.get $w))))))
              (local.set $x (i32.add (local.get $x) (i32.const 1)))
              (br $x_loop))))
           (local.set $y (i32.add (local.get $y) (i32.const 1)))
           (br $y_loop))))))
      (local.set $p (i32.add (local.get $p) (i32.const 1)))
      (br $pt_loop))))
+  (if (f32.eq (local.get $invMaxIntensity) (f32.const 0))
+   (then
+    (local.set $maxD (f32.const 3))
+    (local.set $i (i32.const 0))
+    (loop $max_loop
+     (if (i32.lt_s (local.get $i) (local.get $cells))
+      (then
+       (local.set $t (f32.load (i32.add (local.get $densityOff) (i32.shl (local.get $i) (i32.const 2)))))
+       (if (f32.gt (local.get $t) (local.get $maxD)) (then (local.set $maxD (local.get $t))))
+       (local.set $i (i32.add (local.get $i) (i32.const 1)))
+       (br $max_loop))))
+    (local.set $invMaxIntensity (f32.div (f32.const 1) (local.get $maxD)))))
   (local.set $i (i32.const 0))
   (loop $color_loop
    (if (i32.lt_s (local.get $i) (local.get $cells))
@@ -596,9 +614,11 @@
       (f32.min (f32.const 1)
        (f32.max (f32.const 0)
         (f32.mul (f32.load (i32.add (local.get $densityOff) (i32.shl (local.get $i) (i32.const 2)))) (local.get $invMaxIntensity)))))
+     (if (i32.eq (local.get $intensityMode) (i32.const 1))
+      (then (local.set $t (f32.sqrt (local.get $t)))))
      (i32.store
       (i32.add (local.get $outRgbaOff) (i32.shl (local.get $i) (i32.const 2)))
-      (i32.load (i32.add (local.get $lutOff) (i32.shl (i32.trunc_sat_f32_s (f32.mul (local.get $t) (f32.const 255))) (i32.const 2)))))
+      (i32.load (i32.add (local.get $lutOff) (i32.shl (i32.trunc_sat_f32_s (f32.add (f32.mul (local.get $t) (f32.const 255)) (f32.const 0.5))) (i32.const 2)))))
      (local.set $i (i32.add (local.get $i) (i32.const 1)))
      (br $color_loop))))
   (local.get $cells)

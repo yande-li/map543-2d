@@ -30,13 +30,20 @@ export interface HeatmapBuffers {
   staticHandle?: StaticPointsHandle | null;
 }
 
+export type HeatmapIntensityMode = 'sqrt' | 'linear';
+export type HeatmapKernelType = 'gaussian' | 'quartic';
+
 export interface HeatmapOptions {
   /** Influence radius in CSS pixels (default: 24). */
   radiusPx?: number;
   /** Downsample factor in (0, 1] for pixel matrix grid (default: 0.25). */
   gridScale?: number;
-  /** Density value mapped to max palette color (default: 3). */
-  maxIntensity?: number;
+  /** Density value mapped to max palette color, or 'auto' for adaptive peak scaling (default: 'auto'). */
+  maxIntensity?: number | 'auto';
+  /** Nonlinear intensity curve: 'sqrt' (default) for balanced hotspots, or 'linear'. */
+  intensityMode?: HeatmapIntensityMode;
+  /** Radial density kernel: 'gaussian' (default) or 'quartic'. */
+  kernel?: HeatmapKernelType;
   /** Precomputed 1024-byte RGBA palette LUT from `buildHeatmapPalette`. */
   palette?: Uint8Array;
   /** Global canvas opacity in [0, 1] (default: 0.85). */
@@ -52,12 +59,34 @@ export interface HeatmapScratch {
 }
 
 const DEFAULT_STOPS: readonly HeatmapColorStop[] = [
-  { offset: 0.0, color: '#00000000' },
-  { offset: 0.25, color: '#0ea5e988' },
-  { offset: 0.55, color: '#22c55ecc' },
-  { offset: 0.8, color: '#facc15ee' },
+  { offset: 0.0, color: '#0ea5e900' },
+  { offset: 0.12, color: '#0ea5e966' },
+  { offset: 0.38, color: '#22c55ebb' },
+  { offset: 0.68, color: '#facc15ee' },
   { offset: 1.0, color: '#ef4444ff' },
 ];
+
+const KERNEL_LUT_LEN = 128;
+
+function buildKernelLut(kind: HeatmapKernelType): Float32Array {
+  const lut = new Float32Array(KERNEL_LUT_LEN);
+  const k = 3.125; // sigma = R / 2.5
+  const expNegK = Math.exp(-k);
+  const invNorm = 1 / (1 - expNegK);
+  for (let i = 0; i < KERNEL_LUT_LEN; i++) {
+    const u = i / (KERNEL_LUT_LEN - 1);
+    if (kind === 'quartic') {
+      const t = 1 - u;
+      lut[i] = t * t;
+    } else {
+      lut[i] = Math.max(0, (Math.exp(-k * u) - expNegK) * invNorm);
+    }
+  }
+  return lut;
+}
+
+const GAUSSIAN_KERNEL_LUT = buildKernelLut('gaussian');
+const QUARTIC_KERNEL_LUT = buildKernelLut('quartic');
 
 function parseHexRgba(hex: string): [number, number, number, number] {
   const clean = hex.startsWith('#') ? hex.slice(1) : hex;
@@ -94,9 +123,11 @@ export function buildHeatmapPalette(
     const span = b.offset - a.offset;
     const f = span > 1e-6 ? Math.max(0, Math.min(1, (t - a.offset) / span)) : 0;
     const base = i * 4;
-    lut[base] = Math.round(a.rgba[0] + (b.rgba[0] - a.rgba[0]) * f);
-    lut[base + 1] = Math.round(a.rgba[1] + (b.rgba[1] - a.rgba[1]) * f);
-    lut[base + 2] = Math.round(a.rgba[2] + (b.rgba[2] - a.rgba[2]) * f);
+    const aRgb = a.rgba[3] === 0 && b.rgba[3] > 0 ? b.rgba : a.rgba;
+    const bRgb = b.rgba[3] === 0 && a.rgba[3] > 0 ? a.rgba : b.rgba;
+    lut[base] = Math.round(aRgb[0] + (bRgb[0] - aRgb[0]) * f);
+    lut[base + 1] = Math.round(aRgb[1] + (bRgb[1] - aRgb[1]) * f);
+    lut[base + 2] = Math.round(aRgb[2] + (bRgb[2] - aRgb[2]) * f);
     lut[base + 3] = Math.round(a.rgba[3] + (b.rgba[3] - a.rgba[3]) * f);
   }
   return lut;
@@ -209,6 +240,54 @@ interface WasmHeatmapRenderResult {
   outRgbaOff: number;
 }
 
+interface ResolvedHeatmapConfig {
+  radiusPx: number;
+  gridW: number;
+  gridH: number;
+  scaleX: number;
+  scaleY: number;
+  radiusGrid: number;
+  invMaxIntensity: number;
+  intensityModeFlag: number;
+  kernelLut: Float32Array;
+  palette: Uint8Array;
+}
+
+function resolveHeatmapConfig(
+  options: HeatmapOptions,
+  width: number,
+  height: number
+): ResolvedHeatmapConfig | null {
+  const palette = options.palette ?? DEFAULT_PALETTE;
+  if (palette.length < 1024) return null;
+
+  const radiusPx = Math.max(2, options.radiusPx ?? 24);
+  const gridScale = Math.max(0.05, Math.min(1, options.gridScale ?? 0.25));
+  const gridW = Math.max(1, Math.ceil(width * gridScale));
+  const gridH = Math.max(1, Math.ceil(height * gridScale));
+  const scaleX = gridW / width;
+  const scaleY = gridH / height;
+
+  return {
+    radiusPx,
+    gridW,
+    gridH,
+    scaleX,
+    scaleY,
+    radiusGrid: Math.max(1, Math.min(128, radiusPx * Math.min(scaleX, scaleY))),
+    invMaxIntensity:
+      options.maxIntensity === undefined || options.maxIntensity === 'auto'
+        ? 0
+        : 1 / Math.max(1e-4, options.maxIntensity),
+    intensityModeFlag: (options.intensityMode ?? 'sqrt') === 'linear' ? 0 : 1,
+    kernelLut:
+      (options.kernel ?? 'gaussian') === 'quartic'
+        ? QUARTIC_KERNEL_LUT
+        : GAUSSIAN_KERNEL_LUT,
+    palette,
+  };
+}
+
 function renderHeatmapToWasm(
   buffers: HeatmapBuffers,
   viewport: Viewport,
@@ -217,31 +296,14 @@ function renderHeatmapToWasm(
   const s = viewport.getState();
   if (buffers.count <= 0 || s.width <= 0 || s.height <= 0) return null;
 
-  const radiusPx = Math.max(2, options.radiusPx ?? 24);
-  const gridScale = Math.max(0.05, Math.min(1, options.gridScale ?? 0.25));
-  const maxIntensity = Math.max(1e-4, options.maxIntensity ?? 3);
-  const palette = options.palette ?? DEFAULT_PALETTE;
-  if (palette.length < 1024) return null;
+  const cfg = resolveHeatmapConfig(options, s.width, s.height);
+  if (!cfg) return null;
 
-  let startIndex = 0;
-  let sliceCount = buffers.count;
-  if (options.timeRange && buffers.times) {
-    const slice = sliceHeatmapByTime(
-      buffers,
-      options.timeRange[0],
-      options.timeRange[1]
-    );
-    startIndex = slice.startIndex;
-    sliceCount = slice.count;
-  }
-  if (sliceCount <= 0) return null;
-
-  const gridW = Math.max(1, Math.ceil(s.width * gridScale));
-  const gridH = Math.max(1, Math.ceil(s.height * gridScale));
-  const radiusGrid = Math.max(
-    1,
-    Math.min(128, Math.ceil(radiusPx * gridScale))
-  );
+  const slice =
+    options.timeRange && buffers.times
+      ? sliceHeatmapByTime(buffers, options.timeRange[0], options.timeRange[1])
+      : { startIndex: 0, count: buffers.count };
+  if (slice.count <= 0) return null;
 
   const handle = resolveStaticPointsHandle(
     buffers.lats,
@@ -252,14 +314,13 @@ function renderHeatmapToWasm(
   if (handle) {
     buffers.staticHandle = handle;
   }
-  const target = handle ?? buffers;
 
   const projected = projectPointsToScratch(
-    target,
+    handle ?? buffers,
     viewport,
-    radiusPx,
-    startIndex,
-    sliceCount
+    cfg.radiusPx,
+    slice.startIndex,
+    slice.count
   );
   if (!projected) return null;
 
@@ -268,45 +329,46 @@ function renderHeatmapToWasm(
   if (!kernel) return null;
 
   const xyOff = outXYFloatBase << 2;
-  const cells = gridW * gridH;
-  const scratchEnd = (outIdxIntBase << 2) + sliceCount * 4;
+  const cells = cfg.gridW * cfg.gridH;
+  const scratchEnd = (outIdxIntBase << 2) + slice.count * 4;
   const weightsOff = buffers.weights && visible > 0 ? (scratchEnd + 3) & ~3 : 0;
   const afterWeights = weightsOff > 0 ? weightsOff + visible * 4 : scratchEnd;
-  const lutOff = (afterWeights + 3) & ~3;
+  const kernelLutOff = (afterWeights + 3) & ~3;
+  const lutOff = kernelLutOff + KERNEL_LUT_LEN * 4;
   const densityOff = lutOff + 1024;
   const outRgbaOff = densityOff + cells * 4;
-  const totalBytes = outRgbaOff + cells * 4;
-
-  if (!rt.ensureCapacity(totalBytes)) return null;
+  if (!rt.ensureCapacity(outRgbaOff + cells * 4)) return null;
 
   if (weightsOff > 0 && buffers.weights) {
     const wBase = weightsOff >> 2;
-    const idxView = rt.i32;
-    const f32View = rt.f32;
     for (let i = 0; i < visible; i++) {
-      f32View[wBase + i] =
-        buffers.weights[startIndex + idxView[outIdxIntBase + i]] ?? 1;
+      rt.f32[wBase + i] =
+        buffers.weights[slice.startIndex + rt.i32[outIdxIntBase + i]] ?? 1;
     }
   }
 
-  rt.u8.set(palette.subarray(0, 1024), lutOff);
+  rt.f32.set(cfg.kernelLut, kernelLutOff >> 2);
+  rt.u8.set(cfg.palette.subarray(0, 1024), lutOff);
 
   const written = kernel(
     visible,
     xyOff,
     weightsOff,
-    gridW,
-    gridH,
-    gridScale,
-    radiusGrid,
-    1 / maxIntensity,
+    cfg.gridW,
+    cfg.gridH,
+    cfg.scaleX,
+    cfg.scaleY,
+    cfg.radiusGrid,
+    cfg.invMaxIntensity,
+    cfg.intensityModeFlag,
+    kernelLutOff,
     densityOff,
     lutOff,
     outRgbaOff
   );
   if (written <= 0) return null;
 
-  return { gridW, gridH, cells, rt, outRgbaOff };
+  return { gridW: cfg.gridW, gridH: cfg.gridH, cells, rt, outRgbaOff };
 }
 
 /**

@@ -1,3 +1,4 @@
+import { type Point2D, getWrappedSlices } from './projection';
 import { type Viewport } from './viewport';
 import {
   type CoordPrecision,
@@ -16,6 +17,19 @@ export interface PointItem {
   radius: number;
   color: string;
   alpha?: number;
+  strokeColor?: string;
+  strokeWidth?: number;
+}
+
+export interface DrawBatchPointsOptions {
+  /** Viewport culling margin in CSS pixels (default: 30). */
+  margin?: number;
+  /** Default stroke color for symbols without per-point `strokeColor`. */
+  strokeColor?: string;
+  /** Default stroke width in CSS pixels (default: 1 when strokeColor is set). */
+  strokeWidth?: number;
+  /** Draw larger circles beneath smaller ones to prevent occlusion (default: true). */
+  sortByRadius?: boolean;
 }
 
 interface PointBucketStyle {
@@ -112,45 +126,175 @@ function getValidStaticHandle(
   return next;
 }
 
-const reusableBucketCoords: number[][] = [];
+const TWO_PI = Math.PI * 2;
+const reusableOrder: number[] = [];
+const reusableXY: number[] = [];
+const TMP_PT: Point2D = { x: 0, y: 0 };
 
-function fillCircles(
-  ctx: CanvasRenderingContext2D,
-  coords: readonly number[],
-  color: string,
-  alpha: number
-): void {
-  ctx.beginPath();
-  ctx.fillStyle = color;
-  ctx.globalAlpha = alpha;
-  for (let i = 0; i < coords.length; i += 3) {
-    const cx = coords[i];
-    const cy = coords[i + 1];
-    const r = coords[i + 2];
-    ctx.moveTo(cx + r, cy);
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+function resolveDrawPointOptions(
+  marginOrOptions: number | DrawBatchPointsOptions
+): {
+  margin: number;
+  defaultStrokeColor: string | undefined;
+  defaultStrokeWidth: number;
+  sortByRadius: boolean;
+} {
+  if (typeof marginOrOptions === 'number') {
+    return {
+      margin: marginOrOptions,
+      defaultStrokeColor: undefined,
+      defaultStrokeWidth: 1,
+      sortByRadius: true,
+    };
   }
-  ctx.fill();
+  return {
+    margin: marginOrOptions.margin ?? 30,
+    defaultStrokeColor: marginOrOptions.strokeColor,
+    defaultStrokeWidth: marginOrOptions.strokeWidth ?? 1,
+    sortByRadius: marginOrOptions.sortByRadius ?? true,
+  };
+}
+
+function drawSymbolsPass(
+  ctx: CanvasRenderingContext2D,
+  points: readonly PointItem[],
+  order: readonly number[],
+  count: number,
+  xySource: Float32Array | readonly number[],
+  xyBase: number,
+  wrapShiftPx: number,
+  defaultStrokeColor: string | undefined,
+  defaultStrokeWidth: number
+): void {
+  let lastFill = '';
+  let lastAlpha = -1;
+  let lastStroke = '';
+  let lastLineWidth = -1;
+
+  for (let i = 0; i < count; i++) {
+    const k = order[i];
+    const p = points[k >= 0 ? k : 0];
+    if (!p || !(p.radius > 0)) continue;
+    const xyIdx = xyBase + i * 2;
+    const cx = xySource[xyIdx] + wrapShiftPx;
+    const cy = xySource[xyIdx + 1];
+    const r = p.radius;
+    const alpha = p.alpha ?? 0.7;
+
+    if (p.color !== lastFill) {
+      ctx.fillStyle = p.color;
+      lastFill = p.color;
+    }
+    if (alpha !== lastAlpha) {
+      ctx.globalAlpha = alpha;
+      lastAlpha = alpha;
+    }
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, TWO_PI);
+    ctx.fill();
+
+    const stroke = p.strokeColor ?? defaultStrokeColor;
+    if (stroke) {
+      const lw = p.strokeWidth ?? defaultStrokeWidth;
+      if (lw > 0) {
+        if (stroke !== lastStroke) {
+          ctx.strokeStyle = stroke;
+          lastStroke = stroke;
+        }
+        if (lw !== lastLineWidth) {
+          ctx.lineWidth = lw;
+          lastLineWidth = lw;
+        }
+        ctx.stroke();
+      }
+    }
+  }
 }
 
 /**
- * Batch-projects points via WASM and renders them into a 2D canvas grouped by
- * color and quantized alpha buckets.
+ * Batch-projects points via WASM (Mercator) or active projection and renders
+ * individual symbols with optional strokes, antimeridian wrap-around, and
+ * large-to-small Z-order to prevent occlusion.
  */
 export function drawBatchPoints(
   ctx: CanvasRenderingContext2D,
   viewport: Viewport,
   points: readonly PointItem[],
   spatial: PointBuffers,
-  margin = 30
+  marginOrOptions: number | DrawBatchPointsOptions = 30
 ): void {
   if (spatial.count === 0) return;
+
+  const opts = resolveDrawPointOptions(marginOrOptions);
+  const s = viewport.getState();
+  const projection = viewport.getProjection();
+  const { slices } = getWrappedSlices(s, 2, projection);
+
+  if (projection.id !== 'mercator') {
+    const latScale = spatial.precision === 16 ? 90 / 32767 : 1;
+    const lonScale = spatial.precision === 16 ? 180 / 32767 : 1;
+    const minX = -opts.margin;
+    const minY = -opts.margin;
+    const maxX = s.width + opts.margin;
+    const maxY = s.height + opts.margin;
+
+    reusableOrder.length = 0;
+    reusableXY.length = 0;
+    for (let i = 0; i < spatial.count; i++) {
+      viewport.projectInto(
+        spatial.lats[i] * latScale,
+        spatial.lons[i] * lonScale,
+        TMP_PT
+      );
+      if (
+        TMP_PT.x < minX ||
+        TMP_PT.x > maxX ||
+        TMP_PT.y < minY ||
+        TMP_PT.y > maxY
+      ) {
+        continue;
+      }
+      reusableOrder.push(i);
+    }
+    const vis = reusableOrder.length;
+    if (vis === 0) return;
+    if (opts.sortByRadius && vis > 1) {
+      reusableOrder.sort((a, b) => points[b].radius - points[a].radius);
+    }
+    for (let i = 0; i < vis; i++) {
+      const idx = reusableOrder[i];
+      viewport.projectInto(
+        spatial.lats[idx] * latScale,
+        spatial.lons[idx] * lonScale,
+        TMP_PT
+      );
+      reusableXY.push(TMP_PT.x, TMP_PT.y);
+    }
+
+    ctx.save();
+    for (const slice of slices) {
+      drawSymbolsPass(
+        ctx,
+        points,
+        reusableOrder,
+        vis,
+        reusableXY,
+        0,
+        slice.wrapShiftPx,
+        opts.defaultStrokeColor,
+        opts.defaultStrokeWidth
+      );
+    }
+    ctx.restore();
+    return;
+  }
 
   const staticHandle = getValidStaticHandle(spatial);
   const projected = projectPointsToScratch(
     staticHandle ?? spatial,
     viewport,
-    margin
+    opts.margin
   );
   if (!projected || projected.visible === 0) return;
 
@@ -158,32 +302,42 @@ export function drawBatchPoints(
   const f32 = rt.f32;
   const i32 = rt.i32;
 
-  const { palette, bucketIds } = spatial;
-  if (!palette || !bucketIds) return;
-
-  const numBuckets = palette.length;
-  while (reusableBucketCoords.length < numBuckets) {
-    reusableBucketCoords.push([]);
-  }
-  for (let b = 0; b < numBuckets; b++) {
-    reusableBucketCoords[b].length = 0;
-  }
+  reusableOrder.length = visible;
   for (let k = 0; k < visible; k++) {
-    const idx = i32[outIdxIntBase + k];
-    const bid = bucketIds[idx];
-    const xyIdx = outXYFloatBase + k * 2;
-    reusableBucketCoords[bid].push(
-      f32[xyIdx],
-      f32[xyIdx + 1],
-      points[idx].radius
+    reusableOrder[k] = k;
+  }
+  if (opts.sortByRadius && visible > 1) {
+    reusableOrder.sort(
+      (a, b) =>
+        points[i32[outIdxIntBase + b]].radius -
+        points[i32[outIdxIntBase + a]].radius
     );
   }
-  for (let b = 0; b < numBuckets; b++) {
-    const coords = reusableBucketCoords[b];
-    if (coords.length === 0) continue;
-    const style = palette[b];
-    fillCircles(ctx, coords, style.color, style.alpha);
+
+  reusableXY.length = visible * 2;
+  for (let i = 0; i < visible; i++) {
+    const k = reusableOrder[i];
+    const xyIdx = outXYFloatBase + k * 2;
+    reusableXY[i * 2] = f32[xyIdx];
+    reusableXY[i * 2 + 1] = f32[xyIdx + 1];
+    reusableOrder[i] = i32[outIdxIntBase + k];
   }
+
+  ctx.save();
+  for (const slice of slices) {
+    drawSymbolsPass(
+      ctx,
+      points,
+      reusableOrder,
+      visible,
+      reusableXY,
+      0,
+      slice.wrapShiftPx,
+      opts.defaultStrokeColor,
+      opts.defaultStrokeWidth
+    );
+  }
+  ctx.restore();
 }
 
 /**

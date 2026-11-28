@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.1] - 2026-11-28
+
+### Fixed
+
+- Upgrade WASM heatmap kernel to truncated Gaussian with pixel-center alignment (`x + 0.5, y + 0.5`), exact `scaleX`/`scaleY` mapping, and floating-point radius calculation
+- Fix dark/grayish outer halo in `buildHeatmapPalette` by preserving adjacent RGB channels across transparent (`alpha === 0`) stops and updating default heatmap stops
+- Default heatmap normalization to adaptive peak scaling (`maxIntensity: 'auto'`) with `intensityMode: 'sqrt'` for balanced dense/sparse gradients (retaining `'linear'` and `'quartic'` options)
+- Render `PointLayer` / `drawBatchPoints` symbols individually instead of merging same-bucket circles into a flat path union, sort large-to-small by radius to prevent occlusion, add optional `strokeColor`/`strokeWidth`, world wrap-around, and preserve Canvas state with `save()`/`restore()`
+
 ## [0.4.0] - 2026-11-24
 
 ### Features

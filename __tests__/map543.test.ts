@@ -865,6 +865,8 @@ describe('PointLayer, VectorLayer, VectorLod, and ImageLayer core helpers', () =
     let arcCount = 0;
     let fillCount = 0;
     const mockCtx = {
+      save: () => {},
+      restore: () => {},
       beginPath: () => {},
       moveTo: () => {},
       arc: () => {
@@ -877,7 +879,7 @@ describe('PointLayer, VectorLayer, VectorLod, and ImageLayer core helpers', () =
 
     drawBatchPoints(mockCtx, cam, pts, buf32);
     expect(arcCount).toBe(3);
-    expect(fillCount).toBe(2); // 2 distinct color|alpha buckets
+    expect(fillCount).toBe(3); // each symbol drawn individually for clean alpha overlap
 
     // Auto re-uploads static handle after disposeWasm
     disposeWasm();

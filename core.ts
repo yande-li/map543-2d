@@ -45,6 +45,7 @@ export {
   attachPointHover,
   type PointItem,
   type PointBuffers,
+  type DrawBatchPointsOptions,
 } from './core/pointLayer';
 export {
   uploadVectorLayers,
@@ -86,6 +87,8 @@ export {
   type HeatmapColorStop,
   type HeatmapBuffers,
   type HeatmapOptions,
+  type HeatmapIntensityMode,
+  type HeatmapKernelType,
   type HeatmapScratch,
 } from './core/heatmapLayer';
 

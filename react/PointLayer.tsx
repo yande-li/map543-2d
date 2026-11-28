@@ -1,4 +1,4 @@
-import React, {
+import {
   forwardRef,
   memo,
   useCallback,
@@ -26,6 +26,12 @@ export interface PointLayerProps {
   zIndex?: number;
   hitRadiusPx?: number;
   marginPx?: number;
+  /** Default stroke color for symbols without per-point `strokeColor`. */
+  strokeColor?: string;
+  /** Default stroke width in CSS pixels (default: 1 when strokeColor is set). */
+  strokeWidth?: number;
+  /** Draw larger circles beneath smaller ones to prevent occlusion (default: true). */
+  sortByRadius?: boolean;
   /** Coordinate buffer precision in bits: 32 (default) or 16. */
   precision?: CoordPrecision;
   className?: string;
@@ -45,6 +51,9 @@ export const PointLayer = memo(
         zIndex = MAP_Z_INDEX.point,
         hitRadiusPx = 18,
         marginPx = 30,
+        strokeColor,
+        strokeWidth,
+        sortByRadius = true,
         precision = 32,
         className,
         onPointClick,
@@ -131,9 +140,14 @@ export const PointLayer = memo(
           cam: Viewport
         ) => {
           if (spatial.count === 0) return;
-          drawBatchPoints(ctx, cam, points, spatial, marginPx);
+          drawBatchPoints(ctx, cam, points, spatial, {
+            margin: marginPx,
+            sortByRadius,
+            ...(strokeColor !== undefined ? { strokeColor } : {}),
+            ...(strokeWidth !== undefined ? { strokeWidth } : {}),
+          });
         },
-        [points, spatial, marginPx]
+        [points, spatial, marginPx, sortByRadius, strokeColor, strokeWidth]
       );
 
       return (

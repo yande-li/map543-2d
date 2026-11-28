@@ -149,9 +149,12 @@ interface WasmKernelExports {
     weightsOff: number,
     gridW: number,
     gridH: number,
-    gridScale: number,
+    scaleX: number,
+    scaleY: number,
     radiusGrid: number,
     invMaxIntensity: number,
+    intensityMode: number,
+    kernelLutOff: number,
     densityOff: number,
     lutOff: number,
     outRgbaOff: number

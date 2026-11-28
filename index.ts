@@ -150,6 +150,7 @@ export {
   hitTestPointBuffers,
   type PointItem,
   type PointBuffers,
+  type DrawBatchPointsOptions,
   type PointHitResult,
   type PointLayerHandle,
 } from './core/pointLayer';
@@ -165,6 +166,8 @@ export {
   type HeatmapColorStop,
   type HeatmapBuffers,
   type HeatmapOptions,
+  type HeatmapIntensityMode,
+  type HeatmapKernelType,
   type HeatmapScratch,
 } from './core/heatmapLayer';
 export { HeatmapLayer, type HeatmapLayerProps } from './react/HeatmapLayer';

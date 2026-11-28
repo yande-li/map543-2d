@@ -25,6 +25,8 @@ import {
   drawHeatmap,
   packHeatmapPoints,
   type HeatmapColorStop,
+  type HeatmapIntensityMode,
+  type HeatmapKernelType,
   type HeatmapPoint,
   type HeatmapScratch,
 } from './heatmapLayer';
@@ -108,6 +110,9 @@ export interface AddPointLayerOptions {
   zIndex?: number;
   hitRadiusPx?: number;
   marginPx?: number;
+  strokeColor?: string;
+  strokeWidth?: number;
+  sortByRadius?: boolean;
   precision?: CoordPrecision;
   className?: string;
   onPointClick?: (point: PointItem, index: number) => void;
@@ -140,7 +145,9 @@ export interface AddHeatmapLayerOptions {
   points: readonly HeatmapPoint[];
   radiusPx?: number;
   gridScale?: number;
-  maxIntensity?: number;
+  maxIntensity?: number | 'auto';
+  intensityMode?: HeatmapIntensityMode;
+  kernel?: HeatmapKernelType;
   opacity?: number;
   colorStops?: readonly HeatmapColorStop[];
   precision?: CoordPrecision;
@@ -354,7 +361,18 @@ function mountPointLayer(
     ...(options.className ? { className: options.className } : {}),
     onDraw: (ctx, _state, cam) => {
       if (spatial.count === 0) return;
-      drawBatchPoints(ctx, cam, options.points, spatial, marginPx);
+      drawBatchPoints(ctx, cam, options.points, spatial, {
+        margin: marginPx,
+        ...(options.strokeColor !== undefined
+          ? { strokeColor: options.strokeColor }
+          : {}),
+        ...(options.strokeWidth !== undefined
+          ? { strokeWidth: options.strokeWidth }
+          : {}),
+        ...(options.sortByRadius !== undefined
+          ? { sortByRadius: options.sortByRadius }
+          : {}),
+      });
     },
   });
 
@@ -501,6 +519,10 @@ function mountHeatmapLayer(
           ...(options.maxIntensity !== undefined
             ? { maxIntensity: options.maxIntensity }
             : {}),
+          ...(options.intensityMode !== undefined
+            ? { intensityMode: options.intensityMode }
+            : {}),
+          ...(options.kernel !== undefined ? { kernel: options.kernel } : {}),
           ...(options.opacity !== undefined
             ? { opacity: options.opacity }
             : {}),
