@@ -29,9 +29,12 @@ export interface TrajectoryLayerProps {
   baseStrokeWidth?: number;
   baseOpacity?: number;
   zIndex?: number;
-  lowPower?: boolean;
-  /** Unlock 18fps stepped easing for full-framerate smooth stroke animation (default: false). */
-  smooth?: boolean;
+  /** Enable dash flight animation (default: true; false renders static strokes). */
+  animated?: boolean;
+  /** Target frame rate in FPS for stepped stroke animation (default: unthrottled; e.g. 18 for stepped). */
+  fps?: number;
+  /** Use C1-continuous quadratic Bezier SVG curves instead of polylines (default: false). */
+  curveSmooth?: boolean;
   /** Skip creating SVG paths/animations for arcs completely outside viewport bounds (default: true). */
   cullOffscreen?: boolean;
 }
@@ -40,13 +43,13 @@ interface TrajectoryStrokeProps {
   item: PreparedArc;
   animationKey: number;
   strokeWidth: number;
-  lowPower: boolean;
-  smooth: boolean;
+  animated: boolean;
+  fps: number | undefined;
   registerPath: (key: string, el: SVGPathElement | null) => void;
 }
 
 const TrajectoryStroke: React.FC<TrajectoryStrokeProps> = memo(
-  ({ item, animationKey, strokeWidth, lowPower, smooth, registerPath }) => {
+  ({ item, animationKey, strokeWidth, animated, fps, registerPath }) => {
     const pathRef = useRef<SVGPathElement | null>(null);
     const animationRef = useRef<Animation | null>(null);
 
@@ -56,7 +59,7 @@ const TrajectoryStroke: React.FC<TrajectoryStrokeProps> = memo(
     };
 
     useEffect(() => {
-      if (lowPower) return;
+      if (!animated) return;
       const runAnimation = () => {
         const currentEl = pathRef.current;
         if (!currentEl) return;
@@ -68,7 +71,7 @@ const TrajectoryStroke: React.FC<TrajectoryStrokeProps> = memo(
           currentEl,
           item.dashRatio,
           item.duration,
-          smooth
+          fps
         );
       };
 
@@ -87,8 +90,8 @@ const TrajectoryStroke: React.FC<TrajectoryStrokeProps> = memo(
       item.dashRatio,
       item.duration,
       animationKey,
-      lowPower,
-      smooth,
+      animated,
+      fps,
     ]);
 
     return (
@@ -97,7 +100,7 @@ const TrajectoryStroke: React.FC<TrajectoryStrokeProps> = memo(
         className={item.className}
         stroke={item.color}
         strokeWidth={strokeWidth}
-        strokeOpacity={lowPower ? 0.65 : 0}
+        strokeOpacity={animated ? 0 : 0.65}
         strokeLinecap="round"
         fill="none"
       />
@@ -118,8 +121,9 @@ export const TrajectoryLayer: React.FC<TrajectoryLayerProps> = memo(
     baseStrokeWidth = 1,
     baseOpacity = 0.14,
     zIndex = MAP_Z_INDEX.trajectory,
-    lowPower = false,
-    smooth = false,
+    animated = true,
+    fps,
+    curveSmooth = false,
     cullOffscreen = true,
   }) => {
     const { viewport } = useMap();
@@ -183,9 +187,9 @@ export const TrajectoryLayer: React.FC<TrajectoryLayerProps> = memo(
         prepared,
         (key) => pathRefs.current.get(key),
         (key) => basePathRefs.current.get(key),
-        smooth
+        curveSmooth
       );
-    }, [viewport, prepared, smooth]);
+    }, [viewport, prepared, curveSmooth]);
 
     return (
       <svg
@@ -198,7 +202,7 @@ export const TrajectoryLayer: React.FC<TrajectoryLayerProps> = memo(
           pointerEvents: 'none',
           zIndex,
           overflow: 'visible',
-          ...(lowPower ? {} : { willChange: 'transform' }),
+          ...(animated ? { willChange: 'transform' } : {}),
         }}
       >
         {prepared.items.map((item) => (
@@ -223,8 +227,8 @@ export const TrajectoryLayer: React.FC<TrajectoryLayerProps> = memo(
               item={item}
               animationKey={animationKey}
               strokeWidth={strokeWidth}
-              lowPower={lowPower}
-              smooth={smooth}
+              animated={animated}
+              fps={fps}
               registerPath={registerPath}
             />
           </React.Fragment>

@@ -34,11 +34,10 @@ export function ensureMarkerStyles(options: MarkerStyleOptions = {}): void {
     '@keyframes map-marker-fade{0%,80%{opacity:1}100%{opacity:0}}' +
     '.map-marker-pulse{position:relative;isolation:isolate;backface-visibility:hidden;contain:layout style}' +
     '.map-marker-pulse::before,.map-marker-pulse--ripple::after{content:"";position:absolute;inset:0;border-radius:50%;pointer-events:none;box-sizing:border-box;z-index:-1;will-change:transform,opacity}' +
-    '.map-marker-pulse--radar::before,.map-marker-pulse--expand::before{background:var(--map-pulse-color,currentColor);opacity:0;animation:map-marker-expand 1.8s infinite ease-out;animation-delay:var(--map-pulse-delay,0ms)}' +
-    '.map-marker-pulse--ripple::before,.map-marker-pulse--ripple::after{border:1.5px solid var(--map-pulse-color,currentColor);opacity:0;animation:map-marker-ripple 2.4s 1 ease-out forwards;animation-delay:var(--map-pulse-delay,0ms)}' +
+    '.map-marker-pulse--radar::before,.map-marker-pulse--expand::before{background:var(--map-pulse-color,currentColor);opacity:0;animation:map-marker-expand 1.8s infinite var(--map-pulse-easing,ease-out);animation-delay:var(--map-pulse-delay,0ms)}' +
+    '.map-marker-pulse--ripple::before,.map-marker-pulse--ripple::after{border:1.5px solid var(--map-pulse-color,currentColor);opacity:0;animation:map-marker-ripple 2.4s 1 var(--map-pulse-easing,ease-out) forwards;animation-delay:var(--map-pulse-delay,0ms)}' +
     '.map-marker-pulse--ripple::after{animation-delay:calc(var(--map-pulse-delay,0ms) + 800ms)}' +
-    '.map-marker-pulse--loop.map-marker-pulse--expand::before,.map-marker-pulse--loop.map-marker-pulse--radar::before,.map-marker-pulse--loop.map-marker-pulse--ripple::before,.map-marker-pulse--loop.map-marker-pulse--ripple::after{animation-iteration-count:infinite}' +
-    '.map-marker-pulse--smooth.map-marker-pulse--radar::before,.map-marker-pulse--smooth.map-marker-pulse--expand::before,.map-marker-pulse--smooth.map-marker-pulse--ripple::before,.map-marker-pulse--smooth.map-marker-pulse--ripple::after{animation-timing-function:ease-out}';
+    '.map-marker-pulse--loop.map-marker-pulse--expand::before,.map-marker-pulse--loop.map-marker-pulse--radar::before,.map-marker-pulse--loop.map-marker-pulse--ripple::before,.map-marker-pulse--loop.map-marker-pulse--ripple::after{animation-iteration-count:infinite}';
   if (root instanceof Document) {
     root.head.appendChild(style);
   } else {

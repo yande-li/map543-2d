@@ -1,3 +1,4 @@
+import { resolveFrameIntervalMs, shouldAdvanceFrame } from './animation';
 import { Viewport } from './viewport';
 
 export interface GamepadOptions {
@@ -11,6 +12,10 @@ export interface GamepadOptions {
   dpadStepPx?: number;
   /** Discrete zoom step when pressing LB/RB (default: 0.5). */
   zoomStep?: number;
+  /** Polling rate in FPS while actively panning/zooming (default: 30; 0/Infinity for unthrottled). */
+  activeFps?: number;
+  /** Polling rate in FPS when connected but idle (default: 10; 0/Infinity for unthrottled). */
+  idleFps?: number;
 }
 
 function applyDeadzoneCurve(raw: number, deadzone: number): number {
@@ -42,10 +47,12 @@ export function attachGamepad(
     deadzone = 0.15,
     dpadStepPx = 18,
     zoomStep = 0.5,
+    activeFps,
+    idleFps,
   } = options;
 
-  const ACTIVE_INTERVAL_MS = 33; // ~30 FPS while actively panning/zooming
-  const IDLE_INTERVAL_MS = 100; // 10 FPS when connected but idle
+  const activeIntervalMs = resolveFrameIntervalMs(activeFps, 30);
+  const idleIntervalMs = resolveFrameIntervalMs(idleFps, 10);
 
   let rafId = 0;
   let lastTime = 0;
@@ -116,8 +123,8 @@ export function attachGamepad(
 
   const tick = (now: number) => {
     rafId = 0;
-    const minInterval = gestureMode > 0 ? ACTIVE_INTERVAL_MS : IDLE_INTERVAL_MS;
-    if (lastPollTime > 0 && now - lastPollTime < minInterval) {
+    const minInterval = gestureMode > 0 ? activeIntervalMs : idleIntervalMs;
+    if (!shouldAdvanceFrame(now, lastPollTime, minInterval)) {
       rafId = requestAnimationFrame(tick);
       return;
     }

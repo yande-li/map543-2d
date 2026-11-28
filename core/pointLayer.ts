@@ -30,8 +30,6 @@ export interface DrawBatchPointsOptions {
   strokeColor?: string;
   /** Default stroke width in CSS pixels (default: 1 when strokeColor is set). */
   strokeWidth?: number;
-  /** Draw larger circles beneath smaller ones to prevent occlusion (default: true). */
-  sortByRadius?: boolean;
 }
 
 export interface PointBuffers {

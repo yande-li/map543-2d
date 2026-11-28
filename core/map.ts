@@ -91,7 +91,7 @@ export interface AddVectorLayerOptions {
   strokeLayers?: readonly PreparedLayer[];
   styles?: Readonly<Record<string, VectorLayerStyle>>;
   smoothFactor?: number;
-  lowPower?: boolean;
+  maxDpr?: number;
   zIndex?: number;
   skipOnInteractLayers?: ReadonlySet<string>;
   resetOnUpload?: boolean;
@@ -109,7 +109,6 @@ export interface AddPointLayerOptions {
   marginPx?: number;
   strokeColor?: string;
   strokeWidth?: number;
-  sortByRadius?: boolean;
   precision?: CoordPrecision;
   className?: string;
   onPointClick?: (point: PointItem, index: number) => void;
@@ -265,7 +264,7 @@ function mountVectorLayer(
   let handles = new WeakMap<PreparedFeature, StaticGeometryHandle>();
   const precision = options.precision ?? 32;
   const smoothFactor = options.smoothFactor ?? 1.0;
-  const maxDpr = computeVectorMaxDpr(Boolean(options.lowPower), smoothFactor);
+  const maxDpr = options.maxDpr ?? computeVectorMaxDpr(smoothFactor);
 
   const drawOpts = {
     smoothFactor,
@@ -355,9 +354,6 @@ function mountPointLayer(
       : {}),
     ...(options.strokeWidth !== undefined
       ? { strokeWidth: options.strokeWidth }
-      : {}),
-    ...(options.sortByRadius !== undefined
-      ? { sortByRadius: options.sortByRadius }
       : {}),
   };
 

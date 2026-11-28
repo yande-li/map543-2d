@@ -31,8 +31,6 @@ export interface PointLayerProps {
   strokeColor?: string;
   /** Default stroke width in CSS pixels (default: 1 when strokeColor is set). */
   strokeWidth?: number;
-  /** Draw larger circles beneath smaller ones to prevent occlusion (default: true). */
-  sortByRadius?: boolean;
   /** Coordinate buffer precision in bits: 32 (default) or 16. */
   precision?: CoordPrecision;
   className?: string;
@@ -54,7 +52,6 @@ export const PointLayer = memo(
         marginPx = 30,
         strokeColor,
         strokeWidth,
-        sortByRadius = true,
         precision = 32,
         className,
         onPointClick,
@@ -123,11 +120,10 @@ export const PointLayer = memo(
       const drawOpts = useMemo(
         () => ({
           margin: marginPx,
-          sortByRadius,
           ...(strokeColor !== undefined ? { strokeColor } : {}),
           ...(strokeWidth !== undefined ? { strokeWidth } : {}),
         }),
-        [marginPx, sortByRadius, strokeColor, strokeWidth]
+        [marginPx, strokeColor, strokeWidth]
       );
 
       const onDraw = useCallback(

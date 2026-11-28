@@ -24,6 +24,11 @@ export {
   clampCenterToBounds,
   boundsIntersects,
 } from './core/projection';
+export {
+  resolveFrameIntervalMs,
+  shouldAdvanceFrame,
+  resolveAnimationEasing,
+} from './core/animation';
 export { type MarkerVariant, type MarkerPulse } from './core/marker';
 export {
   prepareArcs,

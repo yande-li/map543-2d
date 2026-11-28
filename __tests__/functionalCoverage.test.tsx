@@ -20,6 +20,9 @@ import {
   packPoints,
   packTrajectories,
   resetWasmArena,
+  resolveAnimationEasing,
+  resolveFrameIntervalMs,
+  shouldAdvanceFrame,
 } from '../core';
 import { createCruiseController } from '../cruise';
 import { projectPointsToScratch } from '../core/batch';
@@ -291,7 +294,7 @@ describe('createCruiseController edge cases', () => {
     ];
     const ctrl = createCruiseController(vp, () => dynamicList, {
       loop: false,
-      lowPower: true,
+      durationMs: 0,
       onUserInteract: 'pause',
       resumeAfterMs: 250,
     });
@@ -343,7 +346,7 @@ describe('React Marker variants, useViewportSelector, and CanvasLayer', () => {
           popup={<span>Taipei Popup</span>}
         />
         <Marker position={[24, 120]} variant="dot" glow intensity={1.2} />
-        <Marker position={[23, 120]} variant="ring" pulse="expand" smooth />
+        <Marker position={[23, 120]} variant="ring" pulse="expand" fps={0} />
       </MapView>
     );
 
@@ -410,5 +413,52 @@ describe('React Marker variants, useViewportSelector, and CanvasLayer', () => {
     // Updating interactionMaxDpr reuses the same <canvas> element
     fireEvent.click(getByTestId('bump-dpr'));
     expect(container.querySelector('canvas')).toBe(canvasBefore);
+  });
+});
+
+describe('Generalized animation frame-pacing (core/animation)', () => {
+  it('resolves frame intervals and stepped/smooth easings across FPS modes', () => {
+    expect(resolveFrameIntervalMs(undefined)).toBe(0);
+    expect(resolveFrameIntervalMs(undefined, 20)).toBe(50);
+    expect(resolveFrameIntervalMs(10, 20)).toBe(100);
+    expect(resolveFrameIntervalMs(0, 20)).toBe(0);
+    expect(resolveFrameIntervalMs(Number.POSITIVE_INFINITY, 20)).toBe(0);
+
+    expect(shouldAdvanceFrame(100, 0, 50)).toBe(true);
+    expect(shouldAdvanceFrame(120, 100, 50)).toBe(false);
+    expect(shouldAdvanceFrame(150, 100, 50)).toBe(true);
+    expect(shouldAdvanceFrame(105, 100, 0)).toBe(true);
+
+    expect(resolveAnimationEasing(1000, undefined, 'ease-out')).toBe(
+      'ease-out'
+    );
+    expect(resolveAnimationEasing(1000, 18, 'ease-out')).toBe('steps(18, end)');
+    expect(resolveAnimationEasing(100, 10, 'ease-out', 0, 6)).toBe(
+      'steps(6, end)'
+    );
+    expect(resolveAnimationEasing(1000, 0, 'ease-out')).toBe('ease-out');
+  });
+
+  it('applies custom fps and unthrottled default to Marker pulse CSS variables', () => {
+    const { container } = render(
+      <MapView center={[25, 121]} zoom={5}>
+        <Marker
+          position={[25, 121]}
+          variant="dot"
+          pulse="radar"
+          dropIn
+          fps={10}
+        />
+        <Marker position={[24, 120]} variant="dot" pulse="radar" />
+      </MapView>
+    );
+    const pulses = container.querySelectorAll('.map-marker-pulse--radar');
+    expect(pulses).toHaveLength(2);
+    expect(
+      (pulses[0] as HTMLElement).style.getPropertyValue('--map-pulse-easing')
+    ).toBe('steps(18, end)');
+    expect(
+      (pulses[1] as HTMLElement).style.getPropertyValue('--map-pulse-easing')
+    ).toBe('ease-out');
   });
 });

@@ -491,19 +491,23 @@ describe('WebAssembly batch kernels', () => {
     const { container } = render(
       React.createElement(
         MapView,
-        { center: [0, 0], zoom: 2, smooth: true },
+        { center: [0, 0], zoom: 2, flyFps: 0 },
         React.createElement(Marker, {
           lat: cam.getState().center[0],
           lon: 0,
           variant: 'dot',
           pulse: 'ripple',
-          smooth: true,
+          fps: 0,
         })
       )
     );
-    const pulseEl = container.querySelector('.map-marker-pulse--ripple');
+    const pulseEl = container.querySelector(
+      '.map-marker-pulse--ripple'
+    ) as HTMLElement | null;
     expect(pulseEl).not.toBeNull();
-    expect(pulseEl?.classList.contains('map-marker-pulse--smooth')).toBe(true);
+    expect(pulseEl?.style.getPropertyValue('--map-pulse-easing')).toBe(
+      'ease-out'
+    );
     expect(pulseEl?.children.length).toBe(0);
   });
 
@@ -1227,7 +1231,7 @@ describe('DOM interactions (drag, click, pinch, gamepad) and React layers', () =
         }),
         React.createElement(TrajectoryLayer, {
           items: [{ key: 'arc-1', src: [25, 121], dst: [35, 139] }] as const,
-          lowPower: true,
+          animated: false,
         }),
         React.createElement(ImageLayer, {
           image: {} as CanvasImageSource,

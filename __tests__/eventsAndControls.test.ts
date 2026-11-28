@@ -417,7 +417,7 @@ describe('CanvasRenderer debounce & TrajectoryLayer culling', () => {
         { ref: mapRef, center: [25, 121], zoom: 6 },
         React.createElement(TrajectoryLayer, {
           items,
-          lowPower: true,
+          animated: false,
           showBasePath: false,
         })
       )

@@ -43,8 +43,6 @@ export interface CruiseOptions<T = unknown> {
   durationMs?: number;
   /** Default dwell time at each waypoint in ms (default: 2000). */
   dwellMs?: number;
-  /** Use instant transitions (setView / 0ms fitBounds) when lowPower is true (default: false). */
-  lowPower?: boolean;
   /** Scale waypoint/overview zoom via `target.getResponsiveZoom` (default: false). */
   responsiveZoom?: boolean;
   /** Loop continuously across cycles (default: true). */
@@ -111,10 +109,9 @@ function navigateTarget(
     zoom?: number;
   },
   durationMs: number,
-  responsiveZoom: boolean,
-  lowPower: boolean
+  responsiveZoom: boolean
 ): void {
-  const dur = lowPower ? 0 : durationMs;
+  const dur = Math.max(0, durationMs);
   if (step.bounds && target.fitBounds) {
     target.fitBounds(step.bounds, step.paddingPx, dur);
     return;
@@ -124,7 +121,7 @@ function navigateTarget(
     step.zoom !== undefined && responsiveZoom && target.getResponsiveZoom
       ? target.getResponsiveZoom(step.zoom)
       : step.zoom;
-  if (lowPower || dur <= 0) {
+  if (dur <= 0) {
     target.setView(step.center, z);
     return;
   }
@@ -181,17 +178,14 @@ export function createCruiseController<T = unknown>(
     step: CruiseWaypoint<T> | CruiseOverview,
     defaultDuration: number
   ): number => {
-    const lowPower = Boolean(opts.lowPower);
-    const dur = lowPower
-      ? 0
-      : (step.durationMs ?? opts.durationMs ?? defaultDuration);
+    const dur = step.durationMs ?? opts.durationMs ?? defaultDuration;
     navigatingInternal = true;
     try {
-      navigateTarget(target, step, dur, Boolean(opts.responsiveZoom), lowPower);
+      navigateTarget(target, step, dur, Boolean(opts.responsiveZoom));
     } finally {
       navigatingInternal = false;
     }
-    return dur;
+    return Math.max(0, dur);
   };
 
   const scheduleNext = (delayMs: number, fn: () => void) => {

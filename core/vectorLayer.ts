@@ -45,11 +45,7 @@ const DEFAULT_VECTOR_STYLE: VectorLayerStyle = {
 };
 const dashArrayCache = new WeakMap<VectorLayerStyle, number[]>();
 
-export function computeVectorMaxDpr(
-  lowPower: boolean,
-  smoothFactor = 1.0
-): number {
-  if (lowPower) return 1;
+export function computeVectorMaxDpr(smoothFactor = 1.0): number {
   const sf = Math.max(0, smoothFactor);
   if (sf >= 1.8) return 1;
   if (sf <= 0.6) return 2;

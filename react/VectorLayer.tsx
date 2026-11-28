@@ -27,7 +27,7 @@ export interface VectorLayerProps {
   /** Optional layer name -> style map when passing PreparedLayer[] directly from parseGeobuf. */
   styles?: Readonly<Record<string, VectorLayerStyle>>;
   smoothFactor?: number;
-  lowPower?: boolean;
+  maxDpr?: number;
   zIndex?: number;
   skipOnInteractLayers?: ReadonlySet<string>;
   /** Reset the shared WASM static arena before uploading new layers (default: false). */
@@ -63,7 +63,7 @@ export const VectorLayer: React.FC<VectorLayerProps> = memo(
     strokeLayers,
     styles,
     smoothFactor = 1.0,
-    lowPower = false,
+    maxDpr: maxDprProp,
     zIndex = MAP_Z_INDEX.vector,
     skipOnInteractLayers,
     resetOnUpload = false,
@@ -129,8 +129,8 @@ export const VectorLayer: React.FC<VectorLayerProps> = memo(
     }, [resolvedFillLayers, resolvedStrokeLayers, resetOnUpload, precision]);
 
     const maxDpr = useMemo(
-      () => computeVectorMaxDpr(lowPower, smoothFactor),
-      [lowPower, smoothFactor]
+      () => maxDprProp ?? computeVectorMaxDpr(smoothFactor),
+      [maxDprProp, smoothFactor]
     );
 
     const drawOpts = useMemo(

@@ -1,3 +1,4 @@
+import { resolveFrameIntervalMs, shouldAdvanceFrame } from './animation';
 import { createEmitter, type Unsubscribe } from './events';
 import {
   Projection,
@@ -37,7 +38,7 @@ export interface ViewportState {
   referenceWidth?: number;
   preserveViewportSpan?: boolean;
   projection?: ProjectionType | Projection;
-  smooth?: boolean;
+  flyFps?: number;
 }
 
 export interface ViewportConstraints {
@@ -47,7 +48,7 @@ export interface ViewportConstraints {
   referenceWidth?: number;
   preserveViewportSpan?: boolean;
   projection?: ProjectionType | Projection;
-  smooth?: boolean;
+  flyFps?: number;
 }
 
 export type ViewportListener = (state: ViewportState) => void;
@@ -106,7 +107,7 @@ export class Viewport {
       ...(initial.projection !== undefined
         ? { projection: initial.projection }
         : {}),
-      ...(initial.smooth !== undefined ? { smooth: initial.smooth } : {}),
+      ...(initial.flyFps !== undefined ? { flyFps: initial.flyFps } : {}),
     };
     this.cachedNormBounds = getNormBounds(
       this.state.maxBounds,
@@ -321,7 +322,7 @@ export class Viewport {
       'referenceWidth',
       'preserveViewportSpan',
       'projection',
-      'smooth',
+      'flyFps',
     ] as const;
     for (const key of optionalKeys) {
       if (!(key in constraints)) continue;
@@ -427,7 +428,7 @@ export class Viewport {
 
     const startTime = performance.now();
     let lastEmitTime = 0;
-    const FLY_FRAME_INTERVAL_MS = 50; // Cap flyTo updates to 20 FPS unless unlocked
+    const frameIntervalMs = resolveFrameIntervalMs(this.state.flyFps);
     const tmpFlyCenter: LatLon = [0, 0];
     const hasZoomDelta = Math.abs(endZoom - startZoom) > 1e-6;
     this.startMotion(hasZoomDelta);
@@ -435,12 +436,7 @@ export class Viewport {
     const tick = (now: number) => {
       const elapsed = now - startTime;
       const t = Math.min(1, elapsed / durationMs);
-      if (
-        !this.state.smooth &&
-        t < 1 &&
-        lastEmitTime !== 0 &&
-        now - lastEmitTime < FLY_FRAME_INTERVAL_MS
-      ) {
+      if (t < 1 && !shouldAdvanceFrame(now, lastEmitTime, frameIntervalMs)) {
         this.flyRafId = requestAnimationFrame(tick);
         return;
       }

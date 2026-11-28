@@ -118,6 +118,12 @@ export {
 } from './react/Overlay';
 
 export {
+  resolveFrameIntervalMs,
+  shouldAdvanceFrame,
+  resolveAnimationEasing,
+} from './core/animation';
+
+export {
   Marker,
   type MarkerProps,
   type MarkerVariant,

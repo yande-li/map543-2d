@@ -103,7 +103,7 @@ describe('createCruiseController & useCruise', () => {
 
     const cruise = createCruiseController(vp, () => waypoints, {
       overview: { center: [20, 100], zoom: 2, durationMs: 0, dwellMs: 100 },
-      lowPower: true,
+      durationMs: 0,
       responsiveZoom: true,
       dwellMs: 100,
       onEnterWaypoint: (_wp, idx) => entered.push(idx),
@@ -135,7 +135,7 @@ describe('createCruiseController & useCruise', () => {
     const Probe: React.FC = () => {
       const { state } = useCruise([{ center: [25, 121], zoom: 5 }], {
         autoStart: true,
-        lowPower: true,
+        durationMs: 0,
       });
       latestPlaying = state.playing;
       return null;
@@ -185,7 +185,7 @@ describe('createCruiseController & useCruise', () => {
     expect(fitCalls).toEqual([24]);
     expect(seenIds).toEqual(['tw']);
 
-    cruise.setOptions({ lowPower: true });
+    cruise.setOptions({ durationMs: 0 });
     vi.advanceTimersByTime(150);
     expect(seenIds).toEqual(['tw', 'jp']);
     expect(setCalls).toEqual([7]);
@@ -196,7 +196,7 @@ describe('createCruiseController & useCruise', () => {
       const { state } = useCruise([{ center: [0, 0], zoom: 3 }], {
         target: customTarget,
         autoStart: true,
-        lowPower: true,
+        durationMs: 0,
       });
       standalonePlaying = state.playing;
       return null;

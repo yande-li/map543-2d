@@ -58,8 +58,8 @@ export interface MapViewProps {
   keyboard?: boolean;
   /** Enable Gamepad API pan/zoom controls when a controller is connected (default: false). */
   gamepad?: boolean;
-  /** Unlock flyTo 20 FPS cap for full-framerate viewport animations (default: false). */
-  smooth?: boolean;
+  /** Target frame rate in FPS for flyTo animations (default: unthrottled). */
+  flyFps?: number;
   /** Accessible label for the interactive map region (default: 'Interactive map'). */
   ariaLabel?: string;
   /** Grouped zoom controls configuration or boolean toggle. */
@@ -151,7 +151,7 @@ function buildViewportConstraints(opts: {
   referenceWidth: number | undefined;
   preserveViewportSpan: boolean;
   projection: ProjectionType | Projection | undefined;
-  smooth: boolean;
+  flyFps: number | undefined;
 }): ViewportConstraints {
   return {
     minZoom: opts.minZoom,
@@ -162,7 +162,7 @@ function buildViewportConstraints(opts: {
       : {}),
     preserveViewportSpan: opts.preserveViewportSpan,
     ...(opts.projection !== undefined ? { projection: opts.projection } : {}),
-    smooth: opts.smooth,
+    ...(opts.flyFps !== undefined ? { flyFps: opts.flyFps } : {}),
   };
 }
 
@@ -214,7 +214,7 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
       interactive = true,
       keyboard = true,
       gamepad = false,
-      smooth = false,
+      flyFps,
       ariaLabel = 'Interactive map',
       zoomControls,
       zoomDelta = 0.5,
@@ -278,7 +278,7 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
           referenceWidth,
           preserveViewportSpan,
           projection,
-          smooth,
+          flyFps,
         }),
       [
         minZoom,
@@ -287,7 +287,7 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
         referenceWidth,
         preserveViewportSpan,
         projection,
-        smooth,
+        flyFps,
       ]
     );
 

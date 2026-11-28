@@ -1,3 +1,4 @@
+import { resolveAnimationEasing } from './animation';
 import { type Viewport } from './viewport';
 import {
   QUADRATIC_ARC_POINTS,
@@ -84,13 +85,17 @@ export function animateStroke(
   el: SVGPathElement,
   dashRatio: number,
   duration: number,
-  smooth = false
+  fps?: number
 ): Animation {
   el.setAttribute('pathLength', '1');
   el.style.strokeDasharray = `${dashRatio.toFixed(3)} 1.2`;
-  const easing = smooth
-    ? 'cubic-bezier(0.15, 0.45, 0.35, 1)'
-    : `steps(${Math.max(8, Math.round((duration / 1000) * 18))}, end)`;
+  const easing = resolveAnimationEasing(
+    duration,
+    fps,
+    'cubic-bezier(0.15, 0.45, 0.35, 1)',
+    0,
+    8
+  );
   return el.animate(
     [
       { strokeDashoffset: '0', strokeOpacity: '0.9' },
@@ -177,7 +182,7 @@ export function attachSvgSync(
   batch: PreparedArcs,
   getPathEl: (key: string) => SVGPathElement | undefined,
   getBasePathEl: (key: string) => SVGPathElement | undefined,
-  smooth = false
+  curveSmooth = false
 ): () => void {
   if (batch.items.length === 0) return () => {};
 
@@ -217,7 +222,7 @@ export function attachSvgSync(
           projectedXY,
           item.batchIndex * stride,
           QUADRATIC_ARC_POINTS,
-          smooth
+          curveSmooth
         );
       } else if (item.batchIndex >= 0 && batch.arcBuffer) {
         nonMercatorTmpXY ??= new Float32Array(stride);
@@ -229,7 +234,7 @@ export function attachSvgSync(
           nonMercatorTmpXY[i * 2] = tmpPt.x;
           nonMercatorTmpXY[i * 2 + 1] = tmpPt.y;
         }
-        d = xyToSvgPath(nonMercatorTmpXY, 0, QUADRATIC_ARC_POINTS, smooth);
+        d = xyToSvgPath(nonMercatorTmpXY, 0, QUADRATIC_ARC_POINTS, curveSmooth);
       } else {
         d = latLonsToSvgPath(
           [item.src, item.dst],

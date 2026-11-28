@@ -1,4 +1,5 @@
 import React, { memo, useEffect, useState } from 'react';
+import { resolveAnimationEasing } from '../core/animation';
 import { MAP_Z_INDEX } from '../core/controls';
 import {
   type MarkerPulse,
@@ -31,9 +32,8 @@ export interface MarkerProps {
   delayMs?: number;
   fadeMs?: number;
   dropIn?: boolean;
-  lowPower?: boolean;
-  /** Unlock 8fps/15fps stepped easing for full-framerate smooth marker animations (default: false). */
-  smooth?: boolean;
+  /** Target frame rate in FPS for stepped marker animations (default: unthrottled; e.g. 15 for stepped). */
+  fps?: number;
   zIndex?: number;
   interactive?: boolean;
   onClick?: (e: React.MouseEvent) => void;
@@ -74,8 +74,7 @@ interface ResolvedMarker {
   glow: boolean;
   quantizedIntensity: number;
   dropIn: boolean;
-  lowPower: boolean;
-  smooth: boolean;
+  fps: number | undefined;
   zIndex: number;
   isInteractive: boolean;
   wrapperStyle: React.CSSProperties;
@@ -168,16 +167,12 @@ function buildMarkerVisuals(
   props: MarkerProps,
   isPin: boolean,
   geom: ReturnType<typeof resolveMarkerGeometry>,
-  color: string,
-  lowPower: boolean,
-  smooth: boolean
+  color: string
 ): Pick<ResolvedMarker, 'wrapperStyle' | 'pulseClassName' | 'pulseCssVars'> {
   const pulseMode = normalizePulseMode(props.pulse ?? false);
-  const showPulse = Boolean(pulseMode && !lowPower);
-  const fadeAnimation =
-    props.fadeMs && !lowPower
-      ? `map-marker-fade ${props.fadeMs}ms ${smooth ? 'linear' : 'steps(8, end)'} forwards`
-      : undefined;
+  const fadeAnimation = props.fadeMs
+    ? `map-marker-fade ${props.fadeMs}ms ${resolveAnimationEasing(props.fadeMs, props.fps, 'linear')} forwards`
+    : undefined;
 
   const wrapperStyle: React.CSSProperties = {
     width: `${geom.boxSize}px`,
@@ -192,16 +187,24 @@ function buildMarkerVisuals(
     ...(fadeAnimation ? { animation: fadeAnimation } : {}),
   };
 
-  if (!showPulse) {
+  if (!pulseMode) {
     return { wrapperStyle, pulseClassName: '', pulseCssVars: undefined };
   }
 
+  const pulseDurationMs = pulseMode === 'ripple' ? 2400 : 1800;
+  const pulseEasing = resolveAnimationEasing(
+    pulseDurationMs,
+    props.fps,
+    'ease-out'
+  );
+
   return {
     wrapperStyle,
-    pulseClassName: `map-marker-pulse map-marker-pulse--${pulseMode}${props.pulseLoop ? ' map-marker-pulse--loop' : ''}${smooth ? ' map-marker-pulse--smooth' : ''}`,
+    pulseClassName: `map-marker-pulse map-marker-pulse--${pulseMode}${props.pulseLoop ? ' map-marker-pulse--loop' : ''}`,
     pulseCssVars: {
       '--map-pulse-color': props.pulseColor ?? color,
       '--map-pulse-delay': `${props.delayMs ?? 0}ms`,
+      '--map-pulse-easing': pulseEasing,
     } as React.CSSProperties,
   };
 }
@@ -213,8 +216,6 @@ function resolveMarkerConfig(props: MarkerProps): ResolvedMarker {
   const color = props.color ?? (isPin ? '#007aff' : '#0ebf9c');
   const borderColor =
     props.borderColor ?? (variant === 'ring' ? color : '#ffffff');
-  const lowPower = props.lowPower ?? false;
-  const smooth = props.smooth ?? false;
 
   return {
     variant,
@@ -231,11 +232,10 @@ function resolveMarkerConfig(props: MarkerProps): ResolvedMarker {
       Math.round((props.intensity ?? 1) * 10) / 10
     ),
     dropIn: props.dropIn ?? false,
-    lowPower,
-    smooth,
+    fps: props.fps,
     zIndex: props.zIndex ?? MAP_Z_INDEX.overlay,
     isInteractive: Boolean(props.interactive) || props.popup !== undefined,
-    ...buildMarkerVisuals(props, isPin, geom, color, lowPower, smooth),
+    ...buildMarkerVisuals(props, isPin, geom, color),
   };
 }
 
@@ -283,12 +283,10 @@ export const Marker: React.FC<MarkerProps> = memo((props) => {
         {...(handleClick ? { onClick: handleClick } : {})}
       >
         <div style={m.wrapperStyle} title={title}>
-          {m.dropIn && !m.lowPower ? (
+          {m.dropIn ? (
             <div
               style={{
-                animation: m.smooth
-                  ? 'map-marker-drop 0.8s cubic-bezier(0.3, 0, 0.2, 1) forwards'
-                  : 'map-marker-drop 0.8s steps(12, end) forwards',
+                animation: `map-marker-drop 0.8s ${resolveAnimationEasing(800, m.fps, 'cubic-bezier(0.3, 0, 0.2, 1)')} forwards`,
               }}
             >
               {coreNode}
