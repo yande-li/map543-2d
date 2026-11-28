@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.2] - 2026-11-28
+
+### Features
+
+- Default `HeatmapLayer` / `drawHeatmap` `maxIntensity` to `'global'` (using dataset-wide `maxWeight` computed during `packHeatmapPoints` / `packHeatmapArrays`) to keep hotspot colors stable while panning, while preserving `'viewport'` and fixed `number` modes
+- Add world wrap-around (`getWrappedSlices`) and non-Mercator projection support to `drawHeatmap`
+- Add hybrid WASM separable 1D Gaussian blur (`$blur1D`) for high-density heatmaps with zero extra WASM scratch memory, plus `Uint16Array` weight packing for 16-bit integer weights
+- Pre-sort `PointLayer` / `packPoints` buffers by radius with compact `Uint16Array` `origIndices` (eliminating per-frame `.sort()`) and add offscreen sprite stamp caching in `drawBatchPoints`
+
+### Fixed
+
+- Fix `wrapShiftPx` sign inversion in `getWrappedSlices` (`core/projection.ts`) for antimeridian-wrapped canvas layers
+
 ## [0.4.1] - 2026-11-28
 
 ### Fixed
