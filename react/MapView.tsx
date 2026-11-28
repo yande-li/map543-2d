@@ -14,11 +14,13 @@ import {
 } from '../core/viewport';
 import {
   createControlSlots,
+  resolveZoomControlsConfig,
   type ControlPosition,
   type ControlSlots,
+  type ZoomControlPosition,
+  type ZoomControlsConfig,
 } from '../core/controls';
 import { type MapPointerEvent } from '../core/interactions';
-import { type ZoomControlPosition, type ZoomControlsConfig } from '../core/map';
 import { Projection, LatLon, ProjectionType } from '../core/projection';
 import { attachGamepad } from '../core/gamepad';
 import { attachInteractions } from '../core/interactions';
@@ -199,20 +201,6 @@ function getContainerA11yProps(
   };
 }
 
-function resolveZoomOpts(
-  zoomControls: boolean | ZoomControlsConfig | undefined,
-  zoomDelta: number
-) {
-  const cfg = typeof zoomControls === 'object' ? zoomControls : undefined;
-  return {
-    enabled: Boolean(zoomControls),
-    position: cfg?.position ?? 'bottom-right',
-    delta: cfg?.delta ?? zoomDelta,
-    inLabel: cfg?.inLabel ?? 'Zoom in',
-    outLabel: cfg?.outLabel ?? 'Zoom out',
-  };
-}
-
 export const MapView = forwardRef<MapViewHandle, MapViewProps>(
   (
     {
@@ -258,22 +246,11 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
       delta: resolvedZoomDelta,
       inLabel: resolvedZoomInLabel,
       outLabel: resolvedZoomOutLabel,
-    } = resolveZoomOpts(zoomControls, zoomDelta);
+    } = resolveZoomControlsConfig(zoomControls, zoomDelta);
     const containerRef = useRef<HTMLDivElement>(null);
     const controlSlotsRef = useRef<ControlSlots | null>(null);
     const clickListenersRef = useRef(new Set<MapClickListener>());
-    const cbRef = useRef({
-      onClick,
-      onMouseMove,
-      onContextMenu,
-      onMoveStart,
-      onMove,
-      onMoveEnd,
-      onZoomStart,
-      onZoom,
-      onZoomEnd,
-    });
-    cbRef.current = {
+    const callbacks = {
       onClick,
       onMouseMove,
       onContextMenu,
@@ -284,26 +261,42 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
       onZoom,
       onZoomEnd,
     };
+    const cbRef = useRef(callbacks);
+    cbRef.current = callbacks;
     const lastSyncedViewRef = useRef<{
       lat: number;
       lon: number;
       zoom: number;
     }>({ lat: center[0], lon: center[1], zoom });
 
+    const constraints = useMemo(
+      () =>
+        buildViewportConstraints({
+          minZoom,
+          maxZoom,
+          maxBounds,
+          referenceWidth,
+          preserveViewportSpan,
+          projection,
+          smooth,
+        }),
+      [
+        minZoom,
+        maxZoom,
+        maxBounds,
+        referenceWidth,
+        preserveViewportSpan,
+        projection,
+        smooth,
+      ]
+    );
+
     const [viewport] = useState(
       () =>
         new Viewport({
           center,
           zoom,
-          ...buildViewportConstraints({
-            minZoom,
-            maxZoom,
-            maxBounds,
-            referenceWidth,
-            preserveViewportSpan,
-            projection,
-            smooth,
-          }),
+          ...constraints,
         })
     );
 
@@ -314,27 +307,8 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
         isFirstConstraintsMountRef.current = false;
         return;
       }
-      viewport.setConstraints(
-        buildViewportConstraints({
-          minZoom,
-          maxZoom,
-          maxBounds,
-          referenceWidth,
-          preserveViewportSpan,
-          projection,
-          smooth,
-        })
-      );
-    }, [
-      viewport,
-      minZoom,
-      maxZoom,
-      maxBounds,
-      referenceWidth,
-      preserveViewportSpan,
-      projection,
-      smooth,
-    ]);
+      viewport.setConstraints(constraints);
+    }, [viewport, constraints]);
 
     const [zoomLimits, setZoomLimits] = useState({
       canZoomIn: true,
@@ -482,31 +456,15 @@ export const MapView = forwardRef<MapViewHandle, MapViewProps>(
       [viewport, subscribeClick, getControlSlot, releaseControlSlot]
     );
 
-    const handleZoomIn = useCallback(
-      (e: React.MouseEvent) => {
+    const zoomByDir = useCallback(
+      (dir: 1 | -1) => (e: React.MouseEvent) => {
         e.stopPropagation();
-        const s = viewport.getState();
-        viewport.zoomAt(
-          s.zoom + resolvedZoomDelta,
-          s.width * 0.5,
-          s.height * 0.5
-        );
+        viewport.zoomBy(resolvedZoomDelta * dir);
       },
       [viewport, resolvedZoomDelta]
     );
-
-    const handleZoomOut = useCallback(
-      (e: React.MouseEvent) => {
-        e.stopPropagation();
-        const s = viewport.getState();
-        viewport.zoomAt(
-          s.zoom - resolvedZoomDelta,
-          s.width * 0.5,
-          s.height * 0.5
-        );
-      },
-      [viewport, resolvedZoomDelta]
-    );
+    const handleZoomIn = useMemo(() => zoomByDir(1), [zoomByDir]);
+    const handleZoomOut = useMemo(() => zoomByDir(-1), [zoomByDir]);
 
     return (
       <MapProvider value={contextValue}>

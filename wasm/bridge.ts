@@ -11,7 +11,7 @@ function align16(n: number): number {
   return (n + 15) & ~15;
 }
 
-export type HitTestKernelFn = (
+type HitTestKernelFn = (
   clickX: number,
   clickY: number,
   radiusSq: number,
@@ -23,7 +23,8 @@ export type HitTestKernelFn = (
   centerNormY: number,
   worldSize: number,
   halfW: number,
-  halfH: number
+  halfH: number,
+  is16: 0 | 1
 ) => number;
 
 type BatchProjectKernelFn = (
@@ -41,14 +42,15 @@ type BatchProjectKernelFn = (
   minX: number,
   minY: number,
   maxX: number,
-  maxY: number
+  maxY: number,
+  is16: 0 | 1
 ) => number;
 
 /**
  * Copies the first `count` lat/lon elements into two WASM linear-memory regions.
  * `view` must be freshly acquired from the runtime after `ensureCapacity`.
  */
-export function stageCoordPair<T extends Float32Array | Int16Array>(
+function stageCoordPair<T extends Float32Array | Int16Array>(
   view: T,
   lats: T,
   lons: T,
@@ -67,6 +69,41 @@ export function stageCoordPair<T extends Float32Array | Int16Array>(
   );
 }
 
+/**
+ * Stages 32-bit or 16-bit lat/lon TypedArrays into WASM linear memory.
+ */
+export function stageTypedCoordPair(
+  rt: WasmRuntime,
+  lats: Float32Array | Int16Array,
+  lons: Float32Array | Int16Array,
+  count: number,
+  latsOffset: number,
+  lonsOffset: number,
+  is16: boolean
+): void {
+  if (is16) {
+    stageCoordPair(
+      rt.i16,
+      lats as Int16Array,
+      lons as Int16Array,
+      count,
+      latsOffset,
+      lonsOffset,
+      1
+    );
+  } else {
+    stageCoordPair(
+      rt.f32,
+      lats as Float32Array,
+      lons as Float32Array,
+      count,
+      latsOffset,
+      lonsOffset,
+      2
+    );
+  }
+}
+
 type BatchSegmentKernelFn = (
   count: number,
   lutOffset: number,
@@ -83,7 +120,8 @@ type BatchSegmentKernelFn = (
   minX: number,
   minY: number,
   maxX: number,
-  maxY: number
+  maxY: number,
+  is16: 0 | 1
 ) => number;
 
 interface WasmKernelExports {
@@ -141,8 +179,6 @@ interface WasmKernelExports {
     offsetY: number,
     pixelStep: number
   ) => number;
-  batchProjectMercatorI16?: BatchProjectKernelFn;
-  findNearestPointBatchI16?: HitTestKernelFn;
   renderHeatmapGrid?: (
     ptCount: number,
     xyOff: number,
@@ -160,7 +196,6 @@ interface WasmKernelExports {
     outRgbaOff: number
   ) => number;
   batchProjectSegments?: BatchSegmentKernelFn;
-  batchProjectSegmentsI16?: BatchSegmentKernelFn;
 }
 
 export interface WasmRuntime {

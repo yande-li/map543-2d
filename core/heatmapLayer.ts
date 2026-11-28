@@ -179,6 +179,27 @@ function computeMaxWeight(
   return maxW > 0 ? maxW : 1;
 }
 
+function buildHeatmapBuffers(
+  lats: Float32Array | Int16Array,
+  lons: Float32Array | Int16Array,
+  weights: Float32Array | Uint16Array | null,
+  times: Uint16Array | null,
+  count: number,
+  precision: CoordPrecision,
+  maxWeight: number
+): HeatmapBuffers {
+  return {
+    count,
+    lats,
+    lons,
+    weights,
+    times,
+    precision,
+    maxWeight: maxWeight > 0 ? maxWeight : 1,
+    staticHandle: count > 0 ? uploadStaticPoints(lats, lons, count) : null,
+  };
+}
+
 /**
  * Packs heatmap points into 32-bit (Float32Array) or 16-bit (Int16Array) buffers
  * in a single pass and uploads coordinates to the WASM static arena.
@@ -212,16 +233,15 @@ export function packHeatmapPoints(
     }
   }
 
-  return {
-    count,
+  return buildHeatmapBuffers(
     lats,
     lons,
     weights,
-    times: null,
+    null,
+    count,
     precision,
-    maxWeight: maxWeight > 0 ? maxWeight : 1,
-    staticHandle: count > 0 ? uploadStaticPoints(lats, lons, count) : null,
-  };
+    maxWeight
+  );
 }
 
 /**
@@ -244,17 +264,15 @@ export function packHeatmapArrays(input: {
       ? 16
       : 32;
   const weights = input.weights ?? null;
-  return {
-    count,
-    lats: input.lats,
-    lons: input.lons,
+  return buildHeatmapBuffers(
+    input.lats,
+    input.lons,
     weights,
-    times: input.times ?? null,
+    input.times ?? null,
+    count,
     precision,
-    maxWeight: computeMaxWeight(weights, count),
-    staticHandle:
-      count > 0 ? uploadStaticPoints(input.lats, input.lons, count) : null,
-  };
+    computeMaxWeight(weights, count)
+  );
 }
 
 /**

@@ -14,6 +14,7 @@ import {
   type PointItem,
   type PointLayerHandle,
   attachPointHover,
+  createPointLayerHandle,
   hitTestPointBuffers,
   packPoints,
   drawBatchPoints,
@@ -74,21 +75,7 @@ export const PointLayer = memo(
 
       useImperativeHandle(
         ref,
-        () => ({
-          hitTest: (x, y, radiusPx = hitRadiusPx) =>
-            hitTestPointBuffers(x, y, points, spatial, viewport, radiusPx),
-          hitTestCenter: (radiusPx = hitRadiusPx) => {
-            const s = viewport.getState();
-            return hitTestPointBuffers(
-              s.width * 0.5,
-              s.height * 0.5,
-              points,
-              spatial,
-              viewport,
-              radiusPx
-            );
-          },
-        }),
+        () => createPointLayerHandle(points, spatial, viewport, hitRadiusPx),
         [points, spatial, viewport, hitRadiusPx]
       );
 
@@ -133,6 +120,16 @@ export const PointLayer = memo(
         points,
       ]);
 
+      const drawOpts = useMemo(
+        () => ({
+          margin: marginPx,
+          sortByRadius,
+          ...(strokeColor !== undefined ? { strokeColor } : {}),
+          ...(strokeWidth !== undefined ? { strokeWidth } : {}),
+        }),
+        [marginPx, sortByRadius, strokeColor, strokeWidth]
+      );
+
       const onDraw = useCallback(
         (
           ctx: CanvasRenderingContext2D,
@@ -140,14 +137,9 @@ export const PointLayer = memo(
           cam: Viewport
         ) => {
           if (spatial.count === 0) return;
-          drawBatchPoints(ctx, cam, points, spatial, {
-            margin: marginPx,
-            sortByRadius,
-            ...(strokeColor !== undefined ? { strokeColor } : {}),
-            ...(strokeWidth !== undefined ? { strokeWidth } : {}),
-          });
+          drawBatchPoints(ctx, cam, points, spatial, drawOpts);
         },
-        [points, spatial, marginPx, sortByRadius, strokeColor, strokeWidth]
+        [points, spatial, drawOpts]
       );
 
       return (

@@ -1,4 +1,5 @@
 import React, { memo, useEffect, useState } from 'react';
+import { MAP_Z_INDEX } from '../core/controls';
 import {
   type MarkerPulse,
   type MarkerVariant,
@@ -61,41 +62,54 @@ function makeGlowShadow(
     : fallback;
 }
 
+interface ResolvedMarker {
+  variant: MarkerVariant;
+  isPin: boolean;
+  lat: number;
+  lon: number;
+  geom: ReturnType<typeof resolveMarkerGeometry>;
+  color: string;
+  borderColor: string;
+  iconColor: string;
+  glow: boolean;
+  quantizedIntensity: number;
+  dropIn: boolean;
+  lowPower: boolean;
+  smooth: boolean;
+  zIndex: number;
+  isInteractive: boolean;
+  wrapperStyle: React.CSSProperties;
+  pulseClassName: string;
+  pulseCssVars: React.CSSProperties | undefined;
+}
+
 function renderPinMarker(
-  resolvedSize: number,
-  resolvedColor: string,
-  resolvedBorder: string,
-  iconColor: string,
-  interactive: boolean,
-  glow: boolean,
-  quantizedIntensity: number,
-  pulseClassName: string,
-  pulseCssVars: React.CSSProperties | undefined,
+  m: ResolvedMarker,
   children: React.ReactNode
 ): React.ReactNode {
-  const iconSize = Math.round(resolvedSize * 0.67);
+  const iconSize = Math.round(m.geom.size * 0.67);
   return (
     <div
-      className={pulseClassName || undefined}
+      className={m.pulseClassName || undefined}
       style={{
         ...FLEX_CENTER,
-        width: `${resolvedSize}px`,
-        height: `${resolvedSize}px`,
+        width: `${m.geom.size}px`,
+        height: `${m.geom.size}px`,
         boxSizing: 'border-box',
-        pointerEvents: interactive ? 'auto' : 'none',
-        background: resolvedColor,
-        border: `2px solid ${resolvedBorder}`,
+        pointerEvents: m.isInteractive ? 'auto' : 'none',
+        background: m.color,
+        border: `2px solid ${m.borderColor}`,
         boxShadow: makeGlowShadow(
-          glow,
-          quantizedIntensity,
-          resolvedColor,
+          m.glow,
+          m.quantizedIntensity,
+          m.color,
           '0 2px 6px rgba(0, 0, 0, 0.35)'
         ),
         borderRadius: '50% 50% 50% 0',
         transform: 'rotate(-45deg)',
-        color: iconColor,
+        color: m.iconColor,
         zIndex: 2,
-        ...pulseCssVars,
+        ...m.pulseCssVars,
       }}
     >
       <div
@@ -120,63 +134,50 @@ function renderPinMarker(
   );
 }
 
-function renderCircleMarker(
-  variant: MarkerVariant,
-  resolvedSize: number,
-  resolvedColor: string,
-  resolvedBorder: string,
-  interactive: boolean,
-  glow: boolean,
-  quantizedIntensity: number,
-  pulseClassName: string,
-  pulseCssVars: React.CSSProperties | undefined
-): React.ReactNode {
+function renderCircleMarker(m: ResolvedMarker): React.ReactNode {
   const border =
-    variant === 'ring'
-      ? `2px solid ${resolvedColor}`
-      : resolvedBorder !== 'none'
-        ? `1.5px solid ${resolvedBorder}`
+    m.variant === 'ring'
+      ? `2px solid ${m.color}`
+      : m.borderColor !== 'none'
+        ? `1.5px solid ${m.borderColor}`
         : undefined;
   return (
     <div
-      className={pulseClassName || undefined}
+      className={m.pulseClassName || undefined}
       style={{
         position: 'relative',
-        width: `${resolvedSize}px`,
-        height: `${resolvedSize}px`,
+        width: `${m.geom.size}px`,
+        height: `${m.geom.size}px`,
         borderRadius: '50%',
         boxSizing: 'border-box',
-        background: variant === 'ring' ? 'transparent' : resolvedColor,
+        background: m.variant === 'ring' ? 'transparent' : m.color,
         border,
-        boxShadow: makeGlowShadow(glow, quantizedIntensity, resolvedColor),
+        boxShadow: makeGlowShadow(m.glow, m.quantizedIntensity, m.color),
         transform:
-          quantizedIntensity !== 1 ? `scale(${quantizedIntensity})` : undefined,
-        pointerEvents: interactive ? 'auto' : 'none',
-        ...pulseCssVars,
+          m.quantizedIntensity !== 1
+            ? `scale(${m.quantizedIntensity})`
+            : undefined,
+        pointerEvents: m.isInteractive ? 'auto' : 'none',
+        ...m.pulseCssVars,
       }}
     />
   );
 }
 
-function buildMarkerStyleProps(
-  variant: MarkerVariant,
+function buildMarkerVisuals(
+  props: MarkerProps,
+  isPin: boolean,
   geom: ReturnType<typeof resolveMarkerGeometry>,
-  color: string | undefined,
-  borderColor: string | undefined,
-  pulse: MarkerPulse,
-  pulseColor: string | undefined,
-  pulseLoop: boolean,
-  delayMs: number,
-  fadeMs: number | undefined,
+  color: string,
   lowPower: boolean,
   smooth: boolean
-) {
-  const isPin = variant === 'pin';
-  const resolvedColor = color ?? (isPin ? '#007aff' : '#0ebf9c');
-  const resolvedBorder =
-    borderColor ?? (variant === 'ring' ? resolvedColor : '#ffffff');
-  const pulseMode = normalizePulseMode(pulse);
+): Pick<ResolvedMarker, 'wrapperStyle' | 'pulseClassName' | 'pulseCssVars'> {
+  const pulseMode = normalizePulseMode(props.pulse ?? false);
   const showPulse = Boolean(pulseMode && !lowPower);
+  const fadeAnimation =
+    props.fadeMs && !lowPower
+      ? `map-marker-fade ${props.fadeMs}ms ${smooth ? 'linear' : 'steps(8, end)'} forwards`
+      : undefined;
 
   const wrapperStyle: React.CSSProperties = {
     width: `${geom.boxSize}px`,
@@ -188,129 +189,53 @@ function buildMarkerStyleProps(
       geom.pinPaddingBottom > 0 ? `${geom.pinPaddingBottom}px` : undefined,
     boxSizing: 'border-box',
     position: 'relative',
-    ...(fadeMs && !lowPower
-      ? {
-          animation: `map-marker-fade ${fadeMs}ms ${smooth ? 'linear' : 'steps(8, end)'} forwards`,
-        }
-      : {}),
+    ...(fadeAnimation ? { animation: fadeAnimation } : {}),
   };
 
-  const pulseClassName = showPulse
-    ? `map-marker-pulse map-marker-pulse--${pulseMode}${pulseLoop ? ' map-marker-pulse--loop' : ''}${smooth ? ' map-marker-pulse--smooth' : ''}`
-    : '';
-  const pulseCssVars = showPulse
-    ? ({
-        '--map-pulse-color': pulseColor ?? resolvedColor,
-        '--map-pulse-delay': `${delayMs}ms`,
-      } as React.CSSProperties)
-    : undefined;
-
-  return {
-    isPin,
-    resolvedColor,
-    resolvedBorder,
-    wrapperStyle,
-    pulseClassName,
-    pulseCssVars,
-  };
-}
-
-function renderMarkerCore(
-  isPin: boolean,
-  variant: MarkerVariant,
-  resolvedSize: number,
-  resolvedColor: string,
-  resolvedBorder: string,
-  iconColor: string,
-  isInteractive: boolean,
-  glow: boolean,
-  quantizedIntensity: number,
-  pulseClassName: string,
-  pulseCssVars: React.CSSProperties | undefined,
-  children: React.ReactNode
-): React.ReactNode {
-  if (isPin) {
-    return renderPinMarker(
-      resolvedSize,
-      resolvedColor,
-      resolvedBorder,
-      iconColor,
-      isInteractive,
-      glow,
-      quantizedIntensity,
-      pulseClassName,
-      pulseCssVars,
-      children
-    );
+  if (!showPulse) {
+    return { wrapperStyle, pulseClassName: '', pulseCssVars: undefined };
   }
-  return renderCircleMarker(
-    variant,
-    resolvedSize,
-    resolvedColor,
-    resolvedBorder,
-    isInteractive,
-    glow,
-    quantizedIntensity,
-    pulseClassName,
-    pulseCssVars
-  );
+
+  return {
+    wrapperStyle,
+    pulseClassName: `map-marker-pulse map-marker-pulse--${pulseMode}${props.pulseLoop ? ' map-marker-pulse--loop' : ''}${smooth ? ' map-marker-pulse--smooth' : ''}`,
+    pulseCssVars: {
+      '--map-pulse-color': props.pulseColor ?? color,
+      '--map-pulse-delay': `${props.delayMs ?? 0}ms`,
+    } as React.CSSProperties,
+  };
 }
 
-function renderMarkerWrapper(
-  dropIn: boolean,
-  lowPower: boolean,
-  smooth: boolean,
-  coreNode: React.ReactNode
-): React.ReactNode {
-  if (!dropIn || lowPower) return coreNode;
-  return (
-    <div
-      style={{
-        animation: smooth
-          ? 'map-marker-drop 0.8s cubic-bezier(0.3, 0, 0.2, 1) forwards'
-          : 'map-marker-drop 0.8s steps(12, end) forwards',
-      }}
-    >
-      {coreNode}
-    </div>
-  );
-}
-
-function resolveMarkerDefaults(props: MarkerProps) {
+function resolveMarkerConfig(props: MarkerProps): ResolvedMarker {
   const variant = props.variant ?? 'pin';
-  const resolvedLat = props.position?.[0] ?? props.lat ?? Number.NaN;
-  const resolvedLon = props.position?.[1] ?? props.lon ?? Number.NaN;
+  const isPin = variant === 'pin';
   const geom = resolveMarkerGeometry(variant, props.size);
-  const quantizedIntensity = Math.max(
-    0.5,
-    Math.round((props.intensity ?? 1) * 10) / 10
-  );
-  const styleProps = buildMarkerStyleProps(
-    variant,
-    geom,
-    props.color,
-    props.borderColor,
-    props.pulse ?? false,
-    props.pulseColor,
-    props.pulseLoop ?? false,
-    props.delayMs ?? 0,
-    props.fadeMs,
-    props.lowPower ?? false,
-    props.smooth ?? false
-  );
+  const color = props.color ?? (isPin ? '#007aff' : '#0ebf9c');
+  const borderColor =
+    props.borderColor ?? (variant === 'ring' ? color : '#ffffff');
+  const lowPower = props.lowPower ?? false;
+  const smooth = props.smooth ?? false;
+
   return {
     variant,
-    resolvedLat,
-    resolvedLon,
+    isPin,
+    lat: props.position?.[0] ?? props.lat ?? Number.NaN,
+    lon: props.position?.[1] ?? props.lon ?? Number.NaN,
     geom,
-    quantizedIntensity,
+    color,
+    borderColor,
     iconColor: props.iconColor ?? '#ffffff',
+    glow: props.glow ?? false,
+    quantizedIntensity: Math.max(
+      0.5,
+      Math.round((props.intensity ?? 1) * 10) / 10
+    ),
     dropIn: props.dropIn ?? false,
-    lowPower: props.lowPower ?? false,
-    smooth: props.smooth ?? false,
-    zIndex: props.zIndex ?? 500,
+    lowPower,
+    smooth,
+    zIndex: props.zIndex ?? MAP_Z_INDEX.overlay,
     isInteractive: Boolean(props.interactive) || props.popup !== undefined,
-    ...styleProps,
+    ...buildMarkerVisuals(props, isPin, geom, color, lowPower, smooth),
   };
 }
 
@@ -332,7 +257,7 @@ export const Marker: React.FC<MarkerProps> = memo((props) => {
   }, []);
 
   const hasPopup = popup !== undefined;
-  const m = resolveMarkerDefaults(props);
+  const m = resolveMarkerConfig(props);
   const handleClick =
     onClick || hasPopup
       ? (e: React.MouseEvent<HTMLDivElement>) => {
@@ -341,26 +266,15 @@ export const Marker: React.FC<MarkerProps> = memo((props) => {
         }
       : undefined;
 
-  const coreNode = renderMarkerCore(
-    m.isPin,
-    m.variant,
-    m.geom.size,
-    m.resolvedColor,
-    m.resolvedBorder,
-    m.iconColor,
-    m.isInteractive,
-    props.glow ?? false,
-    m.quantizedIntensity,
-    m.pulseClassName,
-    m.pulseCssVars,
-    children
-  );
+  const coreNode = m.isPin
+    ? renderPinMarker(m, children)
+    : renderCircleMarker(m);
 
   return (
     <>
       <Overlay
-        lat={m.resolvedLat}
-        lon={m.resolvedLon}
+        lat={m.lat}
+        lon={m.lon}
         zIndex={m.zIndex}
         anchor={m.geom.anchor}
         fixedSize={[m.geom.boxSize, m.geom.boxSize]}
@@ -369,15 +283,23 @@ export const Marker: React.FC<MarkerProps> = memo((props) => {
         {...(handleClick ? { onClick: handleClick } : {})}
       >
         <div style={m.wrapperStyle} title={title}>
-          {renderMarkerWrapper(m.dropIn, m.lowPower, m.smooth, coreNode)}
+          {m.dropIn && !m.lowPower ? (
+            <div
+              style={{
+                animation: m.smooth
+                  ? 'map-marker-drop 0.8s cubic-bezier(0.3, 0, 0.2, 1) forwards'
+                  : 'map-marker-drop 0.8s steps(12, end) forwards',
+              }}
+            >
+              {coreNode}
+            </div>
+          ) : (
+            coreNode
+          )}
         </div>
       </Overlay>
       {hasPopup && popupOpen && (
-        <Popup
-          lat={m.resolvedLat}
-          lon={m.resolvedLon}
-          onClose={() => setPopupOpen(false)}
-        >
+        <Popup lat={m.lat} lon={m.lon} onClose={() => setPopupOpen(false)}>
           {popup}
         </Popup>
       )}

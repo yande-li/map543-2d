@@ -12,7 +12,7 @@ import { type Viewport } from './viewport';
 import {
   LUT_OFFSET_BYTES,
   getWasmRuntime,
-  stageCoordPair,
+  stageTypedCoordPair,
   type WasmRuntime,
 } from '../wasm/bridge';
 
@@ -91,6 +91,12 @@ function parseTrajectoryArgs(
     margin: typeof spriteOrMargin === 'number' ? spriteOrMargin : 50,
     straightLimit: marginOrStraightThreshold ?? straightThreshold,
   };
+}
+
+function beginArcPass(ctx: CanvasRenderingContext2D, color: string): void {
+  ctx.beginPath();
+  ctx.strokeStyle = color;
+  ctx.lineCap = 'round';
 }
 
 function strokeArcPass(ctx: CanvasRenderingContext2D): void {
@@ -235,9 +241,7 @@ export function drawTrajectories(
     singleDstY >= minY &&
     singleDstY <= maxY;
 
-  ctx.beginPath();
-  ctx.strokeStyle = color;
-  ctx.lineCap = 'round';
+  beginArcPass(ctx, color);
 
   for (let i = 0; i < count; i++) {
     const srcX = srcXY[i * 2];
@@ -343,18 +347,7 @@ export function packTrajectories(
     out++;
   }
 
-  return {
-    count,
-    srcLats,
-    srcLons,
-    dstLats,
-    dstLons,
-    precision,
-    staticSrcHandle:
-      count > 0 ? uploadStaticPoints(srcLats, srcLons, count) : null,
-    staticDstHandle:
-      count > 0 ? uploadStaticPoints(dstLats, dstLons, count) : null,
-  };
+  return packTrajectoryArrays({ srcLats, srcLons, dstLats, dstLons, count });
 }
 
 /**
@@ -423,45 +416,25 @@ function stageSegmentsToScratch(
   const outSegsOff = (dLonOff + inBytes + 3) & ~3;
   if (!rt.ensureCapacity(outSegsOff + outBytes)) return null;
 
-  if (precision === 16) {
-    stageCoordPair(
-      rt.i16,
-      buffers.srcLats as Int16Array,
-      buffers.srcLons as Int16Array,
-      count,
-      sLatOff,
-      sLonOff,
-      1
-    );
-    stageCoordPair(
-      rt.i16,
-      buffers.dstLats as Int16Array,
-      buffers.dstLons as Int16Array,
-      count,
-      dLatOff,
-      dLonOff,
-      1
-    );
-  } else {
-    stageCoordPair(
-      rt.f32,
-      buffers.srcLats as Float32Array,
-      buffers.srcLons as Float32Array,
-      count,
-      sLatOff,
-      sLonOff,
-      2
-    );
-    stageCoordPair(
-      rt.f32,
-      buffers.dstLats as Float32Array,
-      buffers.dstLons as Float32Array,
-      count,
-      dLatOff,
-      dLonOff,
-      2
-    );
-  }
+  const is16 = precision === 16;
+  stageTypedCoordPair(
+    rt,
+    buffers.srcLats,
+    buffers.srcLons,
+    count,
+    sLatOff,
+    sLonOff,
+    is16
+  );
+  stageTypedCoordPair(
+    rt,
+    buffers.dstLats,
+    buffers.dstLons,
+    count,
+    dLatOff,
+    dLonOff,
+    is16
+  );
   return { sLatOff, sLonOff, dLatOff, dLonOff, outSegsOff };
 }
 
@@ -475,10 +448,7 @@ function projectSegmentsToScratch(
   maxY: number
 ): { visible: number; outFloatBase: number } | null {
   const { count, precision } = buffers;
-  const kernel =
-    precision === 16
-      ? rt.exports.batchProjectSegmentsI16
-      : rt.exports.batchProjectSegments;
+  const kernel = rt.exports.batchProjectSegments;
   if (!kernel || count <= 0) return null;
 
   const srcH = resolveStaticPointsHandle(
@@ -519,6 +489,7 @@ function projectSegmentsToScratch(
   }
 
   const p = viewport.getProjectionParams();
+  const is16: 0 | 1 = precision === 16 ? 1 : 0;
   const visible = kernel(
     count,
     LUT_OFFSET_BYTES,
@@ -535,7 +506,8 @@ function projectSegmentsToScratch(
     minX,
     minY,
     maxX,
-    maxY
+    maxY,
+    is16
   );
   return { visible, outFloatBase: offs.outSegsOff >> 2 };
 }
@@ -554,9 +526,7 @@ function drawProjectedSegments(
   maxX: number,
   maxY: number
 ): void {
-  ctx.beginPath();
-  ctx.strokeStyle = color;
-  ctx.lineCap = 'round';
+  beginArcPass(ctx, color);
   for (let i = 0; i < visible; i++) {
     const base = floatBase + i * 4;
     const sx = f32[base] + wrapShiftPx;
@@ -586,6 +556,16 @@ function drawProjectedSegments(
 
 const TMP_SRC_PT: Point2D = { x: 0, y: 0 };
 const TMP_DST_PT: Point2D = { x: 0, y: 0 };
+let nonMercSrcXY = new Float32Array(256);
+
+function ensureNonMercSrcCapacity(neededFloats: number): void {
+  if (neededFloats <= nonMercSrcXY.length) return;
+  let next = nonMercSrcXY.length;
+  while (next < neededFloats) next *= 2;
+  const buf = new Float32Array(next);
+  buf.set(nonMercSrcXY);
+  nonMercSrcXY = buf;
+}
 
 function drawNonMercatorTrajectories(
   ctx: CanvasRenderingContext2D,
@@ -604,9 +584,8 @@ function drawNonMercatorTrajectories(
   const latScale = precision === 16 ? 90 / 32767 : 1;
   const lonScale = precision === 16 ? 180 / 32767 : 1;
 
-  ctx.beginPath();
-  ctx.strokeStyle = color;
-  ctx.lineCap = 'round';
+  beginArcPass(ctx, color);
+  let visibleDots = 0;
   for (let i = 0; i < count; i++) {
     viewport.projectInto(
       srcLats[i] * latScale,
@@ -622,6 +601,12 @@ function drawNonMercatorTrajectories(
     const sy = TMP_SRC_PT.y;
     const dx = TMP_DST_PT.x + wrapShiftPx;
     const dy = TMP_DST_PT.y;
+    if (sx >= minX && sx <= maxX && sy >= minY && sy <= maxY) {
+      ensureNonMercSrcCapacity((visibleDots + 1) * 2);
+      nonMercSrcXY[visibleDots * 2] = sx;
+      nonMercSrcXY[visibleDots * 2 + 1] = sy;
+      visibleDots++;
+    }
     if (
       Math.max(sx, dx) < minX ||
       Math.min(sx, dx) > maxX ||
@@ -635,19 +620,20 @@ function drawNonMercatorTrajectories(
   }
   strokeArcPass(ctx);
 
-  const half = beginDotPass(ctx, color, sprite);
-  for (let i = 0; i < count; i++) {
-    viewport.projectInto(
-      srcLats[i] * latScale,
-      srcLons[i] * lonScale,
-      TMP_SRC_PT
-    );
-    const sx = TMP_SRC_PT.x + wrapShiftPx;
-    const sy = TMP_SRC_PT.y;
-    if (sx < minX || sx > maxX || sy < minY || sy > maxY) continue;
-    drawDot(ctx, sx, sy, half, sprite);
-  }
-  if (!sprite) ctx.fill();
+  drawStridedSourceDots(
+    ctx,
+    nonMercSrcXY,
+    visibleDots,
+    2,
+    0,
+    0,
+    color,
+    sprite,
+    minX,
+    minY,
+    maxX,
+    maxY
+  );
 }
 
 /**

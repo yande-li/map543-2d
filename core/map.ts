@@ -8,8 +8,11 @@ import {
 import {
   MAP_Z_INDEX,
   createControlSlots,
+  resolveZoomControlsConfig,
   type ControlPosition,
   type ControlSlots,
+  type ZoomControlPosition,
+  type ZoomControlsConfig,
 } from './controls';
 import { createEmitter, type Unsubscribe } from './events';
 import { CanvasRenderer, type CanvasRendererOptions } from './canvasRenderer';
@@ -31,10 +34,11 @@ import {
   type HeatmapPoint,
   type HeatmapScratch,
 } from './heatmapLayer';
-import { drawImage, loadImage } from './imageLayer';
+import { DEFAULT_WORLD_BOUNDS, drawImage, loadImage } from './imageLayer';
 import { attachInteractions, type MapPointerEvent } from './interactions';
 import {
   attachPointHover,
+  createPointLayerHandle,
   drawBatchPoints,
   hitTestPointBuffers,
   packPoints,
@@ -51,14 +55,6 @@ import {
   type VectorLayerStyle,
 } from './vectorLayer';
 import { type CoordPrecision, type StaticGeometryHandle } from './batch';
-
-export type ZoomControlPosition = ControlPosition;
-
-export interface MapEventMap extends ViewportEventMap {
-  click: MapPointerEvent;
-  mousemove: MapPointerEvent;
-  contextmenu: MapPointerEvent;
-}
 import {
   loadGeobuf,
   parseGeobufInput,
@@ -66,11 +62,12 @@ import {
 } from '../formats/geobuf';
 import { type PreparedFeature, type PreparedLayer } from '../formats/types';
 
-export interface ZoomControlsConfig {
-  position?: ZoomControlPosition;
-  delta?: number;
-  inLabel?: string;
-  outLabel?: string;
+export type { ZoomControlPosition, ZoomControlsConfig };
+
+export interface MapEventMap extends ViewportEventMap {
+  click: MapPointerEvent;
+  mousemove: MapPointerEvent;
+  contextmenu: MapPointerEvent;
 }
 
 export interface CreateMapOptions extends ViewportConstraints {
@@ -206,20 +203,13 @@ export interface MapInstance {
   destroy: () => void;
 }
 
-const DEFAULT_WORLD_BOUNDS: GeoBounds = [
-  [-90, -180],
-  [90, 180],
-];
-
 function createZoomControlsElement(
   controlSlots: ControlSlots,
   viewport: Viewport,
   config: ZoomControlsConfig
 ): () => void {
-  const position = config.position ?? 'bottom-right';
-  const delta = config.delta ?? 0.5;
-  const inLabel = config.inLabel ?? 'Zoom in';
-  const outLabel = config.outLabel ?? 'Zoom out';
+  const { position, delta, inLabel, outLabel } =
+    resolveZoomControlsConfig(config);
 
   const root = document.createElement('div');
   root.className = `map-zoom-controls ${position}`;
@@ -238,8 +228,7 @@ function createZoomControlsElement(
     btn.textContent = text;
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const s = viewport.getState();
-      viewport.zoomAt(s.zoom + delta * dir, s.width * 0.5, s.height * 0.5);
+      viewport.zoomBy(delta * dir);
     });
     return btn;
   };
@@ -280,22 +269,26 @@ function mountVectorLayer(
   const smoothFactor = options.smoothFactor ?? 1.0;
   const maxDpr = computeVectorMaxDpr(Boolean(options.lowPower), smoothFactor);
 
+  const drawOpts = {
+    smoothFactor,
+    isInteracting: false,
+    projection: viewport.getProjection(),
+    ...(options.styles ? { styles: options.styles } : {}),
+    ...(options.skipOnInteractLayers
+      ? { skipOnInteractLayers: options.skipOnInteractLayers }
+      : {}),
+  };
+
   const renderer = new CanvasRenderer({
-    zIndex: options.zIndex ?? 100,
+    zIndex: options.zIndex ?? MAP_Z_INDEX.vector,
     maxDpr,
     interactionMaxDpr: Math.min(maxDpr, options.interactionMaxDpr ?? 0.45),
     ...(options.className ? { className: options.className } : {}),
     onDraw: (ctx, state, _cam, isInteracting) => {
       if (fillLayers.length === 0 && strokeLayers.length === 0) return;
-      drawVectorLayers(ctx, state, fillLayers, strokeLayers, handles, {
-        smoothFactor,
-        isInteracting,
-        projection: viewport.getProjection(),
-        ...(options.styles ? { styles: options.styles } : {}),
-        ...(options.skipOnInteractLayers
-          ? { skipOnInteractLayers: options.skipOnInteractLayers }
-          : {}),
-      });
+      drawOpts.isInteracting = isInteracting;
+      drawOpts.projection = viewport.getProjection();
+      drawVectorLayers(ctx, state, fillLayers, strokeLayers, handles, drawOpts);
     },
   });
 
@@ -357,23 +350,25 @@ function mountPointLayer(
   const marginPx = options.marginPx ?? 30;
   const spatial = packPoints(options.points, precision);
 
+  const drawOpts = {
+    margin: marginPx,
+    ...(options.strokeColor !== undefined
+      ? { strokeColor: options.strokeColor }
+      : {}),
+    ...(options.strokeWidth !== undefined
+      ? { strokeWidth: options.strokeWidth }
+      : {}),
+    ...(options.sortByRadius !== undefined
+      ? { sortByRadius: options.sortByRadius }
+      : {}),
+  };
+
   const renderer = new CanvasRenderer({
     zIndex: options.zIndex ?? MAP_Z_INDEX.point,
     ...(options.className ? { className: options.className } : {}),
     onDraw: (ctx, _state, cam) => {
       if (spatial.count === 0) return;
-      drawBatchPoints(ctx, cam, options.points, spatial, {
-        margin: marginPx,
-        ...(options.strokeColor !== undefined
-          ? { strokeColor: options.strokeColor }
-          : {}),
-        ...(options.strokeWidth !== undefined
-          ? { strokeWidth: options.strokeWidth }
-          : {}),
-        ...(options.sortByRadius !== undefined
-          ? { sortByRadius: options.sortByRadius }
-          : {}),
-      });
+      drawBatchPoints(ctx, cam, options.points, spatial, drawOpts);
     },
   });
 
@@ -408,19 +403,7 @@ function mountPointLayer(
       unsubHover();
       unmountCanvas();
     },
-    hitTest: (x, y, radiusPx = hitRadiusPx) =>
-      hitTestPointBuffers(x, y, options.points, spatial, viewport, radiusPx),
-    hitTestCenter: (radiusPx = hitRadiusPx) => {
-      const s = viewport.getState();
-      return hitTestPointBuffers(
-        s.width * 0.5,
-        s.height * 0.5,
-        options.points,
-        spatial,
-        viewport,
-        radiusPx
-      );
-    },
+    ...createPointLayerHandle(options.points, spatial, viewport, hitRadiusPx),
   };
 }
 
@@ -433,18 +416,20 @@ function mountImageLayer(
   let disposed = false;
   const bounds = options.bounds ?? DEFAULT_WORLD_BOUNDS;
 
+  const drawOpts = {
+    ...(options.opacity !== undefined ? { opacity: options.opacity } : {}),
+    ...(options.imageSmoothingEnabled !== undefined
+      ? { imageSmoothingEnabled: options.imageSmoothingEnabled }
+      : {}),
+  };
+
   const renderer = new CanvasRenderer({
     zIndex: options.zIndex ?? MAP_Z_INDEX.image,
     maxDpr: options.maxDpr ?? 2,
     ...(options.className ? { className: options.className } : {}),
     onDraw: (ctx, _state, cam) => {
       if (!activeImg) return;
-      drawImage(ctx, activeImg, bounds, cam, {
-        ...(options.opacity !== undefined ? { opacity: options.opacity } : {}),
-        ...(options.imageSmoothingEnabled !== undefined
-          ? { imageSmoothingEnabled: options.imageSmoothingEnabled }
-          : {}),
-      });
+      drawImage(ctx, activeImg, bounds, cam, drawOpts);
     },
   });
 
@@ -480,7 +465,7 @@ function mountTrajectoryLayer(
   const sprite = createGlowDotSprite(color, options.dotSize ?? 10);
 
   const renderer = new CanvasRenderer({
-    zIndex: options.zIndex ?? 350,
+    zIndex: options.zIndex ?? MAP_Z_INDEX.trajectory,
     maxDpr: options.maxDpr ?? 2,
     ...(options.className ? { className: options.className } : {}),
     onDraw: (ctx, _state, cam) => {
@@ -502,36 +487,27 @@ function mountHeatmapLayer(
     ? buildHeatmapPalette(options.colorStops)
     : undefined;
   const scratch: HeatmapScratch = {};
+  const drawOpts = {
+    ...(options.radiusPx !== undefined ? { radiusPx: options.radiusPx } : {}),
+    ...(options.gridScale !== undefined
+      ? { gridScale: options.gridScale }
+      : {}),
+    ...(options.maxIntensity !== undefined
+      ? { maxIntensity: options.maxIntensity }
+      : {}),
+    ...(options.intensityMode !== undefined
+      ? { intensityMode: options.intensityMode }
+      : {}),
+    ...(options.kernel !== undefined ? { kernel: options.kernel } : {}),
+    ...(options.opacity !== undefined ? { opacity: options.opacity } : {}),
+    ...(options.timeRange ? { timeRange: options.timeRange } : {}),
+    ...(palette ? { palette } : {}),
+  };
   const renderer = new CanvasRenderer({
     zIndex: options.zIndex ?? MAP_Z_INDEX.heatmap,
     ...(options.className ? { className: options.className } : {}),
     onDraw: (ctx, _state, cam) => {
-      drawHeatmap(
-        ctx,
-        buffers,
-        cam,
-        {
-          ...(options.radiusPx !== undefined
-            ? { radiusPx: options.radiusPx }
-            : {}),
-          ...(options.gridScale !== undefined
-            ? { gridScale: options.gridScale }
-            : {}),
-          ...(options.maxIntensity !== undefined
-            ? { maxIntensity: options.maxIntensity }
-            : {}),
-          ...(options.intensityMode !== undefined
-            ? { intensityMode: options.intensityMode }
-            : {}),
-          ...(options.kernel !== undefined ? { kernel: options.kernel } : {}),
-          ...(options.opacity !== undefined
-            ? { opacity: options.opacity }
-            : {}),
-          ...(options.timeRange ? { timeRange: options.timeRange } : {}),
-          ...(palette ? { palette } : {}),
-        },
-        scratch
-      );
+      drawHeatmap(ctx, buffers, cam, drawOpts, scratch);
     },
   });
   return renderer.mount(container, viewport);
@@ -548,7 +524,7 @@ function mountOverlay(
   element.style.position = 'absolute';
   element.style.top = '0';
   element.style.left = '0';
-  element.style.zIndex = String(options.zIndex ?? 500);
+  element.style.zIndex = String(options.zIndex ?? MAP_Z_INDEX.overlay);
   container.appendChild(element);
 
   const pt: Point2D = { x: 0, y: 0 };

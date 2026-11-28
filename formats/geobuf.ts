@@ -30,6 +30,15 @@ interface RawGeobufGeometry {
   subGeoms: RawGeobufGeometry[];
 }
 
+function growBuffer<T extends Float64Array | Int32Array | Uint32Array>(
+  buf: T,
+  Ctor: new (len: number) => T
+): T {
+  const next = new Ctor(buf.length * 2);
+  next.set(buf);
+  return next;
+}
+
 class GeobufScratch {
   coords = new Float64Array(4096);
   coordsLen = 0;
@@ -52,27 +61,21 @@ class GeobufScratch {
 
   pushCoord(v: number): void {
     if (this.coordsLen >= this.coords.length) {
-      const next = new Float64Array(this.coords.length * 2);
-      next.set(this.coords);
-      this.coords = next;
+      this.coords = growBuffer(this.coords, Float64Array);
     }
     this.coords[this.coordsLen++] = v;
   }
 
   pushLength(v: number): void {
     if (this.lengthsLen >= this.lengths.length) {
-      const next = new Int32Array(this.lengths.length * 2);
-      next.set(this.lengths);
-      this.lengths = next;
+      this.lengths = growBuffer(this.lengths, Int32Array);
     }
     this.lengths[this.lengthsLen++] = v;
   }
 
   pushPropPair(v: number): void {
     if (this.propPairsLen >= this.propPairs.length) {
-      const next = new Uint32Array(this.propPairs.length * 2);
-      next.set(this.propPairs);
-      this.propPairs = next;
+      this.propPairs = growBuffer(this.propPairs, Uint32Array);
     }
     this.propPairs[this.propPairsLen++] = v;
   }
@@ -307,6 +310,37 @@ function resolveLayerName(
   return defaultLayerName;
 }
 
+function pushPreparedFeatures(
+  layerName: string,
+  features: readonly PreparedFeature[],
+  fillMap: Map<string, PreparedFeature[]>,
+  strokeMap: Map<string, PreparedFeature[]>,
+  antimeridianLayers: ReadonlySet<string>
+): void {
+  if (features.length === 0) return;
+  let fillList = fillMap.get(layerName);
+  if (!fillList) {
+    fillList = [];
+    fillMap.set(layerName, fillList);
+  }
+  let strokeList = strokeMap.get(layerName);
+  if (!strokeList) {
+    strokeList = [];
+    strokeMap.set(layerName, strokeList);
+  }
+  const needsCleanSeam = antimeridianLayers.has(layerName);
+  for (let i = 0; i < features.length; i++) {
+    const pf = features[i];
+    fillList.push(pf);
+    if (needsCleanSeam && pf.isPolygon) {
+      const cleaned = splitAntimeridianFeature(pf);
+      if (cleaned) strokeList.push(cleaned);
+    } else {
+      strokeList.push(pf);
+    }
+  }
+}
+
 function appendFeature(
   r: PbReader,
   keys: string[],
@@ -349,36 +383,18 @@ function appendFeature(
   if (allowedLayers !== undefined && !allowedLayers.has(layerName)) {
     return;
   }
-  const needsCleanSeam = antimeridianLayers.has(layerName);
-
-  let fillList = fillMap.get(layerName);
-  let strokeList = strokeMap.get(layerName);
 
   for (let g = 0; g < geomSpans.length; g++) {
     const geom = parseGeometryScratch(geomSpans[g], sc);
     const tempOut: PreparedFeature[] = [];
     prepareGeometry(geom, dimensions, invScale, tempOut, sc);
-    if (tempOut.length === 0) continue;
-
-    if (!fillList) {
-      fillList = [];
-      fillMap.set(layerName, fillList);
-    }
-    if (!strokeList) {
-      strokeList = [];
-      strokeMap.set(layerName, strokeList);
-    }
-
-    for (let i = 0; i < tempOut.length; i++) {
-      const pf = tempOut[i];
-      fillList.push(pf);
-      if (needsCleanSeam && pf.isPolygon) {
-        const cleaned = splitAntimeridianFeature(pf);
-        if (cleaned) strokeList.push(cleaned);
-      } else {
-        strokeList.push(pf);
-      }
-    }
+    pushPreparedFeatures(
+      layerName,
+      tempOut,
+      fillMap,
+      strokeMap,
+      antimeridianLayers
+    );
   }
 }
 
@@ -690,20 +706,13 @@ export function parseGeobuf(
     const geom = parseGeometryScratch(singleGeomReader, scratch);
     const prepared: PreparedFeature[] = [];
     prepareGeometry(geom, dimensions, invScale, prepared, scratch);
-    if (prepared.length > 0) {
-      fillMap.set(defaultLayerName, prepared);
-      const needsCleanSeam = antimeridianLayers.has(defaultLayerName);
-      const strokeList: PreparedFeature[] = [];
-      for (const pf of prepared) {
-        if (needsCleanSeam && pf.isPolygon) {
-          const cleaned = splitAntimeridianFeature(pf);
-          if (cleaned) strokeList.push(cleaned);
-        } else {
-          strokeList.push(pf);
-        }
-      }
-      strokeMap.set(defaultLayerName, strokeList);
-    }
+    pushPreparedFeatures(
+      defaultLayerName,
+      prepared,
+      fillMap,
+      strokeMap,
+      antimeridianLayers
+    );
   }
 
   const fillLayers: PreparedLayer[] = [];

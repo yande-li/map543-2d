@@ -63,36 +63,34 @@ export const HeatmapLayer: React.FC<HeatmapLayerProps> = memo(
       [colorStops]
     );
 
-    const onDraw = useCallback(
-      (ctx: CanvasRenderingContext2D, _state: ViewportState, cam: Viewport) => {
-        drawHeatmap(
-          ctx,
-          buffers,
-          cam,
-          {
-            radiusPx,
-            gridScale,
-            maxIntensity,
-            intensityMode,
-            kernel,
-            opacity,
-            ...(timeRange ? { timeRange } : {}),
-            ...(palette ? { palette } : {}),
-          },
-          scratchRef.current
-        );
-      },
-      [
-        buffers,
-        timeRange,
+    const drawOpts = useMemo(
+      () => ({
         radiusPx,
         gridScale,
         maxIntensity,
         intensityMode,
         kernel,
         opacity,
+        ...(timeRange ? { timeRange } : {}),
+        ...(palette ? { palette } : {}),
+      }),
+      [
+        radiusPx,
+        gridScale,
+        maxIntensity,
+        intensityMode,
+        kernel,
+        opacity,
+        timeRange,
         palette,
       ]
+    );
+
+    const onDraw = useCallback(
+      (ctx: CanvasRenderingContext2D, _state: ViewportState, cam: Viewport) => {
+        drawHeatmap(ctx, buffers, cam, drawOpts, scratchRef.current);
+      },
+      [buffers, drawOpts]
     );
 
     return (

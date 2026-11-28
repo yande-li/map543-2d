@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { MAP_Z_INDEX } from '../core/controls';
 import { Viewport, ViewportState } from '../core/viewport';
-import { drawImage, loadImage } from '../core/imageLayer';
+import { DEFAULT_WORLD_BOUNDS, drawImage, loadImage } from '../core/imageLayer';
 import { type GeoBounds } from '../core/projection';
 import { CanvasLayer } from './CanvasLayer';
 
@@ -18,11 +19,6 @@ export interface ImageLayerProps {
   className?: string;
 }
 
-const DEFAULT_WORLD_BOUNDS: GeoBounds = [
-  [-90, -180],
-  [90, 180],
-];
-
 /**
  * Renders a georeferenced raster or vector image (PNG, WebP, SVG) synchronized with Viewport.
  */
@@ -30,7 +26,7 @@ export const ImageLayer: React.FC<ImageLayerProps> = ({
   src,
   image,
   bounds = DEFAULT_WORLD_BOUNDS,
-  zIndex = 50,
+  zIndex = MAP_Z_INDEX.image,
   opacity = 1,
   maxDpr = 2,
   imageSmoothingEnabled = true,
@@ -62,24 +58,24 @@ export const ImageLayer: React.FC<ImageLayerProps> = ({
 
   const activeImg = image ?? loadedImg;
 
+  const resolvedBounds = useMemo<GeoBounds>(
+    () => [
+      [b0Lat, b0Lon],
+      [b1Lat, b1Lon],
+    ],
+    [b0Lat, b0Lon, b1Lat, b1Lon]
+  );
+  const drawOpts = useMemo(
+    () => ({ opacity, imageSmoothingEnabled }),
+    [opacity, imageSmoothingEnabled]
+  );
+
   const onDraw = useCallback(
     (ctx: CanvasRenderingContext2D, _state: ViewportState, cam: Viewport) => {
       if (!activeImg) return;
-      drawImage(
-        ctx,
-        activeImg,
-        [
-          [b0Lat, b0Lon],
-          [b1Lat, b1Lon],
-        ],
-        cam,
-        {
-          opacity,
-          imageSmoothingEnabled,
-        }
-      );
+      drawImage(ctx, activeImg, resolvedBounds, cam, drawOpts);
     },
-    [activeImg, b0Lat, b0Lon, b1Lat, b1Lon, opacity, imageSmoothingEnabled]
+    [activeImg, resolvedBounds, drawOpts]
   );
 
   return (

@@ -133,6 +133,17 @@ export const VectorLayer: React.FC<VectorLayerProps> = memo(
       [lowPower, smoothFactor]
     );
 
+    const drawOpts = useMemo(
+      () => ({
+        smoothFactor,
+        isInteracting: false,
+        projection: viewport.getProjection(),
+        ...(styles ? { styles } : {}),
+        ...(skipOnInteractLayers ? { skipOnInteractLayers } : {}),
+      }),
+      [smoothFactor, styles, skipOnInteractLayers, viewport]
+    );
+
     const onDraw = useCallback(
       (
         ctx: CanvasRenderingContext2D,
@@ -140,29 +151,18 @@ export const VectorLayer: React.FC<VectorLayerProps> = memo(
         _viewport: unknown,
         isInteracting = false
       ) => {
+        drawOpts.isInteracting = isInteracting;
+        drawOpts.projection = viewport.getProjection();
         drawVectorLayers(
           ctx,
           state,
           resolvedFillLayers,
           resolvedStrokeLayers,
           handlesRef.current,
-          {
-            smoothFactor,
-            isInteracting,
-            projection: viewport.getProjection(),
-            ...(styles ? { styles } : {}),
-            ...(skipOnInteractLayers ? { skipOnInteractLayers } : {}),
-          }
+          drawOpts
         );
       },
-      [
-        resolvedFillLayers,
-        resolvedStrokeLayers,
-        styles,
-        smoothFactor,
-        skipOnInteractLayers,
-        viewport,
-      ]
+      [resolvedFillLayers, resolvedStrokeLayers, drawOpts, viewport]
     );
 
     return (

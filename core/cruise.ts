@@ -314,6 +314,15 @@ export function createCruiseController<T = unknown>(
       }
     }) ?? (() => {});
 
+  const jumpTo = (calcIndex: (len: number) => number) => {
+    if (destroyed) return;
+    if (activeWaypoints.length === 0) resolveWaypoints();
+    if (activeWaypoints.length === 0) return;
+    state.playing = true;
+    state.paused = false;
+    runWaypoint(calcIndex(activeWaypoints.length));
+  };
+
   return {
     start: () => {
       if (destroyed) return;
@@ -330,31 +339,10 @@ export function createCruiseController<T = unknown>(
     },
     pause,
     resume,
-    next: () => {
-      if (destroyed) return;
-      if (activeWaypoints.length === 0) resolveWaypoints();
-      if (activeWaypoints.length === 0) return;
-      state.playing = true;
-      state.paused = false;
-      runWaypoint((state.currentIndex + 1) % activeWaypoints.length);
-    },
-    prev: () => {
-      if (destroyed) return;
-      if (activeWaypoints.length === 0) resolveWaypoints();
-      if (activeWaypoints.length === 0) return;
-      const len = activeWaypoints.length;
-      state.playing = true;
-      state.paused = false;
-      runWaypoint((state.currentIndex - 1 + len) % len);
-    },
-    goTo: (index: number) => {
-      if (destroyed) return;
-      if (activeWaypoints.length === 0) resolveWaypoints();
-      if (activeWaypoints.length === 0) return;
-      state.playing = true;
-      state.paused = false;
-      runWaypoint(Math.max(0, Math.min(activeWaypoints.length - 1, index)));
-    },
+    next: () => jumpTo((len) => (state.currentIndex + 1) % len),
+    prev: () => jumpTo((len) => (state.currentIndex - 1 + len) % len),
+    goTo: (index: number) =>
+      jumpTo((len) => Math.max(0, Math.min(len - 1, index))),
     setWaypoints: (nextSource) => {
       source = nextSource;
       if (typeof nextSource !== 'function') {

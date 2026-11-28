@@ -58,6 +58,7 @@ function bench(name: string, fn: () => void, minTimeMs = 250): void {
 import {
   Viewport,
   initWasm,
+  disposeWasm,
   resetWasmArena,
   uploadStaticRings,
   encodeRings16,
@@ -791,6 +792,39 @@ describe.runIf(RUN_BENCH)('10. Batch Canvas Trajectories (WASM)', () => {
     drawBatchTrajectories(noopCtx, viewportZoom4, trajBuf16);
   });
 });
+
+describe.runIf(RUN_BENCH)(
+  '11. WASM Cold-Start & Steady-State Zero-Leak',
+  () => {
+    bench(
+      'initWasm() cold start (dispose -> re-init)',
+      () => {
+        disposeWasm();
+        expect(initWasm()).toBe(true);
+      },
+      150
+    );
+
+    it('verifies steady-state zero WASM memory growth over 100 render frames', () => {
+      initWasm();
+      const pts5k: PointItem[] = Array.from({ length: 5000 }, (_, i) => ({
+        lat: ((i * 19) % 120) - 60,
+        lon: ((i * 41) % 320) - 160,
+        radius: 4,
+        color: '#0ebf9c',
+      }));
+      const pBuf = packPoints(pts5k, 16);
+      drawBatchPoints(noopCtx, viewportZoom4, pts5k, pBuf);
+      const before = getWasmMemoryStats();
+      for (let f = 0; f < 100; f++) {
+        drawBatchPoints(noopCtx, viewportZoom4, pts5k, pBuf);
+      }
+      const after = getWasmMemoryStats();
+      expect(after.byteLength).toBe(before.byteLength);
+      expect(after.arenaUsedBytes).toBe(before.arenaUsedBytes);
+    });
+  }
+);
 
 afterAll(() => {
   if (RUN_BENCH && process.env.BENCH_JSON === '1') {

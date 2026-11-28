@@ -1,3 +1,4 @@
+import { observeElementRect } from './controls';
 import { Viewport } from './viewport';
 import { LatLon } from './projection';
 
@@ -83,32 +84,15 @@ export function attachInteractions(
   let rectLeft = 0;
   let rectTop = 0;
 
-  const syncRect = () => {
-    const rect = el.getBoundingClientRect();
+  const applyRect = (rect: DOMRect) => {
     rectLeft = rect.left;
     rectTop = rect.top;
     if (observeResize && rect.width > 0 && rect.height > 0) {
       viewport.setSize(rect.width, rect.height);
     }
   };
-
-  syncRect();
-
-  if (observeResize && typeof ResizeObserver !== 'undefined') {
-    const observer = new ResizeObserver(syncRect);
-    observer.observe(el);
-    cleanups.push(() => observer.disconnect());
-  }
-
-  if (typeof window !== 'undefined') {
-    window.addEventListener('scroll', syncRect, {
-      passive: true,
-      capture: true,
-    });
-    cleanups.push(() =>
-      window.removeEventListener('scroll', syncRect, { capture: true })
-    );
-  }
+  const syncRect = () => applyRect(el.getBoundingClientRect());
+  cleanups.push(observeElementRect(el, applyRect, observeResize));
 
   if (onMoveEnd) {
     cleanups.push(viewport.on('moveend', onMoveEnd));
@@ -204,6 +188,25 @@ export function attachInteractions(
       }
     };
 
+    const getPinchPair = (): [ActivePointer, ActivePointer] | null => {
+      const iter = pointers.values();
+      const p0 = iter.next().value;
+      const p1 = iter.next().value;
+      return p0 && p1 ? [p0, p1] : null;
+    };
+
+    const endPinchGesture = () => {
+      if (!pinchGestureActive) return;
+      pinchGestureActive = false;
+      viewport.endGesture();
+    };
+
+    const endDragGesture = () => {
+      if (!dragGestureActive) return;
+      dragGestureActive = false;
+      viewport.endGesture();
+    };
+
     const handlePointerDown = (e: PointerEvent) => {
       if (e.button !== 0 && e.pointerType === 'mouse') return;
       el.setPointerCapture?.(e.pointerId);
@@ -216,11 +219,12 @@ export function attachInteractions(
         dragOrigin = { x: e.clientX, y: e.clientY, moved: false };
         lastPinchDist = null;
       } else if (pointers.size === 2) {
-        const iter = pointers.values();
-        const p0 = iter.next().value;
-        const p1 = iter.next().value;
-        if (p0 && p1) {
-          lastPinchDist = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+        const pair = getPinchPair();
+        if (pair) {
+          lastPinchDist = Math.hypot(
+            pair[1].x - pair[0].x,
+            pair[1].y - pair[0].y
+          );
         }
         if (dragOrigin) {
           dragOrigin.moved = true;
@@ -272,10 +276,9 @@ export function attachInteractions(
           flushPending();
         }
         pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-        const iter = pointers.values();
-        const p0 = iter.next().value;
-        const p1 = iter.next().value;
-        if (p0 && p1) {
+        const pair = getPinchPair();
+        if (pair) {
+          const [p0, p1] = pair;
           const dist = Math.hypot(p1.x - p0.x, p1.y - p0.y);
           if (lastPinchDist && lastPinchDist > 0 && dist > 0) {
             const midX = (p0.x + p1.x) * 0.5 - rectLeft;
@@ -293,10 +296,7 @@ export function attachInteractions(
       pointers.delete(e.pointerId);
       if (pointers.size < 2) {
         lastPinchDist = null;
-        if (pinchGestureActive) {
-          pinchGestureActive = false;
-          viewport.endGesture();
-        }
+        endPinchGesture();
       }
 
       if (
@@ -314,10 +314,7 @@ export function attachInteractions(
 
       if (pointers.size === 0) {
         dragOrigin = null;
-        if (dragGestureActive) {
-          dragGestureActive = false;
-          viewport.endGesture();
-        }
+        endDragGesture();
       }
     };
 
@@ -325,14 +322,8 @@ export function attachInteractions(
       pointers.clear();
       dragOrigin = null;
       lastPinchDist = null;
-      if (pinchGestureActive) {
-        pinchGestureActive = false;
-        viewport.endGesture();
-      }
-      if (dragGestureActive) {
-        dragGestureActive = false;
-        viewport.endGesture();
-      }
+      endPinchGesture();
+      endDragGesture();
       endKeyGesture();
     };
 
@@ -343,11 +334,6 @@ export function attachInteractions(
     ) => {
       el.addEventListener(type, fn, opts);
       cleanups.push(() => el.removeEventListener(type, fn, opts));
-    };
-
-    const zoomCenter = (delta: number) => {
-      const s = viewport.getState();
-      viewport.zoomAt(s.zoom + delta, s.width * 0.5, s.height * 0.5);
     };
 
     const handleDoubleClick = (e: MouseEvent) => {
@@ -389,7 +375,7 @@ export function attachInteractions(
           keyGestureCount += 1;
           viewport.beginGesture(true);
         }
-        zoomCenter(zoomDir * zoomDelta);
+        viewport.zoomBy(zoomDir * zoomDelta);
       }
     };
 

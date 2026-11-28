@@ -7,6 +7,11 @@ import {
   type Point2D,
 } from './projection';
 
+export const DEFAULT_WORLD_BOUNDS: GeoBounds = [
+  [-90, -180],
+  [90, 180],
+];
+
 const TMP_EXTENT: BoundsExtent = { minLat: 0, maxLat: 0, minLon: 0, maxLon: 0 };
 
 const TMP_NW: Point2D = { x: 0, y: 0 };

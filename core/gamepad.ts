@@ -146,10 +146,7 @@ export function attachGamepad(
         viewport.beginGesture(true);
       }
       if (hasPan) viewport.panBy(panDx, panDy);
-      if (hasZoom) {
-        const s = viewport.getState();
-        viewport.zoomAt(s.zoom + totalZoomDelta, s.width * 0.5, s.height * 0.5);
-      }
+      if (hasZoom) viewport.zoomBy(totalZoomDelta);
     } else if (gestureMode > 0) {
       endGamepadGesture();
     }

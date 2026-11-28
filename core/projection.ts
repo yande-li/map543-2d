@@ -84,9 +84,7 @@ export function latToMercatorY(lat: number): number {
  * using the precomputed lookup table.
  */
 export function latLonToNorm(lat: number, lon: number): Point2D {
-  const nx = (lon + 180) * INV_360;
-  const ny = 0.5 - latToMercatorY(lat) * INV_TWO_PI;
-  return { x: nx, y: ny };
+  return latLonToNormInto(lat, lon, { x: 0, y: 0 });
 }
 
 /**
@@ -228,19 +226,10 @@ export function getNormBounds(
   maxBounds?: [LatLon, LatLon],
   projection: Projection = MERCATOR_PROJECTION
 ): NormalizedBounds {
-  const isEq = projection.id === 'equirectangular';
-  const minLat = maxBounds
-    ? Math.min(maxBounds[0][0], maxBounds[1][0])
-    : isEq
-      ? -90
-      : -85;
-  const maxLat = maxBounds
-    ? Math.max(maxBounds[0][0], maxBounds[1][0])
-    : isEq
-      ? 90
-      : 85;
-  const minLon = maxBounds ? Math.min(maxBounds[0][1], maxBounds[1][1]) : -180;
-  const maxLon = maxBounds ? Math.max(maxBounds[0][1], maxBounds[1][1]) : 180;
+  const defaultLat = projection.id === 'equirectangular' ? 90 : 85;
+  const { minLat, maxLat, minLon, maxLon } = maxBounds
+    ? getBoundsExtent(maxBounds, TMP_EXTENT)
+    : { minLat: -defaultLat, maxLat: defaultLat, minLon: -180, maxLon: 180 };
   const nw = projection.latLonToNorm(maxLat, minLon, TMP_NORM);
   const se = projection.latLonToNorm(minLat, maxLon, TMP_NORM_2);
   return { nwX: nw.x, nwY: nw.y, seX: se.x, seY: se.y };

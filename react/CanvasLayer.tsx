@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { MAP_Z_INDEX } from '../core/controls';
 import {
   CanvasRenderer,
   type CanvasDrawCallback,
@@ -16,16 +17,14 @@ export interface CanvasLayerProps {
   onDraw: CanvasDrawCallback;
 }
 
-const IDLE_DELAY_MS = 140;
-
 /**
- * DPR-aware canvas layer synchronized with viewport viewport changes via CanvasRenderer.
+ * DPR-aware canvas layer synchronized with viewport changes via CanvasRenderer.
  */
 export const CanvasLayer: React.FC<CanvasLayerProps> = ({
-  zIndex = 100,
+  zIndex = MAP_Z_INDEX.vector,
   maxDpr = 2,
   interactionMaxDpr,
-  interactionIdleDelayMs = IDLE_DELAY_MS,
+  interactionIdleDelayMs,
   className = '',
   onDraw,
 }) => {
@@ -33,19 +32,15 @@ export const CanvasLayer: React.FC<CanvasLayerProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const layerRef = useRef<CanvasRenderer | null>(null);
   const latestOptionsRef = useRef({
-    zIndex,
     maxDpr,
     interactionMaxDpr,
     interactionIdleDelayMs,
-    className,
     onDraw,
   });
   latestOptionsRef.current = {
-    zIndex,
     maxDpr,
     interactionMaxDpr,
     interactionIdleDelayMs,
-    className,
     onDraw,
   };
 
@@ -59,7 +54,9 @@ export const CanvasLayer: React.FC<CanvasLayerProps> = ({
       ...(opts.interactionMaxDpr !== undefined
         ? { interactionMaxDpr: opts.interactionMaxDpr }
         : {}),
-      interactionIdleDelayMs: opts.interactionIdleDelayMs,
+      ...(opts.interactionIdleDelayMs !== undefined
+        ? { interactionIdleDelayMs: opts.interactionIdleDelayMs }
+        : {}),
       onDraw: opts.onDraw,
     });
     layerRef.current = layer;
@@ -76,7 +73,9 @@ export const CanvasLayer: React.FC<CanvasLayerProps> = ({
       onDraw,
       maxDpr,
       ...(interactionMaxDpr !== undefined ? { interactionMaxDpr } : {}),
-      interactionIdleDelayMs,
+      ...(interactionIdleDelayMs !== undefined
+        ? { interactionIdleDelayMs }
+        : {}),
     });
   }, [onDraw, maxDpr, interactionMaxDpr, interactionIdleDelayMs]);
 

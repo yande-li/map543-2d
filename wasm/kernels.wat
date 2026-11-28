@@ -1,17 +1,14 @@
 (module
  (memory $0 8 512)
- (export "findNearestPointBatch" (func $wasm/kernels/findNearestPointBatch))
- (export "batchProjectMercator" (func $wasm/kernels/batchProjectMercator))
+ (export "findNearestPointBatch" (func $findNearestImpl))
+ (export "batchProjectMercator" (func $batchProjectImpl))
  (export "decimateRingsBatch" (func $wasm/kernels/decimateRingsBatch))
  (export "computeArcsBatch" (func $wasm/kernels/computeArcsBatch))
  (export "decodeGeobufRingMercator" (func $wasm/kernels/decodeGeobufRingMercator))
  (export "projectMercator" (func $wasm/kernels/projectMercator))
  (export "decimateRingsBatchU16" (func $wasm/kernels/decimateRingsBatchU16))
- (export "batchProjectMercatorI16" (func $wasm/kernels/batchProjectMercatorI16))
- (export "findNearestPointBatchI16" (func $wasm/kernels/findNearestPointBatchI16))
  (export "renderHeatmapGrid" (func $wasm/kernels/renderHeatmapGrid))
- (export "batchProjectSegments" (func $wasm/kernels/batchProjectSegments))
- (export "batchProjectSegmentsI16" (func $wasm/kernels/batchProjectSegmentsI16))
+ (export "batchProjectSegments" (func $batchProjectSegmentsImpl))
  (export "memory" (memory $0))
 
  (func $mercatorY (param $lat f32) (param $lutOff i32) (result f32)
@@ -47,6 +44,15 @@
    (else (f32.load (local.get $ptr))))
  )
 
+ (func $lonScale (param $worldSize f32) (param $is16 i32) (result f32)
+  (f32.mul (local.get $worldSize)
+   (select (f32.const 1.5259254723787308e-05) (f32.const 2.7777778450399637e-03) (local.get $is16)))
+ )
+
+ (func $projBias (param $centerNorm f32) (param $worldSize f32) (param $half f32) (result f32)
+  (f32.add (f32.mul (f32.sub (f32.const 0.5) (local.get $centerNorm)) (local.get $worldSize)) (local.get $half))
+ )
+
  (func $findNearestImpl
   (param $clickX f32) (param $clickY f32) (param $radiusSq f32) (param $count i32)
   (param $lutOff i32) (param $latsOff i32) (param $lonsOff i32)
@@ -58,22 +64,10 @@
   (local $dxSq f32) (local $dy f32)
   (if (i32.or (i32.le_s (local.get $count) (i32.const 0)) (f32.lt (local.get $radiusSq) (f32.const 0)))
    (then (return (i32.const -1))))
-  (local.set $lonScale
-   (f32.mul (local.get $worldSize)
-    (select (f32.const 1.5259254723787308e-05) (f32.const 2.7777778450399637e-03) (local.get $is16))))
-  (local.set $lonBias
-   (f32.sub
-    (f32.add
-     (f32.mul (f32.sub (f32.const 0.5) (local.get $centerNormX)) (local.get $worldSize))
-     (local.get $halfW))
-    (local.get $clickX)))
+  (local.set $lonScale (call $lonScale (local.get $worldSize) (local.get $is16)))
+  (local.set $lonBias (f32.sub (call $projBias (local.get $centerNormX) (local.get $worldSize) (local.get $halfW)) (local.get $clickX)))
   (local.set $yScale (f32.mul (local.get $worldSize) (f32.const -0.15915493667125702)))
-  (local.set $yBias
-   (f32.sub
-    (f32.add
-     (f32.mul (f32.sub (f32.const 0.5) (local.get $centerNormY)) (local.get $worldSize))
-     (local.get $halfH))
-    (local.get $clickY)))
+  (local.set $yBias (f32.sub (call $projBias (local.get $centerNormY) (local.get $worldSize) (local.get $halfH)) (local.get $clickY)))
   (local.set $bestIdx (i32.const -1))
   (loop $loop
    (if (i32.lt_s (local.get $i) (local.get $count))
@@ -110,18 +104,6 @@
      (local.set $i (i32.add (local.get $i) (i32.const 1)))
      (br $loop))))
   (local.get $bestIdx)
- )
-
- (func $wasm/kernels/findNearestPointBatch
-  (param $clickX f32) (param $clickY f32) (param $radiusSq f32) (param $count i32)
-  (param $lutOff i32) (param $latsOff i32) (param $lonsOff i32)
-  (param $centerNormX f32) (param $centerNormY f32) (param $worldSize f32) (param $halfW f32) (param $halfH f32)
-  (result i32)
-  (call $findNearestImpl
-   (local.get $clickX) (local.get $clickY) (local.get $radiusSq) (local.get $count)
-   (local.get $lutOff) (local.get $latsOff) (local.get $lonsOff)
-   (local.get $centerNormX) (local.get $centerNormY) (local.get $worldSize) (local.get $halfW) (local.get $halfH)
-   (i32.const 0))
  )
 
  (func $wasm/kernels/decimateRingsBatch
@@ -199,18 +181,10 @@
   (local $sx f32) (local $sy f32)
   (if (i32.le_s (local.get $count) (i32.const 0))
    (then (return (i32.const 0))))
-  (local.set $lonScale
-   (f32.mul (local.get $worldSize)
-    (select (f32.const 1.5259254723787308e-05) (f32.const 2.7777778450399637e-03) (local.get $is16))))
-  (local.set $lonBias
-   (f32.add
-    (f32.mul (f32.sub (f32.const 0.5) (local.get $centerNormX)) (local.get $worldSize))
-    (local.get $halfW)))
+  (local.set $lonScale (call $lonScale (local.get $worldSize) (local.get $is16)))
+  (local.set $lonBias (call $projBias (local.get $centerNormX) (local.get $worldSize) (local.get $halfW)))
   (local.set $yScale (f32.mul (local.get $worldSize) (f32.const -0.15915493667125702)))
-  (local.set $yBias
-   (f32.add
-    (f32.mul (f32.sub (f32.const 0.5) (local.get $centerNormY)) (local.get $worldSize))
-    (local.get $halfH)))
+  (local.set $yBias (call $projBias (local.get $centerNormY) (local.get $worldSize) (local.get $halfH)))
   (loop $loop
    (if (i32.lt_s (local.get $i) (local.get $count))
     (then
@@ -246,20 +220,6 @@
      (local.set $i (i32.add (local.get $i) (i32.const 1)))
      (br $loop))))
   (local.get $visible)
- )
-
- (func $wasm/kernels/batchProjectMercator
-  (param $count i32) (param $lutOff i32) (param $latsOff i32) (param $lonsOff i32)
-  (param $outXYPtr i32) (param $outIdxPtr i32)
-  (param $centerNormX f32) (param $centerNormY f32) (param $worldSize f32) (param $halfW f32) (param $halfH f32)
-  (param $minX f32) (param $minY f32) (param $maxX f32) (param $maxY f32)
-  (result i32)
-  (call $batchProjectImpl
-   (local.get $count) (local.get $lutOff) (local.get $latsOff) (local.get $lonsOff)
-   (local.get $outXYPtr) (local.get $outIdxPtr)
-   (local.get $centerNormX) (local.get $centerNormY) (local.get $worldSize) (local.get $halfW) (local.get $halfH)
-   (local.get $minX) (local.get $minY) (local.get $maxX) (local.get $maxY)
-   (i32.const 0))
  )
 
  (func $wasm/kernels/computeArcsBatch
@@ -368,16 +328,10 @@
   (result i32)
   (local $outEnd i32) (local $lonScale f32) (local $lonBias f32) (local $yScale f32) (local $yBias f32)
   (if (i32.le_s (local.get $ptCount) (i32.const 0)) (then (return (i32.const 0))))
-  (local.set $lonScale (f32.mul (local.get $worldSize) (f32.const 2.7777778450399637e-03)))
-  (local.set $lonBias
-   (f32.add
-    (f32.mul (f32.sub (f32.const 0.5) (local.get $centerNormX)) (local.get $worldSize))
-    (local.get $halfW)))
+  (local.set $lonScale (call $lonScale (local.get $worldSize) (i32.const 0)))
+  (local.set $lonBias (call $projBias (local.get $centerNormX) (local.get $worldSize) (local.get $halfW)))
   (local.set $yScale (f32.mul (local.get $worldSize) (f32.const -0.15915493667125702)))
-  (local.set $yBias
-   (f32.add
-    (f32.mul (f32.sub (f32.const 0.5) (local.get $centerNormY)) (local.get $worldSize))
-    (local.get $halfH)))
+  (local.set $yBias (call $projBias (local.get $centerNormY) (local.get $worldSize) (local.get $halfH)))
   (local.set $outEnd (i32.add (local.get $outPtr) (i32.shl (local.get $ptCount) (i32.const 3))))
   (loop $pt_loop
    (if (i32.lt_u (local.get $outPtr) (local.get $outEnd))
@@ -469,32 +423,6 @@
      (local.set $outLensPtr (i32.add (local.get $outLensPtr) (i32.const 4)))
      (br $ring_loop))))
   (local.get $totalOutFloats)
- )
-
- (func $wasm/kernels/batchProjectMercatorI16
-  (param $count i32) (param $lutOff i32) (param $latsOff i32) (param $lonsOff i32)
-  (param $outXYPtr i32) (param $outIdxPtr i32)
-  (param $centerNormX f32) (param $centerNormY f32) (param $worldSize f32) (param $halfW f32) (param $halfH f32)
-  (param $minX f32) (param $minY f32) (param $maxX f32) (param $maxY f32)
-  (result i32)
-  (call $batchProjectImpl
-   (local.get $count) (local.get $lutOff) (local.get $latsOff) (local.get $lonsOff)
-   (local.get $outXYPtr) (local.get $outIdxPtr)
-   (local.get $centerNormX) (local.get $centerNormY) (local.get $worldSize) (local.get $halfW) (local.get $halfH)
-   (local.get $minX) (local.get $minY) (local.get $maxX) (local.get $maxY)
-   (i32.const 1))
- )
-
- (func $wasm/kernels/findNearestPointBatchI16
-  (param $clickX f32) (param $clickY f32) (param $radiusSq f32) (param $count i32)
-  (param $lutOff i32) (param $latsOff i32) (param $lonsOff i32)
-  (param $centerNormX f32) (param $centerNormY f32) (param $worldSize f32) (param $halfW f32) (param $halfH f32)
-  (result i32)
-  (call $findNearestImpl
-   (local.get $clickX) (local.get $clickY) (local.get $radiusSq) (local.get $count)
-   (local.get $lutOff) (local.get $latsOff) (local.get $lonsOff)
-   (local.get $centerNormX) (local.get $centerNormY) (local.get $worldSize) (local.get $halfW) (local.get $halfH)
-   (i32.const 1))
  )
 
  (func $addCell (param $buf i32) (param $w i32) (param $h i32) (param $x i32) (param $y i32) (param $v f32)
@@ -701,12 +629,10 @@
   (local $lonScale f32) (local $lonBias f32) (local $yScale f32) (local $yBias f32)
   (local $sx f32) (local $sy f32) (local $dx f32) (local $dy f32)
   (if (i32.le_s (local.get $count) (i32.const 0)) (then (return (i32.const 0))))
-  (local.set $lonScale
-   (f32.mul (local.get $worldSize)
-    (select (f32.const 1.5259254723787308e-05) (f32.const 2.7777778450399637e-03) (local.get $is16))))
-  (local.set $lonBias (f32.add (f32.mul (f32.sub (f32.const 0.5) (local.get $centerNormX)) (local.get $worldSize)) (local.get $halfW)))
+  (local.set $lonScale (call $lonScale (local.get $worldSize) (local.get $is16)))
+  (local.set $lonBias (call $projBias (local.get $centerNormX) (local.get $worldSize) (local.get $halfW)))
   (local.set $yScale (f32.mul (local.get $worldSize) (f32.const -0.15915493667125702)))
-  (local.set $yBias (f32.add (f32.mul (f32.sub (f32.const 0.5) (local.get $centerNormY)) (local.get $worldSize)) (local.get $halfH)))
+  (local.set $yBias (call $projBias (local.get $centerNormY) (local.get $worldSize) (local.get $halfH)))
   (loop $seg_loop
    (if (i32.lt_s (local.get $i) (local.get $count))
     (then
@@ -734,37 +660,5 @@
      (local.set $i (i32.add (local.get $i) (i32.const 1)))
      (br $seg_loop))))
   (local.get $visible)
- )
-
- (func $wasm/kernels/batchProjectSegments
-  (param $count i32) (param $lutOff i32)
-  (param $srcLatsOff i32) (param $srcLonsOff i32) (param $dstLatsOff i32) (param $dstLonsOff i32)
-  (param $outSegsPtr i32)
-  (param $centerNormX f32) (param $centerNormY f32) (param $worldSize f32) (param $halfW f32) (param $halfH f32)
-  (param $minX f32) (param $minY f32) (param $maxX f32) (param $maxY f32)
-  (result i32)
-  (call $batchProjectSegmentsImpl
-   (local.get $count) (local.get $lutOff)
-   (local.get $srcLatsOff) (local.get $srcLonsOff) (local.get $dstLatsOff) (local.get $dstLonsOff)
-   (local.get $outSegsPtr)
-   (local.get $centerNormX) (local.get $centerNormY) (local.get $worldSize) (local.get $halfW) (local.get $halfH)
-   (local.get $minX) (local.get $minY) (local.get $maxX) (local.get $maxY)
-   (i32.const 0))
- )
-
- (func $wasm/kernels/batchProjectSegmentsI16
-  (param $count i32) (param $lutOff i32)
-  (param $srcLatsOff i32) (param $srcLonsOff i32) (param $dstLatsOff i32) (param $dstLonsOff i32)
-  (param $outSegsPtr i32)
-  (param $centerNormX f32) (param $centerNormY f32) (param $worldSize f32) (param $halfW f32) (param $halfH f32)
-  (param $minX f32) (param $minY f32) (param $maxX f32) (param $maxY f32)
-  (result i32)
-  (call $batchProjectSegmentsImpl
-   (local.get $count) (local.get $lutOff)
-   (local.get $srcLatsOff) (local.get $srcLonsOff) (local.get $dstLatsOff) (local.get $dstLonsOff)
-   (local.get $outSegsPtr)
-   (local.get $centerNormX) (local.get $centerNormY) (local.get $worldSize) (local.get $halfW) (local.get $halfH)
-   (local.get $minX) (local.get $minY) (local.get $maxX) (local.get $maxY)
-   (i32.const 1))
  )
 )

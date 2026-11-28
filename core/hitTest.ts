@@ -1,10 +1,10 @@
 import { Viewport } from './viewport';
-import { type StaticPointsHandle } from './batch';
+import { quantize16, type StaticPointsHandle } from './batch';
 import {
   LUT_OFFSET_BYTES,
   getWasmRuntime,
-  stageCoordPair,
-  type HitTestKernelFn,
+  stageTypedCoordPair,
+  type WasmRuntime,
 } from '../wasm/bridge';
 
 export interface PointData {
@@ -13,88 +13,32 @@ export interface PointData {
   lons: ArrayLike<number>;
 }
 
-function runHitTestKernel<T extends Float32Array | Int16Array>(
+function invokeHitTestKernel(
+  rt: WasmRuntime,
   clickX: number,
   clickY: number,
-  lats: T,
-  lons: T,
-  count: number,
-  viewport: Viewport,
   radiusPx: number,
-  elemShift: 1 | 2,
-  getView: (rt: NonNullable<ReturnType<typeof getWasmRuntime>>) => T,
-  selectKernel: (
-    rt: NonNullable<ReturnType<typeof getWasmRuntime>>
-  ) => HitTestKernelFn | undefined
-): number {
-  if (count <= 0 || count > lats.length || count > lons.length) return -1;
-  const rt = getWasmRuntime();
-  if (rt === null) return -1;
-  const kernel = selectKernel(rt);
-  if (!kernel) return -1;
-
-  const byteLen = count << elemShift;
-  const latsOffset = rt.getScratchBase();
-  const lonsOffset = latsOffset + byteLen;
-  if (!rt.ensureCapacity(lonsOffset + byteLen)) return -1;
-
-  stageCoordPair(
-    getView(rt),
-    lats,
-    lons,
-    count,
-    latsOffset,
-    lonsOffset,
-    elemShift
-  );
-
-  const p = viewport.getProjectionParams();
-  return kernel(
-    clickX,
-    clickY,
-    radiusPx * radiusPx,
-    count,
-    LUT_OFFSET_BYTES,
-    latsOffset,
-    lonsOffset,
-    p.centerNormX,
-    p.centerNormY,
-    p.worldSize,
-    p.halfW,
-    p.halfH
-  );
-}
-
-function hitTestStaticPointsHandle(
-  clickX: number,
-  clickY: number,
-  handle: StaticPointsHandle,
+  count: number,
+  latsOffset: number,
+  lonsOffset: number,
   viewport: Viewport,
-  radiusPx: number
+  is16: 0 | 1
 ): number {
-  if (handle.count <= 0) return -1;
-  const rt = getWasmRuntime();
-  if (rt === null || handle.epoch !== rt.arenaEpoch) return -1;
-  const kernel =
-    handle.precision === 16
-      ? rt.exports.findNearestPointBatchI16
-      : rt.exports.findNearestPointBatch;
-  if (!kernel) return -1;
-
   const p = viewport.getProjectionParams();
-  return kernel(
+  return rt.exports.findNearestPointBatch(
     clickX,
     clickY,
     radiusPx * radiusPx,
-    handle.count,
+    count,
     LUT_OFFSET_BYTES,
-    handle.latsOffset,
-    handle.lonsOffset,
+    latsOffset,
+    lonsOffset,
     p.centerNormX,
     p.centerNormY,
     p.worldSize,
     p.halfW,
-    p.halfH
+    p.halfH,
+    is16
   );
 }
 
@@ -109,48 +53,49 @@ export function hitTestPoints(
   viewport: Viewport,
   radiusPx = 14
 ): number {
-  if (!points) return -1;
+  if (!points || points.count <= 0) return -1;
+  const rt = getWasmRuntime();
+  if (rt === null) return -1;
+
   if ('latsOffset' in points) {
-    return hitTestStaticPointsHandle(
+    if (points.epoch !== rt.arenaEpoch) return -1;
+    return invokeHitTestKernel(
+      rt,
       clickX,
       clickY,
-      points,
-      viewport,
-      radiusPx
-    );
-  }
-  if (points.lats instanceof Int16Array && points.lons instanceof Int16Array) {
-    return runHitTestKernel(
-      clickX,
-      clickY,
-      points.lats,
-      points.lons,
-      points.count,
-      viewport,
       radiusPx,
-      1,
-      (rt) => rt.i16,
-      (rt) => rt.exports.findNearestPointBatchI16
-    );
-  }
-  if (
-    points.lats instanceof Float32Array &&
-    points.lons instanceof Float32Array
-  ) {
-    return runHitTestKernel(
-      clickX,
-      clickY,
-      points.lats,
-      points.lons,
       points.count,
+      points.latsOffset,
+      points.lonsOffset,
       viewport,
-      radiusPx,
-      2,
-      (rt) => rt.f32,
-      (rt) => rt.exports.findNearestPointBatch
+      points.precision === 16 ? 1 : 0
     );
   }
-  return -1;
+
+  const { lats, lons, count } = points;
+  if (count > lats.length || count > lons.length) return -1;
+  const isI16 = lats instanceof Int16Array && lons instanceof Int16Array;
+  const isF32 = lats instanceof Float32Array && lons instanceof Float32Array;
+  if (!isI16 && !isF32) return -1;
+
+  const elemShift: 1 | 2 = isI16 ? 1 : 2;
+  const byteLen = count << elemShift;
+  const latsOffset = rt.getScratchBase();
+  const lonsOffset = latsOffset + byteLen;
+  if (!rt.ensureCapacity(lonsOffset + byteLen)) return -1;
+
+  stageTypedCoordPair(rt, lats, lons, count, latsOffset, lonsOffset, isI16);
+  return invokeHitTestKernel(
+    rt,
+    clickX,
+    clickY,
+    radiusPx,
+    count,
+    latsOffset,
+    lonsOffset,
+    viewport,
+    isI16 ? 1 : 0
+  );
 }
 
 /**
@@ -165,12 +110,8 @@ export function encodePoints16(
   const outLats = new Int16Array(n);
   const outLons = new Int16Array(n);
   for (let i = 0; i < n; i++) {
-    const lat = lats[i];
-    const lon = lons[i];
-    const cLat = Number.isFinite(lat) ? Math.max(-90, Math.min(90, lat)) : 0;
-    const cLon = Number.isFinite(lon) ? Math.max(-180, Math.min(180, lon)) : 0;
-    outLats[i] = Math.round((cLat / 90) * 32767);
-    outLons[i] = Math.round((cLon / 180) * 32767);
+    outLats[i] = quantize16(lats[i], 90);
+    outLons[i] = quantize16(lons[i], 180);
   }
   return { count: n, lats: outLats, lons: outLons };
 }

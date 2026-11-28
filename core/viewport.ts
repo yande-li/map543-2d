@@ -311,63 +311,35 @@ export class Viewport {
   }
 
   setConstraints(constraints: ViewportConstraints): void {
-    const nextMinZoom = constraints.minZoom ?? this.state.minZoom;
-    const nextMaxZoom = constraints.maxZoom ?? this.state.maxZoom;
-    const nextMaxBounds =
-      'maxBounds' in constraints ? constraints.maxBounds : this.state.maxBounds;
-    const nextRefWidth =
-      'referenceWidth' in constraints
-        ? constraints.referenceWidth
-        : this.state.referenceWidth;
-    const nextPreserveSpan =
-      'preserveViewportSpan' in constraints
-        ? constraints.preserveViewportSpan
-        : this.state.preserveViewportSpan;
-
-    this.state = {
+    const next: ViewportState = {
       ...this.state,
-      minZoom: nextMinZoom,
-      maxZoom: nextMaxZoom,
-      ...(nextMaxBounds ? { maxBounds: nextMaxBounds } : {}),
-      ...(nextRefWidth !== undefined ? { referenceWidth: nextRefWidth } : {}),
-      ...(nextPreserveSpan !== undefined
-        ? { preserveViewportSpan: nextPreserveSpan }
-        : {}),
-      ...(constraints.smooth !== undefined
-        ? { smooth: constraints.smooth }
-        : {}),
+      minZoom: constraints.minZoom ?? this.state.minZoom,
+      maxZoom: constraints.maxZoom ?? this.state.maxZoom,
     };
-    if ('maxBounds' in constraints && !constraints.maxBounds) {
-      delete this.state.maxBounds;
+    const optionalKeys = [
+      'maxBounds',
+      'referenceWidth',
+      'preserveViewportSpan',
+      'projection',
+      'smooth',
+    ] as const;
+    for (const key of optionalKeys) {
+      if (!(key in constraints)) continue;
+      const val = constraints[key];
+      if (val === undefined) {
+        delete next[key];
+      } else {
+        (next as unknown as Record<string, unknown>)[key] = val;
+      }
     }
     if ('projection' in constraints) {
       this.projectionObj = resolveProjection(constraints.projection);
-      if (constraints.projection !== undefined) {
-        this.state.projection = constraints.projection;
-      } else {
-        delete this.state.projection;
-      }
     }
+    this.state = next;
     this.cachedNormBounds = getNormBounds(
       this.state.maxBounds,
       this.projectionObj
     );
-    if (
-      'referenceWidth' in constraints &&
-      constraints.referenceWidth === undefined
-    ) {
-      delete this.state.referenceWidth;
-    }
-    if (
-      'preserveViewportSpan' in constraints &&
-      constraints.preserveViewportSpan === undefined
-    ) {
-      delete this.state.preserveViewportSpan;
-    }
-    if ('smooth' in constraints && constraints.smooth === undefined) {
-      delete this.state.smooth;
-    }
-
     const clampedZoom = this.clampZoom(this.state.zoom);
     const clampedCenter = this.clampStateCenter(this.state.center, clampedZoom);
     this.state = { ...this.state, zoom: clampedZoom, center: clampedCenter };
@@ -402,30 +374,17 @@ export class Viewport {
   panBy(dx: number, dy: number): void {
     if (dx === 0 && dy === 0) return;
     this.cancelAnimation();
-    this.startMotion(false);
-    const worldSize = TILE_SIZE * Math.pow(2, this.state.zoom);
-    const centerNorm = this.projectionObj.latLonToNorm(
-      this.state.center[0],
-      this.state.center[1],
-      this.tmpNorm
-    );
     const nextCenter = this.projectionObj.normToLatLon(
-      centerNorm.x - dx / worldSize,
-      centerNorm.y - dy / worldSize
+      this.cachedCenterNormX - dx / this.cachedWorldSize,
+      this.cachedCenterNormY - dy / this.cachedWorldSize
     );
-    const clamped = this.clampStateCenter(nextCenter, this.state.zoom);
-    this.state = { ...this.state, center: clamped };
-    this.lastChangeInteractive = true;
-    this.emit(false);
-    this.finishMotionIfIdle();
+    this.commitClampedView(nextCenter, this.state.zoom, true);
   }
 
   zoomAt(targetZoom: number, anchorX: number, anchorY: number): void {
     this.cancelAnimation();
     const nextZoom = this.clampZoom(targetZoom);
     if (Math.abs(nextZoom - this.state.zoom) < 1e-5) return;
-
-    this.startMotion(true);
 
     const anchorLatLon = pxToLatLon(
       anchorX,
@@ -439,20 +398,15 @@ export class Viewport {
       anchorLatLon[1],
       this.tmpNorm
     );
-    const nextCenterNormX =
-      anchorNorm.x - (anchorX - this.state.width * 0.5) / nextWorldSize;
-    const nextCenterNormY =
-      anchorNorm.y - (anchorY - this.state.height * 0.5) / nextWorldSize;
-
     const rawCenter = this.projectionObj.normToLatLon(
-      nextCenterNormX,
-      nextCenterNormY
+      anchorNorm.x - (anchorX - this.cachedHalfW) / nextWorldSize,
+      anchorNorm.y - (anchorY - this.cachedHalfH) / nextWorldSize
     );
-    const clampedCenter = this.clampStateCenter(rawCenter, nextZoom);
-    this.state = { ...this.state, center: clampedCenter, zoom: nextZoom };
-    this.lastChangeInteractive = true;
-    this.emit(true);
-    this.finishMotionIfIdle();
+    this.commitClampedView(rawCenter, nextZoom, true);
+  }
+
+  zoomBy(delta: number): void {
+    this.zoomAt(this.state.zoom + delta, this.cachedHalfW, this.cachedHalfH);
   }
 
   flyTo(

@@ -3,7 +3,7 @@ import { type PointData } from './hitTest';
 import {
   LUT_OFFSET_BYTES,
   getWasmRuntime,
-  stageCoordPair,
+  stageTypedCoordPair,
   type WasmRuntime,
 } from '../wasm/bridge';
 
@@ -77,6 +77,45 @@ export interface WasmProjectedPointsResult {
   outIdxIntBase: number;
 }
 
+function runBatchProjectKernel(
+  rt: WasmRuntime,
+  count: number,
+  is16: 0 | 1,
+  latsOffset: number,
+  lonsOffset: number,
+  outXYOffset: number,
+  viewport: Viewport,
+  margin: number
+): WasmProjectedPointsResult {
+  const outIdxOffset = outXYOffset + count * 8;
+  const state = viewport.getState();
+  const p = viewport.getProjectionParams();
+  const visible = rt.exports.batchProjectMercator(
+    count,
+    LUT_OFFSET_BYTES,
+    latsOffset,
+    lonsOffset,
+    outXYOffset,
+    outIdxOffset,
+    p.centerNormX,
+    p.centerNormY,
+    p.worldSize,
+    p.halfW,
+    p.halfH,
+    -margin,
+    -margin,
+    state.width + margin,
+    state.height + margin,
+    is16
+  );
+  return {
+    rt,
+    visible,
+    outXYFloatBase: outXYOffset >> 2,
+    outIdxIntBase: outIdxOffset >> 2,
+  };
+}
+
 function projectStaticSliceToScratch(
   rt: WasmRuntime,
   handle: StaticPointsHandle,
@@ -92,42 +131,21 @@ function projectStaticSliceToScratch(
   if (startIndex < 0 || count <= 0 || handle.epoch !== rt.arenaEpoch) {
     return null;
   }
-  const elemShift = handle.precision === 16 ? 1 : 2;
-  const kernel =
-    handle.precision === 16
-      ? rt.exports.batchProjectMercatorI16
-      : rt.exports.batchProjectMercator;
-  if (!kernel) return null;
-
+  const is16: 0 | 1 = handle.precision === 16 ? 1 : 0;
+  const elemShift = is16 ? 1 : 2;
   const outXYOffset = rt.getScratchBase();
-  const outIdxOffset = outXYOffset + count * 8;
-  if (!rt.ensureCapacity(outIdxOffset + count * 4)) return null;
+  if (!rt.ensureCapacity(outXYOffset + count * 12)) return null;
 
-  const state = viewport.getState();
-  const p = viewport.getProjectionParams();
-  const visible = kernel(
+  return runBatchProjectKernel(
+    rt,
     count,
-    LUT_OFFSET_BYTES,
+    is16,
     handle.latsOffset + (startIndex << elemShift),
     handle.lonsOffset + (startIndex << elemShift),
     outXYOffset,
-    outIdxOffset,
-    p.centerNormX,
-    p.centerNormY,
-    p.worldSize,
-    p.halfW,
-    p.halfH,
-    -margin,
-    -margin,
-    state.width + margin,
-    state.height + margin
+    viewport,
+    margin
   );
-  return {
-    rt,
-    visible,
-    outXYFloatBase: outXYOffset >> 2,
-    outIdxIntBase: outIdxOffset >> 2,
-  };
 }
 
 function projectTypedSliceToScratch(
@@ -155,18 +173,12 @@ function projectTypedSliceToScratch(
   const isF32 = lats instanceof Float32Array && lons instanceof Float32Array;
   if (!isI16 && !isF32) return null;
 
-  const kernel = isI16
-    ? rt.exports.batchProjectMercatorI16
-    : rt.exports.batchProjectMercator;
-  if (!kernel) return null;
-
   const elemShift: 1 | 2 = isI16 ? 1 : 2;
   const inBytes = count << elemShift;
   const latsOffset = rt.getScratchBase();
   const lonsOffset = latsOffset + inBytes;
   const outXYOffset = (lonsOffset + inBytes + 3) & ~3;
-  const outIdxOffset = outXYOffset + count * 8;
-  if (!rt.ensureCapacity(outIdxOffset + count * 4)) return null;
+  if (!rt.ensureCapacity(outXYOffset + count * 12)) return null;
 
   const latSlice =
     startIndex === 0 && count === lats.length
@@ -177,53 +189,26 @@ function projectTypedSliceToScratch(
       ? lons
       : lons.subarray(startIndex, startIndex + count);
 
-  if (isI16) {
-    stageCoordPair(
-      rt.i16,
-      latSlice as Int16Array,
-      lonSlice as Int16Array,
-      count,
-      latsOffset,
-      lonsOffset,
-      1
-    );
-  } else {
-    stageCoordPair(
-      rt.f32,
-      latSlice as Float32Array,
-      lonSlice as Float32Array,
-      count,
-      latsOffset,
-      lonsOffset,
-      2
-    );
-  }
-
-  const state = viewport.getState();
-  const p = viewport.getProjectionParams();
-  const visible = kernel(
+  stageTypedCoordPair(
+    rt,
+    latSlice,
+    lonSlice,
     count,
-    LUT_OFFSET_BYTES,
+    latsOffset,
+    lonsOffset,
+    isI16
+  );
+
+  return runBatchProjectKernel(
+    rt,
+    count,
+    isI16 ? 1 : 0,
     latsOffset,
     lonsOffset,
     outXYOffset,
-    outIdxOffset,
-    p.centerNormX,
-    p.centerNormY,
-    p.worldSize,
-    p.halfW,
-    p.halfH,
-    -margin,
-    -margin,
-    state.width + margin,
-    state.height + margin
+    viewport,
+    margin
   );
-  return {
-    rt,
-    visible,
-    outXYFloatBase: outXYOffset >> 2,
-    outIdxIntBase: outIdxOffset >> 2,
-  };
 }
 
 /**
@@ -260,43 +245,6 @@ export function projectPointsToScratch(
   );
 }
 
-function uploadStaticPointsTyped<T extends Float32Array | Int16Array>(
-  lats: T,
-  lons: T,
-  count: number,
-  elemShift: 1 | 2,
-  precision: CoordPrecision,
-  getView: (rt: NonNullable<ReturnType<typeof getWasmRuntime>>) => T
-): StaticPointsHandle | null {
-  if (count <= 0 || count > lats.length || count > lons.length) return null;
-  const rt = getWasmRuntime();
-  if (rt === null) return null;
-
-  const byteLen = count << elemShift;
-  const latsOffset = rt.allocStatic(byteLen);
-  if (latsOffset === null) return null;
-  const lonsOffset = rt.allocStatic(byteLen);
-  if (lonsOffset === null) return null;
-
-  stageCoordPair(
-    getView(rt),
-    lats,
-    lons,
-    count,
-    latsOffset,
-    lonsOffset,
-    elemShift
-  );
-
-  return {
-    epoch: rt.arenaEpoch,
-    latsOffset,
-    lonsOffset,
-    count,
-    precision,
-  };
-}
-
 /**
  * Uploads static 32-bit (Float32Array) or 16-bit (Int16Array) point arrays into the WASM arena.
  */
@@ -305,13 +253,35 @@ export function uploadStaticPoints(
   lons: Float32Array | Int16Array,
   count = lats.length
 ): StaticPointsHandle | null {
-  if (lats instanceof Int16Array && lons instanceof Int16Array) {
-    return uploadStaticPointsTyped(lats, lons, count, 1, 16, (rt) => rt.i16);
+  const isI16 = lats instanceof Int16Array && lons instanceof Int16Array;
+  const isF32 = lats instanceof Float32Array && lons instanceof Float32Array;
+  if (
+    (!isI16 && !isF32) ||
+    count <= 0 ||
+    count > lats.length ||
+    count > lons.length
+  ) {
+    return null;
   }
-  if (lats instanceof Float32Array && lons instanceof Float32Array) {
-    return uploadStaticPointsTyped(lats, lons, count, 2, 32, (rt) => rt.f32);
-  }
-  return null;
+  const rt = getWasmRuntime();
+  if (rt === null) return null;
+
+  const elemShift: 1 | 2 = isI16 ? 1 : 2;
+  const byteLen = count << elemShift;
+  const latsOffset = rt.allocStatic(byteLen);
+  if (latsOffset === null) return null;
+  const lonsOffset = rt.allocStatic(byteLen);
+  if (lonsOffset === null) return null;
+
+  stageTypedCoordPair(rt, lats, lons, count, latsOffset, lonsOffset, isI16);
+
+  return {
+    epoch: rt.arenaEpoch,
+    latsOffset,
+    lonsOffset,
+    count,
+    precision: isI16 ? 16 : 32,
+  };
 }
 
 export interface StaticGeometryHandle {
@@ -323,13 +293,13 @@ export interface StaticGeometryHandle {
   precision: CoordPrecision;
 }
 
-function uploadStaticRingsTyped<T extends Float32Array | Uint16Array>(
-  packed: T,
+/**
+ * Uploads static 32-bit (Float32Array) or 16-bit (Uint16Array) packed rings into the WASM arena.
+ */
+export function uploadStaticRings(
+  packed: Float32Array | Uint16Array,
   ringLengths: Int32Array,
-  ringCount: number,
-  elemShift: 1 | 2,
-  precision: CoordPrecision,
-  getView: (rt: NonNullable<ReturnType<typeof getWasmRuntime>>) => T
+  ringCount: number
 ): StaticGeometryHandle | null {
   if (ringCount <= 0 || ringCount > ringLengths.length || packed.length === 0) {
     return null;
@@ -346,13 +316,19 @@ function uploadStaticRingsTyped<T extends Float32Array | Uint16Array>(
   const rt = getWasmRuntime();
   if (rt === null) return null;
 
+  const isU16 = packed instanceof Uint16Array;
+  const elemShift: 1 | 2 = isU16 ? 1 : 2;
   const totalInFloats = packed.length;
   const xyOffset = rt.allocStatic(totalInFloats << elemShift);
   if (xyOffset === null) return null;
   const lenOffset = rt.allocStatic(ringCount * 4);
   if (lenOffset === null) return null;
 
-  getView(rt).set(packed, xyOffset >> elemShift);
+  if (isU16) {
+    rt.u16.set(packed, xyOffset >> 1);
+  } else {
+    rt.f32.set(packed, xyOffset >> 2);
+  }
   rt.i32.set(
     ringCount === ringLengths.length
       ? ringLengths
@@ -366,36 +342,8 @@ function uploadStaticRingsTyped<T extends Float32Array | Uint16Array>(
     lenOffset,
     ringCount,
     totalInFloats,
-    precision,
+    precision: isU16 ? 16 : 32,
   };
-}
-
-/**
- * Uploads static 32-bit (Float32Array) or 16-bit (Uint16Array) packed rings into the WASM arena.
- */
-export function uploadStaticRings(
-  packed: Float32Array | Uint16Array,
-  ringLengths: Int32Array,
-  ringCount: number
-): StaticGeometryHandle | null {
-  if (packed instanceof Uint16Array) {
-    return uploadStaticRingsTyped(
-      packed,
-      ringLengths,
-      ringCount,
-      1,
-      16,
-      (rt) => rt.u16
-    );
-  }
-  return uploadStaticRingsTyped(
-    packed,
-    ringLengths,
-    ringCount,
-    2,
-    32,
-    (rt) => rt.f32
-  );
 }
 
 /**

@@ -1,6 +1,61 @@
 export type ControlPosition =
   'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 
+export type ZoomControlPosition = ControlPosition;
+
+export interface ZoomControlsConfig {
+  position?: ZoomControlPosition;
+  delta?: number;
+  inLabel?: string;
+  outLabel?: string;
+}
+
+export function resolveZoomControlsConfig(
+  zoomControls: boolean | ZoomControlsConfig | undefined,
+  defaultDelta = 0.5
+): {
+  enabled: boolean;
+  position: ZoomControlPosition;
+  delta: number;
+  inLabel: string;
+  outLabel: string;
+} {
+  const cfg = typeof zoomControls === 'object' ? zoomControls : undefined;
+  return {
+    enabled: Boolean(zoomControls),
+    position: cfg?.position ?? 'bottom-right',
+    delta: cfg?.delta ?? defaultDelta,
+    inLabel: cfg?.inLabel ?? 'Zoom in',
+    outLabel: cfg?.outLabel ?? 'Zoom out',
+  };
+}
+
+/**
+ * Observes container bounding rect updates via ResizeObserver and window scroll.
+ */
+export function observeElementRect(
+  el: HTMLElement,
+  onSync: (rect: DOMRect) => void,
+  observeResize = true
+): () => void {
+  const sync = () => onSync(el.getBoundingClientRect());
+  sync();
+  const observer =
+    observeResize && typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(sync)
+      : null;
+  observer?.observe(el);
+  if (typeof window !== 'undefined') {
+    window.addEventListener('scroll', sync, { passive: true, capture: true });
+  }
+  return () => {
+    observer?.disconnect();
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('scroll', sync, { capture: true });
+    }
+  };
+}
+
 export const MAP_Z_INDEX = {
   base: 0,
   image: 50,

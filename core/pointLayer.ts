@@ -1,3 +1,4 @@
+import { observeElementRect } from './controls';
 import { type Point2D, getWrappedSlices } from './projection';
 import { type Viewport } from './viewport';
 import {
@@ -88,6 +89,29 @@ export function hitTestPointBuffers(
   );
   if (index < 0 || index >= points.length) return null;
   return { point: points[index], index };
+}
+
+export function createPointLayerHandle(
+  points: readonly PointItem[],
+  spatial: PointBuffers,
+  viewport: Viewport,
+  defaultRadiusPx: number
+): PointLayerHandle {
+  return {
+    hitTest: (x, y, radiusPx = defaultRadiusPx) =>
+      hitTestPointBuffers(x, y, points, spatial, viewport, radiusPx),
+    hitTestCenter: (radiusPx = defaultRadiusPx) => {
+      const s = viewport.getState();
+      return hitTestPointBuffers(
+        s.width * 0.5,
+        s.height * 0.5,
+        points,
+        spatial,
+        viewport,
+        radiusPx
+      );
+    },
+  };
 }
 
 export function packPoints(
@@ -458,22 +482,10 @@ export function attachPointHover(
   let rectTop = 0;
   let lastHoverIdx = -1;
 
-  const syncRect = () => {
-    const rect = container.getBoundingClientRect();
+  const stopRect = observeElementRect(container, (rect) => {
     rectLeft = rect.left;
     rectTop = rect.top;
-  };
-  syncRect();
-
-  const resizeObserver =
-    typeof ResizeObserver !== 'undefined' ? new ResizeObserver(syncRect) : null;
-  resizeObserver?.observe(container);
-  if (typeof window !== 'undefined') {
-    window.addEventListener('scroll', syncRect, {
-      passive: true,
-      capture: true,
-    });
-  }
+  });
 
   let savedCursor: string | null = null;
 
@@ -530,10 +542,7 @@ export function attachPointHover(
   container.addEventListener('pointerleave', onPointerLeave);
   return () => {
     if (rafId !== 0) cancelAnimationFrame(rafId);
-    resizeObserver?.disconnect();
-    if (typeof window !== 'undefined') {
-      window.removeEventListener('scroll', syncRect, { capture: true });
-    }
+    stopRect();
     container.removeEventListener('pointermove', onPointerMove);
     container.removeEventListener('pointerleave', onPointerLeave);
     restoreCursor();
