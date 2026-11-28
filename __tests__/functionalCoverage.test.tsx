@@ -445,14 +445,14 @@ describe('Generalized animation frame-pacing (core/animation)', () => {
         <Marker
           position={[25, 121]}
           variant="dot"
-          pulse="radar"
+          pulse="expand"
           dropIn
           fps={10}
         />
-        <Marker position={[24, 120]} variant="dot" pulse="radar" />
+        <Marker position={[24, 120]} variant="dot" pulse="expand" />
       </MapView>
     );
-    const pulses = container.querySelectorAll('.map-marker-pulse--radar');
+    const pulses = container.querySelectorAll('.map-marker-pulse--expand');
     expect(pulses).toHaveLength(2);
     expect(
       (pulses[0] as HTMLElement).style.getPropertyValue('--map-pulse-easing')

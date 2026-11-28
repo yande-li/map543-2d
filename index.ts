@@ -51,7 +51,7 @@ export {
   encodeRings16,
   type StaticGeometryHandle,
 } from './core/batch';
-export { type ZoomControlPosition, type ZoomControlsConfig } from './core/map';
+export { type ZoomControlsConfig } from './core/map';
 export {
   createEmitter,
   type TypedEmitter,

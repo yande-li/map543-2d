@@ -73,7 +73,6 @@ export {
   type MapInstance,
   type MapEventMap,
   type PointLayerCleanup,
-  type ZoomControlPosition,
   type ZoomControlsConfig,
   type AddVectorLayerOptions,
   type AddPointLayerOptions,

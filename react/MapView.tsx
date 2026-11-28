@@ -17,7 +17,6 @@ import {
   resolveZoomControlsConfig,
   type ControlPosition,
   type ControlSlots,
-  type ZoomControlPosition,
   type ZoomControlsConfig,
 } from '../core/controls';
 import { type MapPointerEvent } from '../core/interactions';
@@ -96,7 +95,7 @@ export interface MapViewProps {
 }
 
 interface ZoomControlsProps {
-  position: ZoomControlPosition;
+  position: ControlPosition;
   zoomInLabel: string;
   zoomOutLabel: string;
   canZoomIn: boolean;

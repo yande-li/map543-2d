@@ -39,7 +39,7 @@ export interface HeatmapBuffers {
 }
 
 export type HeatmapIntensityMode = 'sqrt' | 'linear';
-export type HeatmapMaxIntensity = number | 'auto' | 'global' | 'viewport';
+export type HeatmapMaxIntensity = number | 'global' | 'viewport';
 
 export interface HeatmapOptions {
   /** Influence radius in CSS pixels (screen-space KDE; default: 24). */
@@ -48,7 +48,7 @@ export interface HeatmapOptions {
   gridScale?: number;
   /**
    * Density value mapped to max palette color (default: 'global').
-   * - `'global'` (and `'auto'`): uses `buffers.maxWeight` so colors stay stable while panning.
+   * - `'global'`: uses `buffers.maxWeight` so colors stay stable while panning.
    * - `'viewport'`: adapts to the current viewport grid peak for maximum local contrast.
    * - `number`: fixed absolute density cap (ideal for cross-frame timeline comparison).
    */

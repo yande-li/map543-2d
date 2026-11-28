@@ -11,7 +11,6 @@ import {
   resolveZoomControlsConfig,
   type ControlPosition,
   type ControlSlots,
-  type ZoomControlPosition,
   type ZoomControlsConfig,
 } from './controls';
 import { createEmitter, type Unsubscribe } from './events';
@@ -61,7 +60,7 @@ import {
 } from '../formats/geobuf';
 import { type PreparedFeature, type PreparedLayer } from '../formats/types';
 
-export type { ZoomControlPosition, ZoomControlsConfig };
+export type { ZoomControlsConfig };
 
 export interface MapEventMap extends ViewportEventMap {
   click: MapPointerEvent;

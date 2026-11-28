@@ -1,10 +1,8 @@
 export type ControlPosition =
   'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 
-export type ZoomControlPosition = ControlPosition;
-
 export interface ZoomControlsConfig {
-  position?: ZoomControlPosition;
+  position?: ControlPosition;
   delta?: number;
   inLabel?: string;
   outLabel?: string;
@@ -15,7 +13,7 @@ export function resolveZoomControlsConfig(
   defaultDelta = 0.5
 ): {
   enabled: boolean;
-  position: ZoomControlPosition;
+  position: ControlPosition;
   delta: number;
   inLabel: string;
   outLabel: string;

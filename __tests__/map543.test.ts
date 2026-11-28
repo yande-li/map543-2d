@@ -934,7 +934,7 @@ describe('PointLayer, VectorLayer, VectorLod, and ImageLayer core helpers', () =
     expect(shouldCullFeature(0, 0.1, 0, 0.1, 10, true, 6)).toBe(true);
     expect(shouldCullFeature(0, 2, 0, 2, 10, true, 6)).toBe(false);
 
-    expect(normalizePulseMode(true)).toBe('radar');
+    expect(normalizePulseMode(true)).toBe('expand');
     expect(normalizePulseMode(false)).toBeNull();
     expect(normalizePulseMode('ripple')).toBe('ripple');
     expect(resolveMarkerGeometry('pin', 24).anchor).toEqual([0.5, 1]);
