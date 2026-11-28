@@ -89,7 +89,6 @@ export {
   type HeatmapOptions,
   type HeatmapMaxIntensity,
   type HeatmapIntensityMode,
-  type HeatmapKernelType,
   type HeatmapScratch,
 } from './core/heatmapLayer';
 

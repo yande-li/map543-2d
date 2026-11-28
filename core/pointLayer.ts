@@ -34,18 +34,11 @@ export interface DrawBatchPointsOptions {
   sortByRadius?: boolean;
 }
 
-interface PointBucketStyle {
-  color: string;
-  alpha: number;
-}
-
 export interface PointBuffers {
   count: number;
   lats: Float32Array | Int16Array;
   lons: Float32Array | Int16Array;
   precision: CoordPrecision;
-  palette?: PointBucketStyle[];
-  bucketIds?: Uint16Array;
   /** Maps pre-sorted buffer index back to original `points` index (null if already sorted). */
   origIndices?: Uint16Array | Uint32Array | null;
   staticHandle?: StaticPointsHandle | null;
@@ -119,9 +112,6 @@ export function packPoints(
   precision: CoordPrecision = 32
 ): PointBuffers {
   const count = points.length;
-  const palette: PointBucketStyle[] = [];
-  const paletteIndex = new Map<string, number>();
-  const bucketIds = new Uint16Array(count);
 
   let needsSort = false;
   for (let i = 1; i < count; i++) {
@@ -139,23 +129,10 @@ export function packPoints(
     origIndices.sort((a, b) => points[b].radius - points[a].radius);
   }
 
-  const assignBucket = (packedIdx: number, p: PointItem) => {
-    const alpha = p.alpha ?? 0.7;
-    const qAlphaStep = (alpha * 20 + 0.5) | 0;
-    const key = `${p.color}|${qAlphaStep}`;
-    let bid = paletteIndex.get(key);
-    if (bid === undefined) {
-      bid = palette.length;
-      paletteIndex.set(key, bid);
-      palette.push({ color: p.color, alpha: qAlphaStep * 0.05 });
-    }
-    bucketIds[packedIdx] = bid;
-  };
-
   let lats: Float32Array | Int16Array;
   let lons: Float32Array | Int16Array;
   if (!origIndices) {
-    const packed = packLatLon(points, precision, (i, p) => assignBucket(i, p));
+    const packed = packLatLon(points, precision);
     lats = packed.lats;
     lons = packed.lons;
   } else {
@@ -166,7 +143,6 @@ export function packPoints(
       const p = points[origIndices[i]];
       lats[i] = is16 ? quantize16(p.lat, 90) : p.lat;
       lons[i] = is16 ? quantize16(p.lon, 180) : p.lon;
-      assignBucket(i, p);
     }
   }
 
@@ -175,8 +151,6 @@ export function packPoints(
     lats,
     lons,
     precision,
-    palette,
-    bucketIds,
     origIndices,
     staticHandle: uploadStaticPoints(lats, lons, count),
   };

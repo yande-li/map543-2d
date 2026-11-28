@@ -854,7 +854,7 @@ describe('PointLayer, VectorLayer, VectorLod, and ImageLayer core helpers', () =
     ];
 
     const buf32 = packPoints(pts, 32);
-    expect(buf32.palette).toHaveLength(2);
+    expect(buf32.origIndices?.[0]).toBe(2);
     expect(buf32.staticHandle).not.toBeNull();
     expect(buf32.precision).toBe(32);
 

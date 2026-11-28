@@ -29,7 +29,6 @@ import {
   packHeatmapPoints,
   type HeatmapColorStop,
   type HeatmapIntensityMode,
-  type HeatmapKernelType,
   type HeatmapMaxIntensity,
   type HeatmapPoint,
   type HeatmapScratch,
@@ -145,7 +144,6 @@ export interface AddHeatmapLayerOptions {
   gridScale?: number;
   maxIntensity?: HeatmapMaxIntensity;
   intensityMode?: HeatmapIntensityMode;
-  kernel?: HeatmapKernelType;
   opacity?: number;
   colorStops?: readonly HeatmapColorStop[];
   precision?: CoordPrecision;
@@ -498,7 +496,6 @@ function mountHeatmapLayer(
     ...(options.intensityMode !== undefined
       ? { intensityMode: options.intensityMode }
       : {}),
-    ...(options.kernel !== undefined ? { kernel: options.kernel } : {}),
     ...(options.opacity !== undefined ? { opacity: options.opacity } : {}),
     ...(options.timeRange ? { timeRange: options.timeRange } : {}),
     ...(palette ? { palette } : {}),

@@ -38,7 +38,6 @@ export interface HeatmapBuffers {
 }
 
 export type HeatmapIntensityMode = 'sqrt' | 'linear';
-export type HeatmapKernelType = 'gaussian' | 'quartic';
 export type HeatmapMaxIntensity = number | 'auto' | 'global' | 'viewport';
 
 export interface HeatmapOptions {
@@ -55,8 +54,6 @@ export interface HeatmapOptions {
   maxIntensity?: HeatmapMaxIntensity;
   /** Nonlinear intensity curve: 'sqrt' (default) for balanced hotspots, or 'linear'. */
   intensityMode?: HeatmapIntensityMode;
-  /** Radial density kernel: 'gaussian' (default) or 'quartic'. */
-  kernel?: HeatmapKernelType;
   /** Precomputed 1024-byte RGBA palette LUT from `buildHeatmapPalette`. */
   palette?: Uint8Array;
   /** Global canvas opacity in [0, 1] (default: 0.85). */
@@ -82,25 +79,19 @@ const DEFAULT_STOPS: readonly HeatmapColorStop[] = [
 const KERNEL_LUT_LEN = 128;
 const KERNEL_SCRATCH_FLOATS = 129; // accommodates 128-entry 2D LUT or 0..128 1D Gaussian weights
 
-function buildKernelLut(kind: HeatmapKernelType): Float32Array {
+function buildGaussianKernelLut(): Float32Array {
   const lut = new Float32Array(KERNEL_LUT_LEN);
   const k = 3.125; // sigma = R / 2.5
   const expNegK = Math.exp(-k);
   const invNorm = 1 / (1 - expNegK);
   for (let i = 0; i < KERNEL_LUT_LEN; i++) {
     const u = i / (KERNEL_LUT_LEN - 1);
-    if (kind === 'quartic') {
-      const t = 1 - u;
-      lut[i] = t * t;
-    } else {
-      lut[i] = Math.max(0, (Math.exp(-k * u) - expNegK) * invNorm);
-    }
+    lut[i] = Math.max(0, (Math.exp(-k * u) - expNegK) * invNorm);
   }
   return lut;
 }
 
-const GAUSSIAN_KERNEL_LUT = buildKernelLut('gaussian');
-const QUARTIC_KERNEL_LUT = buildKernelLut('quartic');
+const GAUSSIAN_KERNEL_LUT = buildGaussianKernelLut();
 const GAUSSIAN_1D_BUF = new Float32Array(KERNEL_SCRATCH_FLOATS);
 let last1DRadius = -1;
 
@@ -323,8 +314,6 @@ interface ResolvedHeatmapConfig {
   radiusGrid: number;
   invMaxIntensity: number;
   intensityModeFlag: number;
-  isGaussian: boolean;
-  kernelLut: Float32Array;
   palette: Uint8Array;
 }
 
@@ -367,11 +356,6 @@ function resolveHeatmapConfig(
       globalMaxWeight
     ),
     intensityModeFlag: (options.intensityMode ?? 'sqrt') === 'linear' ? 0 : 1,
-    isGaussian: (options.kernel ?? 'gaussian') !== 'quartic',
-    kernelLut:
-      (options.kernel ?? 'gaussian') === 'quartic'
-        ? QUARTIC_KERNEL_LUT
-        : GAUSSIAN_KERNEL_LUT,
     palette,
   };
 }
@@ -595,10 +579,10 @@ function renderHeatmapToWasm(
   }
 
   const rInt = Math.max(1, Math.ceil(cfg.radiusGrid));
-  const useSeparable = cfg.isGaussian && visible * (rInt * 2 + 1) > cells * 2;
+  const useSeparable = visible * (rInt * 2 + 1) > cells * 2;
   const activeLut = useSeparable
     ? getGaussian1D(cfg.radiusGrid)
-    : cfg.kernelLut;
+    : GAUSSIAN_KERNEL_LUT;
   const modeBits = useSeparable
     ? cfg.intensityModeFlag | 2
     : cfg.intensityModeFlag;
